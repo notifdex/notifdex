@@ -7,13 +7,20 @@ import ServiceManagement
 import ApplicationServices
 import NotifdexMac
 
+private func smokeTrace(_ message: String) {
+    if CommandLine.arguments.contains("--smoke-test") {
+        print("Smoke test: \(message)")
+        fflush(stdout)
+    }
+}
+
 @MainActor
 final class AppModel: ObservableObject {
     static let shared = AppModel()
     @Published var state = AppCaptureState()
     @Published var saving = false
     @Published var uiError: String?
-    @Published var loginEnabled = SMAppService.mainApp.status == .enabled
+    @Published var loginEnabled = false
     let worker: CaptureWorker
     private var sleepObservers: [NSObjectProtocol] = []
 
@@ -21,7 +28,10 @@ final class AppModel: ObservableObject {
         let directory = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent("Library/Application Support/Notifdex")
         worker = CaptureWorker(directory: directory)
-        guard !CommandLine.arguments.contains("--smoke-test") else { return }
+        guard !CommandLine.arguments.contains("--smoke-test") else {
+            smokeTrace("model initialized without capture or login services")
+            return
+        }
         start()
         let center = NSWorkspace.shared.notificationCenter
         sleepObservers = [
@@ -38,7 +48,6 @@ final class AppModel: ObservableObject {
         worker.start { [weak self] value in
             self?.state = value
             self?.saving = false
-            self?.loginEnabled = SMAppService.mainApp.status == .enabled
         }
     }
 
@@ -59,13 +68,21 @@ final class AppModel: ObservableObject {
         do {
             if enabled { try SMAppService.mainApp.register() }
             else { try SMAppService.mainApp.unregister() }
-            loginEnabled = SMAppService.mainApp.status == .enabled
-            uiError = SMAppService.mainApp.status == .requiresApproval
+            let status = SMAppService.mainApp.status
+            loginEnabled = status == .enabled
+            uiError = status == .requiresApproval
                 ? "Approve Notifdex in System Settings → General → Login Items."
                 : nil
         } catch {
             loginEnabled = SMAppService.mainApp.status == .enabled
             uiError = "Launch at login: \(error.localizedDescription)"
+        }
+    }
+
+    func refreshLoginState() {
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            let enabled = SMAppService.mainApp.status == .enabled
+            DispatchQueue.main.async { self?.loginEnabled = enabled }
         }
     }
 
@@ -83,6 +100,7 @@ final class AppModel: ObservableObject {
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
+        smokeTrace("application did finish launching")
         NSApp.setActivationPolicy(.accessory)
         if CommandLine.arguments.contains("--smoke-test") {
             DispatchQueue.main.asyncAfter(deadline: .now() + 2) { NSApp.terminate(nil) }
@@ -90,7 +108,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        AppModel.shared.worker.stop { sender.reply(toApplicationShouldTerminate: true) }
+        smokeTrace("application requested shutdown")
+        AppModel.shared.worker.stop {
+            smokeTrace("worker stopped")
+            sender.reply(toApplicationShouldTerminate: true)
+        }
         return .terminateLater
     }
 }
@@ -101,6 +123,7 @@ struct NotifdexApp: App {
     @StateObject private var model: AppModel
 
     init() {
+        smokeTrace("constructing SwiftUI app")
         _model = StateObject(wrappedValue: AppModel.shared)
     }
 
@@ -148,6 +171,7 @@ struct NotifdexLauncher {
                 exit(1)
             }
         }
+        smokeTrace("starting SwiftUI lifecycle")
         NotifdexApp.main()
     }
 }
@@ -308,6 +332,7 @@ struct AppCenter: View {
                 .font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
         }
         .padding(16)
+        .onAppear { model.refreshLoginState() }
     }
 }
 #else

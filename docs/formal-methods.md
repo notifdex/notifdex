@@ -98,3 +98,9 @@ still apply. Their fairness assumptions do not prove responsiveness of AppKit,
 Notification Center, or Login Items; device testing and hang samples remain
 necessary. Settings acknowledgements now follow their own completed request,
 rather than an unrelated scan heartbeat.
+
+The red acceptance run (`44192090553`) reproduced three failed assertions in
+the two menu-tracking tests. The fix run (`44192435367`) passed 22 Swift tests,
+8 SQLite contract tests, all four finite TLC configurations, real-worker app
+startup/shutdown, and native/universal packaging. These CI results use synthetic
+data and do not establish recovery coverage on a user's device.

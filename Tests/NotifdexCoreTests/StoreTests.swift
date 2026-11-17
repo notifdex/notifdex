@@ -158,4 +158,17 @@ final class StoreTests: XCTestCase {
         XCTAssertEqual(result.duplicates, 0)
         XCTAssertEqual(try store.openGapCount(), 1, "An empty scan alone does not close a gap")
     }
+
+    func testAppCanReadRecentRowsAndAdoptExistingSource() throws {
+        let store = try CaptureStore(path: path)
+        let run = try store.startRun(at: 1)
+        _ = try store.record(observation(body: "世界\0hello"), runID: run)
+        let rows = try store.recentObservations(limit: 10)
+        XCTAssertEqual(rows.count, 1)
+        XCTAssertEqual(rows[0].body, "世界\0hello")
+        XCTAssertEqual(try store.sourceIDs(), ["device-1:notificationcenter"])
+        let summaries = try store.appSummaries()
+        XCTAssertEqual(summaries.first?.appLabel, "X")
+        XCTAssertEqual(summaries.first?.count, 1)
+    }
 }

@@ -13,16 +13,65 @@ still available as historical context.
 
 ## Current scope
 
-- A Swift package with a native Accessibility collector and transactional SQLite storage.
+- A native menu bar app with App Center toggles, recent observations, and capture status.
+- A shared Accessibility collector and transactional SQLite storage, also usable from Terminal.
 - Explicit app allowlist, stable device/login source namespace, and banner revisions.
 - Durable capture runs and coverage gaps for startup, restart, sleep, scan failure,
   permission loss, and interrupted polling.
 - SQLite failure/replay tests, Swift unit tests, and finite TLA+ safety and progress models.
 
-The menu bar interface, installer, signed application bundle, AI, funnels, and
-CRM screens are future milestones. The executable currently runs in Terminal.
-The capture adapter needs acceptance testing on each target macOS/app combination.
-The conversation's live X experiment validated the API approach, not this complete collector.
+The app is packaged locally with ad-hoc code signing. AI, funnels, and CRM screens
+are future milestones. Capture and automated panel navigation need acceptance
+testing on each target macOS/app combination. Live X capture and user-assisted
+retained-alert recovery have been tested on the user's Mac. Automated navigation
+and the packaged GUI are awaiting that device trial.
+
+## Run the menu bar app
+
+Stop the Terminal collector with Ctrl-C before launching the app. Both use the
+same SQLite database and exclusive owner lock. From your clone:
+
+```bash
+git pull --ff-only
+bash tools/build-app.sh
+mkdir -p "$HOME/Applications"
+ditto dist/Notifdex.app "$HOME/Applications/Notifdex.app"
+open "$HOME/Applications/Notifdex.app"
+```
+
+Click the tray icon in the menu bar, then **App Center**. Grant **Notifdex** its
+own Accessibility permission in System Settings. Terminal's earlier grant belongs
+to Terminal. The app polls for permission changes. If the system continues denying
+access after granting it, quit and relaunch the app. Future ad-hoc rebuilds may
+need a renewed permission grant. Quit the installed app before replacing it.
+
+The Apps tab has toggles for X, Discord, Slack, Gmail, LinkedIn, WhatsApp, and
+custom exact notification labels. X starts enabled; the other apps start disabled.
+Settings persist in `~/Library/Application Support/Notifdex/settings.json`.
+When the existing database has exactly one collector source, the app adopts that
+source namespace so replay can recognize prior CLI observations. Otherwise a new
+source UUID is persisted. The Recovery tab shows the source identity for inspection.
+
+The Recent tab shows up to 50 saved observations. The Recovery tab has **Recover
+now**, automatic recovery on launch/wake/selection changes, and launch at login.
+Login-item registration failures are shown. Installing to `~/Applications` before
+enabling launch at login gives the helper a stable application path.
+
+Automated recovery may visibly open Notification Center. It uses the clock's
+Accessibility action, expands selected app stacks, and attempts exposed page-scroll
+or scrollbar controls. It bounds navigation to 20 steps and 20 seconds and stops
+on unchanged viewports, unavailable controls, cancellation, or permission errors.
+It closes a panel it opened when the retained list is still detectable. Empty
+history and panel visibility can be ambiguous, so the panel may stay open in that
+case. Ordinary notification activation, reply, dismiss, and clear controls are
+outside the navigation path. Unsupported controls are reported in recovery status.
+
+The app selectors operate on observed notification labels. They do not connect
+to social accounts. App-specific notification settings and iPhone forwarding
+still determine which alerts reach the Mac. Automatic recovery starts enabled;
+you can switch it off on the Recovery tab.
+
+See [the app acceptance checklist](docs/app-center.md) for the first device test.
 
 ## Try capture on the Mac
 
@@ -161,5 +210,7 @@ including killing a writer before COMMIT. Production code is Swift and SQLite.
 The model runner uses TLA+ tools 1.7.4 in CI. TLC explores two abstract event
 revisions with arbitrary visibility changes, crashes, and availability changes.
 Conditional progress and overlapping-history recovery are checked in separate configurations.
+`AppRecovery.cfg` checks enabled-app persistence boundaries, pause behavior,
+navigation actions, bounded steps, and conditional recovery termination.
 It is a finite model check. Implementation tests and real device trials establish
 the correspondence to the actual collector and operating system.

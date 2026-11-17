@@ -21,16 +21,17 @@ public struct AppCaptureState {
 }
 
 private final class DatabaseOwner {
-    private let descriptor: Int32
+    private var descriptor: Int32 = -1
     init(url: URL) throws {
-        descriptor = open(url.path + ".lock", O_CREAT | O_RDWR | O_NOFOLLOW, 0o600)
-        guard descriptor >= 0 else { throw CaptureError(description: "Could not open the capture database lock") }
-        if flock(descriptor, LOCK_EX | LOCK_NB) != 0 {
-            close(descriptor)
+        let candidate = open(url.path + ".lock", O_CREAT | O_RDWR | O_NOFOLLOW, 0o600)
+        guard candidate >= 0 else { throw CaptureError(description: "Could not open the capture database lock") }
+        if flock(candidate, LOCK_EX | LOCK_NB) != 0 {
+            close(candidate)
             throw CaptureError(description: "Another collector is running. Stop the Terminal collector, then click Retry.")
         }
+        descriptor = candidate
     }
-    deinit { close(descriptor) }
+    deinit { if descriptor >= 0 { close(descriptor) } }
 }
 
 /// Settings updates, UI navigation, and database writes all execute on one queue.
@@ -186,7 +187,11 @@ public final class CaptureWorker {
             let scan = try snapshot(source: settings.sourceID + ":notificationcenter", allowedApps: settings.allowedLabels)
             // Settings changes are serialized here, so disabling an app cancels the
             // navigation session before the next snapshot can persist that app.
-            let result = try store.recordBatch(scan.observations, runID: run, at: Date().timeIntervalSince1970)
+            let accepted = scan.observations.filter { observation in
+                guard let app = observation.appLabel else { return false }
+                return settings.allowedLabels.contains(app)
+            }
+            let result = try store.recordBatch(accepted, runID: run, at: Date().timeIntervalSince1970)
             state.lastScan = "Observed \(result.observed) · New \(result.inserted) · Duplicates \(result.duplicates) · Issues \(scan.issues.count)"
             state.status = automation == nil ? "Collecting accessible alerts" : "Recovering retained alerts"
             if scan.issues.isEmpty {

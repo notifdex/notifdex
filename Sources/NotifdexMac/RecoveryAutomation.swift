@@ -29,6 +29,7 @@ final class RecoveryAutomation {
     private var openedPanel = false
     private var budget = RecoveryBudget()
     private var deadline = Date.distantPast
+    private var listWaits = 0
 
     private func root(bundleID: String) throws -> AXUIElement {
         guard AXIsProcessTrusted() else { throw CaptureError(description: "Accessibility permission unavailable") }
@@ -79,8 +80,11 @@ final class RecoveryAutomation {
             return "Recovery reached its navigation limit. Coverage remains unknown."
         }
         guard let list = try panelList() else {
+            listWaits += 1
+            if listWaits < 3 { return nil }
             return "No retained notification list was exposed. History may be empty or unavailable."
         }
+        listWaits = 0
         for node in try descendants(list) {
             let subrole = try string(node, "AXSubrole")
             guard subrole == "AXNotificationCenterBannerStack" else { continue }

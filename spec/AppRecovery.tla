@@ -31,6 +31,8 @@ TypeOK == /\ selected \subseteq Apps /\ snapshot \subseteq Apps
           /\ steps \in 0..MaxSteps
 OnlyEnabledPersist == lastWrite \subseteq selected
 PausedStopsRecovery == paused => ~active
+PausedStopsWrites == paused => lastWrite = {}
+RecoveryNeedsSelection == active => selected # {}
 OnlyNavigationActions == action \in {"none", "clock", "expand-stack", "scroll"}
 RecoveryTerminates == active ~> ~active
 =============================================================================

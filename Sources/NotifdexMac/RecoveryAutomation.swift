@@ -30,6 +30,7 @@ final class RecoveryAutomation {
     private var budget = RecoveryBudget()
     private var deadline = Date.distantPast
     private var listWaits = 0
+    private var expandedStackIDs: Set<String> = []
 
     private func root(bundleID: String) throws -> AXUIElement {
         guard AXIsProcessTrusted() else { throw CaptureError(description: "Accessibility permission unavailable") }
@@ -93,6 +94,9 @@ final class RecoveryAutomation {
             guard Date() < deadline else { return "Recovery reached its time limit. Coverage remains unknown." }
             let subrole = try string(node, "AXSubrole")
             guard subrole == "AXNotificationCenterBannerStack" else { continue }
+            let stackID = try string(node, "AXIdentifier")
+            guard !stackID.isEmpty, !expandedStackIDs.contains(stackID) else { continue }
+            if let expanded = try ax(node, "AXExpanded") as? NSNumber, expanded.boolValue { continue }
             let description = try string(node, "AXAttributedDescription")
             let app = allowedApps.sorted { $0.count > $1.count }.first {
                 description.hasPrefix($0 + ", ") || description.hasPrefix($0 + " ")
@@ -100,6 +104,7 @@ final class RecoveryAutomation {
             guard let app = app,
                   RecoveryPolicy.canExpand(subrole: subrole, app: app, allowed: allowedApps) else { continue }
             try perform("AXPress", on: node)
+            expandedStackIDs.insert(stackID)
             budget.record(fingerprint: fingerprint, expandedStack: true)
             return nil
         }

@@ -155,8 +155,9 @@ func run() throws {
                 for observation in observations {
                     if try store.record(observation, runID: runID) { print("Saved an observation.") }
                 }
-                try store.heartbeat(runID: runID, at: now)
-                try store.recover(runID: runID, at: now)
+                let completedAt = Date().timeIntervalSince1970
+                try store.heartbeat(runID: runID, at: completedAt)
+                try store.recover(runID: runID, at: completedAt)
                 if lastState != "scanning" {
                     print("Scanning accessible alerts. Delivery completeness remains unknown.")
                     lastState = "scanning"

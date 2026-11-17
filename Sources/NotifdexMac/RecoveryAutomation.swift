@@ -80,7 +80,7 @@ final class RecoveryAutomation {
     }
 
     /// Returns a completion reason, or nil while another bounded step is needed.
-    func advance(allowedApps: Set<String>, fingerprint: String) throws -> String? {
+    func advance(allowedApps: Set<String>) throws -> String? {
         guard Date() < deadline, budget.canContinue else {
             return "Recovery reached its navigation limit. Coverage remains unknown."
         }
@@ -90,7 +90,25 @@ final class RecoveryAutomation {
             return "No retained notification list was exposed. History may be empty or unavailable."
         }
         listWaits = 0
-        for node in try descendants(list) {
+        let nodes = try descendants(list)
+        var viewportMarks: [String] = []
+        for node in nodes {
+            guard Date() < deadline else { return "Recovery reached its time limit. Coverage remains unknown." }
+            let subrole = try string(node, "AXSubrole")
+            guard subrole.hasPrefix("AXNotificationCenter") else { continue }
+            let identifier = try string(node, "AXIdentifier")
+            var mark = identifier
+            if let raw = try ax(node, "AXFrame"), CFGetTypeID(raw) == AXValueGetTypeID() {
+                let value = raw as! AXValue
+                var frame = CGRect.zero
+                if AXValueGetValue(value, .cgRect, &frame) { mark += ":" + String(format: "%.1f", frame.origin.y) }
+            }
+            viewportMarks.append(mark)
+        }
+        // Include unselected app rows and their positions so traversing pages of
+        // other apps still counts as progress toward selected apps farther down.
+        let fingerprint = viewportMarks.sorted().joined(separator: "|")
+        for node in nodes {
             guard Date() < deadline else { return "Recovery reached its time limit. Coverage remains unknown." }
             let subrole = try string(node, "AXSubrole")
             guard subrole == "AXNotificationCenterBannerStack" else { continue }

@@ -214,9 +214,8 @@ public final class CaptureWorker {
                 recoveryInserted += result.inserted
                 recoveryDuplicateSightings += result.duplicates
                 recoveryPeakObserved = max(recoveryPeakObserved, result.observed)
-                let fingerprint = scan.observations.map { $0.sourceEventID + $0.accessibilityDescription }.sorted().joined(separator: "|")
                 do {
-                    if let reason = try recovery.advance(allowedApps: settings.allowedLabels, fingerprint: fingerprint) {
+                    if let reason = try recovery.advance(allowedApps: settings.allowedLabels) {
                         endRecovery(reason: reason)
                     }
                 } catch {

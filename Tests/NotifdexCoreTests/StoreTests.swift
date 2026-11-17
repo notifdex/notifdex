@@ -103,4 +103,17 @@ final class StoreTests: XCTestCase {
         XCTAssertNil(value.appLabel)
         XCTAssertEqual(value.origin, .unknown)
     }
+
+    func testEmbeddedNULDoesNotCollapseDistinctRenderings() throws {
+        let store = try CaptureStore(path: path)
+        let run = try store.startRun(at: 1)
+        _ = try store.record(observation(body: "Hi\0one"), runID: run)
+        _ = try store.record(observation(body: "Hi\0two"), runID: run)
+        XCTAssertEqual(try store.observationCount(), 2)
+    }
+
+    func testCorruptDatabaseFailsStartup() throws {
+        try Data("This is not SQLite".utf8).write(to: URL(fileURLWithPath: path))
+        XCTAssertThrowsError(try CaptureStore(path: path))
+    }
 }

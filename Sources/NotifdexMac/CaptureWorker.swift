@@ -70,6 +70,9 @@ public final class CaptureWorker {
                 let source = sources.count == 1 && sources[0].hasSuffix(suffix)
                     ? String(sources[0].dropLast(suffix.count)) : "mac-" + UUID().uuidString
                 self.state.settings = try self.settingsStore.loadOrCreate(sourceID: source)
+                self.needsRecovery = self.state.settings?.automaticRecovery ?? false
+                self.lastPermission = false
+                self.lastPoll = Date().timeIntervalSince1970
                 self.runID = try store.startRun(at: Date().timeIntervalSince1970)
                 self.state.ready = true
                 self.state.error = nil

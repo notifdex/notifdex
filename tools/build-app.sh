@@ -1,8 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 cd "$(dirname "$0")/.."
-swift build -c release --product Notifdex
-notifdex_bin_dir="$(swift build -c release --show-bin-path)"
+if [[ "${NOTIFDEX_UNIVERSAL:-0}" == "1" ]]; then
+    swift build -c release --arch arm64 --arch x86_64 --product Notifdex
+    notifdex_bin_dir="$(swift build -c release --arch arm64 --arch x86_64 --show-bin-path)"
+else
+    swift build -c release --product Notifdex
+    notifdex_bin_dir="$(swift build -c release --show-bin-path)"
+fi
 notifdex_app_dir="$PWD/dist/Notifdex.app"
 rm -rf "$notifdex_app_dir"
 mkdir -p "$notifdex_app_dir/Contents/MacOS" "$notifdex_app_dir/Contents/Resources"

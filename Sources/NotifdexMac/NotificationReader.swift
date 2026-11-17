@@ -24,11 +24,11 @@ func string(_ element: AXUIElement, _ field: String) throws -> String {
     return value as? String ?? ""
 }
 
-func descendants(_ root: AXUIElement) throws -> [AXUIElement] {
+func descendants(_ root: AXUIElement, deadline: Date = Date().addingTimeInterval(3)) throws -> [AXUIElement] {
     var result: [AXUIElement] = []
     var pending: [(AXUIElement, Int)] = [(root, 0)]
     while let (node, depth) = pending.popLast() {
-        guard depth < 30, result.count < 2000 else {
+        guard depth < 30, result.count < 2000, Date() < deadline else {
             throw CaptureError(description: "Accessibility traversal limit reached")
         }
         result.append(node)
@@ -43,10 +43,11 @@ public struct Snapshot {
     public var issues: [String] = []
 }
 
-func readBanner(_ node: AXUIElement, source: String, allowedApps: Set<String>) throws -> Observation? {
+func readBanner(_ node: AXUIElement, source: String, allowedApps: Set<String>, deadline: Date) throws -> Observation? {
     let description = try string(node, "AXAttributedDescription")
     var fields: [String: String] = [:]
-    for child in try descendants(node) {
+    for child in try descendants(node, deadline: deadline) {
+        guard Date() < deadline else { throw CaptureError(description: "Banner inspection deadline reached") }
         let identifier = try string(child, "AXIdentifier")
         if ["title", "subtitle", "body"].contains(identifier) {
             fields[identifier] = try string(child, "AXValue")
@@ -68,6 +69,7 @@ func readBanner(_ node: AXUIElement, source: String, allowedApps: Set<String>) t
 }
 
 public func snapshot(source: String, allowedApps: Set<String>) throws -> Snapshot {
+    let deadline = Date().addingTimeInterval(5)
     guard AXIsProcessTrusted() else { throw CaptureError(description: "Accessibility permission unavailable") }
     guard let process = NSRunningApplication.runningApplications(
         withBundleIdentifier: "com.apple.notificationcenterui"
@@ -78,11 +80,12 @@ public func snapshot(source: String, allowedApps: Set<String>) throws -> Snapsho
     var result = Snapshot()
     for window in windows {
         do {
-            for node in try descendants(window) {
+            for node in try descendants(window, deadline: deadline) {
+                guard Date() < deadline else { throw CaptureError(description: "Notification inspection deadline reached") }
                 do {
                     let subrole = try string(node, "AXSubrole")
                     guard subrole == "AXNotificationCenterBanner" || subrole == "AXNotificationCenterAlert" else { continue }
-                    if let observation = try readBanner(node, source: source, allowedApps: allowedApps) {
+                    if let observation = try readBanner(node, source: source, allowedApps: allowedApps, deadline: deadline) {
                         result.observations.append(observation)
                     }
                 } catch {

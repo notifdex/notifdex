@@ -4,17 +4,17 @@ permissions:
   contents: read
 jobs:
   swift:
-    runs-on: macos-26
+    runs-on: macos-26-intel
     steps:
       - uses: actions/checkout@v4
       - run: swift test
       - run: swift build -c release
-      - run: bash tools/build-app.sh
-      - run: ditto -c -k --sequesterRsrc --keepParent dist/Notifdex.app dist/Notifdex-macOS-arm64.zip
+      - run: NOTIFDEX_UNIVERSAL=1 bash tools/build-app.sh
+      - run: ditto -c -k --sequesterRsrc --keepParent dist/Notifdex.app dist/Notifdex-macOS-universal.zip
       - uses: actions/upload-artifact@v4
         with:
-          name: Notifdex-macOS-arm64
-          path: dist/Notifdex-macOS-arm64.zip
+          name: Notifdex-macOS-universal
+          path: dist/Notifdex-macOS-universal.zip
   model:
     runs-on: ubuntu-latest
     steps:

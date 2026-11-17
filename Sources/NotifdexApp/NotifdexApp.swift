@@ -38,6 +38,7 @@ final class AppModel: ObservableObject {
         worker.start { [weak self] value in
             self?.state = value
             self?.saving = false
+            self?.loginEnabled = SMAppService.mainApp.status == .enabled
         }
     }
 
@@ -59,7 +60,9 @@ final class AppModel: ObservableObject {
             if enabled { try SMAppService.mainApp.register() }
             else { try SMAppService.mainApp.unregister() }
             loginEnabled = SMAppService.mainApp.status == .enabled
-            uiError = nil
+            uiError = SMAppService.mainApp.status == .requiresApproval
+                ? "Approve Notifdex in System Settings → General → Login Items."
+                : nil
         } catch {
             loginEnabled = SMAppService.mainApp.status == .enabled
             uiError = "Launch at login: \(error.localizedDescription)"

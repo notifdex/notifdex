@@ -42,10 +42,12 @@ final class RecoveryAutomation {
     }
 
     private func panelList() throws -> AXUIElement? {
+        let limit = Date().addingTimeInterval(3)
         let app = try root(bundleID: "com.apple.notificationcenterui")
         let windows = try ax(app, "AXWindows") as? [AXUIElement] ?? []
         for window in windows {
-            for node in try descendants(window) {
+            for node in try descendants(window, deadline: limit) {
+                guard Date() < limit else { throw CaptureError(description: "Panel inspection deadline reached") }
                 if try string(node, "AXIdentifier") == "AXNotificationListItems" { return node }
             }
         }
@@ -53,11 +55,13 @@ final class RecoveryAutomation {
     }
 
     private func pressClock() throws {
+        let limit = Date().addingTimeInterval(3)
         let app = try root(bundleID: "com.apple.controlcenter")
         guard let menu = axElement(try ax(app, "AXExtrasMenuBar")) else {
             throw CaptureError(description: "Menu bar clock controls were not exposed")
         }
-        for node in try descendants(menu) {
+        for node in try descendants(menu, deadline: limit) {
+            guard Date() < limit else { throw CaptureError(description: "Clock inspection deadline reached") }
             if try string(node, "AXIdentifier") == "com.apple.menuextra.clock" {
                 try perform("AXPress", on: node)
                 return
@@ -86,6 +90,7 @@ final class RecoveryAutomation {
         }
         listWaits = 0
         for node in try descendants(list) {
+            guard Date() < deadline else { return "Recovery reached its time limit. Coverage remains unknown." }
             let subrole = try string(node, "AXSubrole")
             guard subrole == "AXNotificationCenterBannerStack" else { continue }
             let description = try string(node, "AXAttributedDescription")
@@ -109,6 +114,7 @@ final class RecoveryAutomation {
     private func scrollDown(from list: AXUIElement) throws -> Bool {
         var current: AXUIElement? = list
         for _ in 0..<12 {
+            guard Date() < deadline else { return false }
             guard let node = current else { break }
             if try string(node, "AXRole") == "AXScrollArea" {
                 if try actionNames(node).contains("AXScrollDownByPage") {

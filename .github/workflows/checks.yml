@@ -13,7 +13,7 @@ jobs:
         run: bash tools/build-app.sh
         timeout-minutes: 3
       - name: Smoke-test menu bar startup and shutdown
-        run: dist/Notifdex.app/Contents/MacOS/Notifdex --smoke-test
+        run: bash tools/smoke-app.sh
         timeout-minutes: 2
       - name: Package universal app
         run: NOTIFDEX_UNIVERSAL=1 bash tools/build-app.sh

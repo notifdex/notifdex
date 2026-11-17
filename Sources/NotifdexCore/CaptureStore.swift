@@ -147,23 +147,35 @@ public final class CaptureStore {
         var statement: OpaquePointer?
         guard sqlite3_prepare_v2(database, sql, -1, &statement, nil) == SQLITE_OK,
               let statement = statement else { throw failure() }
+        func checkBinding(_ result: Int32) throws {
+            guard result == SQLITE_OK else {
+                let error = failure()
+                sqlite3_finalize(statement)
+                throw error
+            }
+        }
         var index: Int32 = 1
         for number in numbersFirst {
-            sqlite3_bind_double(statement, index, number)
+            try checkBinding(sqlite3_bind_double(statement, index, number))
             index += 1
         }
         for string in strings {
             if let string = string {
-                string.withCString { pointer in
-                    _ = sqlite3_bind_text(statement, index, pointer, -1, transient)
+                guard let byteCount = Int32(exactly: string.utf8.count) else {
+                    sqlite3_finalize(statement)
+                    throw StoreError(description: "Text exceeds SQLite binding size")
                 }
+                let result = string.withCString { pointer in
+                    sqlite3_bind_text(statement, index, pointer, byteCount, transient)
+                }
+                try checkBinding(result)
             } else {
-                sqlite3_bind_null(statement, index)
+                try checkBinding(sqlite3_bind_null(statement, index))
             }
             index += 1
         }
         for number in numbers {
-            sqlite3_bind_double(statement, index, number)
+            try checkBinding(sqlite3_bind_double(statement, index, number))
             index += 1
         }
         return statement

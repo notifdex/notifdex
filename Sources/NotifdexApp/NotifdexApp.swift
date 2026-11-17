@@ -26,10 +26,10 @@ final class AppModel: ObservableObject {
         let center = NSWorkspace.shared.notificationCenter
         sleepObservers = [
             center.addObserver(forName: NSWorkspace.willSleepNotification, object: nil, queue: .main) { [weak self] _ in
-                self?.worker.setSleeping(true)
+                Task { @MainActor in self?.worker.setSleeping(true) }
             },
             center.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { [weak self] _ in
-                self?.worker.setSleeping(false)
+                Task { @MainActor in self?.worker.setSleeping(false) }
             }
         ]
     }
@@ -295,7 +295,7 @@ struct AppCenter: View {
             }
             Text("Cleared, hidden, or undelivered alerts may be unavailable. A completed scan leaves delivery coverage unknown.")
                 .font(.caption).foregroundStyle(.secondary)
-            Toggle("Launch at login", isOn: Binding(get: { model.loginEnabled }, set: model.setLogin))
+            Toggle("Launch at login", isOn: Binding(get: { model.loginEnabled }, set: { enabled in model.setLogin(enabled) }))
             Text("Saved source identity: \(model.state.settings?.sourceID ?? "pending")")
                 .font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
         }

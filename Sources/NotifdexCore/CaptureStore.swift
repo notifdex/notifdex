@@ -3,6 +3,7 @@ import CSQLite
 
 public struct StoreError: Error, CustomStringConvertible {
     public let description: String
+    public init(description: String) { self.description = description }
 }
 
 public struct CaptureBatchResult {

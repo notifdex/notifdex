@@ -6,7 +6,7 @@ import ApplicationServices
 
 func axElement(_ value: CFTypeRef?) -> AXUIElement? {
     guard let value = value, CFGetTypeID(value) == AXUIElementGetTypeID() else { return nil }
-    return value as! AXUIElement
+    return (value as! AXUIElement)
 }
 
 func actionNames(_ element: AXUIElement) throws -> [String] {

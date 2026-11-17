@@ -49,6 +49,9 @@ public final class CaptureWorker {
     private var sleeping = false
     private var needsRecovery = true
     private var automation: RecoveryAutomation?
+    private var recoveryInserted = 0
+    private var recoveryDuplicateSightings = 0
+    private var recoveryPeakObserved = 0
     private var lastPoll = Date().timeIntervalSince1970
     private var lastPermission = false
 
@@ -177,6 +180,9 @@ public final class CaptureWorker {
                 do {
                     try recovery.begin()
                     automation = recovery
+                    recoveryInserted = 0
+                    recoveryDuplicateSightings = 0
+                    recoveryPeakObserved = 0
                     state.recovering = true
                     state.recoveryStatus = "Opening retained notifications"
                     state.status = "Recovering retained alerts"
@@ -198,12 +204,16 @@ public final class CaptureWorker {
             state.lastScan = "Observed \(result.observed) · New \(result.inserted) · Duplicates \(result.duplicates) · Issues \(scan.issues.count)"
             state.status = automation == nil ? "Collecting accessible alerts" : "Recovering retained alerts"
             if scan.issues.isEmpty {
+                state.error = nil
                 try store.recover(runID: run, at: Date().timeIntervalSince1970)
             } else {
                 try store.openGap(runID: run, reason: "partial_scan", at: now)
                 state.error = scan.issues.first
             }
             if let recovery = automation {
+                recoveryInserted += result.inserted
+                recoveryDuplicateSightings += result.duplicates
+                recoveryPeakObserved = max(recoveryPeakObserved, result.observed)
                 let fingerprint = scan.observations.map { $0.sourceEventID + $0.accessibilityDescription }.sorted().joined(separator: "|")
                 do {
                     if let reason = try recovery.advance(allowedApps: settings.allowedLabels, fingerprint: fingerprint) {
@@ -226,7 +236,7 @@ public final class CaptureWorker {
 
     private func endRecovery(reason: String) {
         guard let recovery = automation else { return }
-        state.recoveryStatus = reason
+        state.recoveryStatus = "Saved \(recoveryInserted); peak observed \(recoveryPeakObserved); duplicate sightings \(recoveryDuplicateSightings). \(reason)"
         do { try recovery.finish() }
         catch { state.recoveryStatus += " Panel cleanup failed: \(error)" }
         automation = nil

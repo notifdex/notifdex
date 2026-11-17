@@ -33,7 +33,6 @@ Terminal access from the earlier experiment may carry over. A packaged app will
 need its own permission grant.
 
 ```bash
-swift test
 swift build -c release
 .build/release/notifdex-capture \
   --db "$HOME/Library/Application Support/Notifdex/capture.db" \
@@ -51,6 +50,27 @@ locally. Capture output prints status and counts without message bodies. New
 directories/files use private permissions. SQLite itself is unencrypted. The
 process owns an exclusive lock beside its database to prevent two collectors
 from managing the same capture lifecycle. Ctrl-C performs a graceful stop.
+
+### Running unit tests on macOS
+
+The test suite imports XCTest and needs a developer toolchain that includes it.
+If `swift test` reports `unable to resolve module dependency: XCTest` while
+`swift build -c release` succeeds, the collector is built and can run. The
+standalone Command Line Tools selected under `/Library/Developer/CommandLineTools`
+may lack the test framework. With Xcode installed at the standard path and its
+first-launch setup completed, select it for this test command:
+
+```bash
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test
+```
+
+Adjust the path for a different Xcode installation. If Xcode is absent, you can
+run the collector with the successful release build and use GitHub Actions for
+the XCTest suite until you install Xcode. SQLite is supplied by the macOS SDK;
+installing `pkg-config` is unnecessary for this Mac build.
+
+Apple's developer-tool selection reference is available at
+https://developer.apple.com/library/archive/technotes/tn2339/_index.html.
 
 To inspect metadata without displaying message content:
 

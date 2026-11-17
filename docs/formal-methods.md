@@ -64,3 +64,6 @@ Swift/macOS checks run in GitHub Actions because this workspace has no Swift SDK
 An acknowledgement-before-storage mutation of the model produced the expected
 `AcknowledgedIsDurable` counterexample. The native NUL regression failed before
 switching SQLite text bindings to explicit UTF-8 byte lengths.
+The restart regression also first failed with an obsolete active startup gap.
+Restart now bounds the old process's intervals and transfers active uncertainty
+to the new startup-scan interval, preserving all historical rows.

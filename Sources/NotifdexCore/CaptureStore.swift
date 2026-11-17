@@ -66,6 +66,10 @@ public final class CaptureStore {
                     FROM capture_runs ORDER BY started_at DESC LIMIT 1
                     """, numbers: [time])
             }
+            // End the prior process's active intervals. The new startup-scan
+            // interval carries uncertainty forward until a scan succeeds.
+            try execute("UPDATE coverage_gaps SET ended_at = max(started_at, ?) WHERE ended_at IS NULL",
+                        numbers: [time])
             try execute("UPDATE capture_runs SET ended_at = max(started_at, ?) WHERE ended_at IS NULL", numbers: [time])
             try execute("INSERT INTO capture_runs(id, started_at, heartbeat_at) VALUES (?, ?, ?)",
                         strings: [runID], numbers: [time, time])

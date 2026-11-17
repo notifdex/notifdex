@@ -144,7 +144,10 @@ public final class CaptureWorker {
             }
             self.store = nil
             self.owner = nil
-            DispatchQueue.main.async(execute: completion)
+            // NSTerminateLater runs AppKit's modal loop. A main-dispatch callback
+            // can remain blocked there, so finish in both normal and modal modes.
+            RunLoop.main.perform(inModes: [.common, .modalPanel]) { completion() }
+            CFRunLoopWakeUp(CFRunLoopGetMain())
         }
     }
 

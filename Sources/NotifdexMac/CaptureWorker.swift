@@ -266,7 +266,7 @@ public final class CaptureWorker {
     private func emit() {
         let value = state
         let callback = notify
-        DispatchQueue.main.async { callback?(value) }
+        onAppMainLoop { callback?(value) }
     }
 }
 #endif

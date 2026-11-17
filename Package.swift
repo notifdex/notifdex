@@ -22,6 +22,7 @@ let package = Package(
         .target(name: "NotifdexMac", dependencies: ["NotifdexCore"]),
         .executableTarget(name: "NotifdexCapture", dependencies: ["NotifdexCore", "NotifdexMac"]),
         .executableTarget(name: "NotifdexApp", dependencies: ["NotifdexCore", "NotifdexMac"]),
-        .testTarget(name: "NotifdexCoreTests", dependencies: ["NotifdexCore"])
+        .testTarget(name: "NotifdexCoreTests", dependencies: ["NotifdexCore"]),
+        .testTarget(name: "NotifdexMacTests", dependencies: ["NotifdexMac", "NotifdexCore"])
     ]
 )

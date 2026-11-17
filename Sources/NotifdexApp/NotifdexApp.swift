@@ -22,6 +22,9 @@ final class AppModel: ObservableObject {
     @Published var uiError: String?
     @Published var loginEnabled = false
     @Published var loginPending = false
+    // Keep the form draft in the window's model. The standalone macOS
+    // Command Line Tools may lack the SwiftUI State macro plugin.
+    @Published var customLabel = ""
     private let loginQueue = DispatchQueue(label: "com.notifdex.login", qos: .utility)
     let worker: CaptureWorker
     private var sleepObservers: [NSObjectProtocol] = []
@@ -223,7 +226,6 @@ struct MenuContent: View {
 @MainActor
 struct AppCenter: View {
     @ObservedObject var model: AppModel
-    @State private var customLabel = ""
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -296,14 +298,14 @@ struct AppCenter: View {
                 .padding(.vertical, 6)
             }
             HStack {
-                TextField("Custom app notification label", text: $customLabel)
+                TextField("Custom app notification label", text: $model.customLabel)
                     .textFieldStyle(.roundedBorder)
                 Button("Add app") {
-                    let label = customLabel
+                    let label = model.customLabel
                     model.change { try $0.addCustomApp(label: label) }
-                    customLabel = ""
+                    model.customLabel = ""
                 }
-                .disabled(customLabel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !model.state.ready)
+                .disabled(model.customLabel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !model.state.ready)
             }
             Text("App labels must match notifications as shown by macOS. Enable each app you want to collect.")
                 .font(.caption).foregroundStyle(.secondary)

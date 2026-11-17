@@ -11,6 +11,20 @@ public struct CaptureBatchResult {
     public var duplicates: Int { observed - inserted }
 }
 
+public struct StoredObservation: Identifiable {
+    public let id: Int64
+    public let appLabel: String
+    public let title: String
+    public let body: String
+    public let capturedAt: Double
+}
+
+public struct AppCaptureSummary {
+    public let appLabel: String
+    public let count: Int
+    public let lastCapturedAt: Double
+}
+
 /// Use one collector owner per database. SQLite transactions protect all durable writes.
 public final class CaptureStore {
     private var database: OpaquePointer?
@@ -38,7 +52,8 @@ public final class CaptureStore {
                 guard try scalar("SELECT count(*) FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'") == 0 else {
                     throw StoreError(description: "Expected a new empty Notifdex database")
                 }
-                let url = Bundle.module.url(forResource: "schema", withExtension: "sql")!
+                let url = Bundle.main.url(forResource: "schema", withExtension: "sql")
+                    ?? Bundle.module.url(forResource: "schema", withExtension: "sql")!
                 let schema = try String(contentsOf: url, encoding: .utf8)
                 try transaction {
                     try execute(schema)
@@ -141,6 +156,56 @@ public final class CaptureStore {
     public func openGapCount() throws -> Int { try scalar("SELECT count(*) FROM coverage_gaps WHERE ended_at IS NULL") }
     public func gapCount(reason: String) throws -> Int {
         try scalar("SELECT count(*) FROM coverage_gaps WHERE reason = ?", strings: [reason])
+    }
+
+    public func sourceIDs() throws -> [String] {
+        let statement = try prepare("SELECT DISTINCT source_id FROM observations ORDER BY source_id")
+        defer { sqlite3_finalize(statement) }
+        var result: [String] = []
+        var status = sqlite3_step(statement)
+        while status == SQLITE_ROW {
+            result.append(columnString(statement, 0))
+            status = sqlite3_step(statement)
+        }
+        guard status == SQLITE_DONE else { throw failure() }
+        return result
+    }
+
+    public func recentObservations(limit: Int = 50) throws -> [StoredObservation] {
+        let statement = try prepare("SELECT id, app_label, title, body, captured_at FROM observations ORDER BY id DESC LIMIT ?",
+                                    numbers: [Double(max(1, min(limit, 200)))])
+        defer { sqlite3_finalize(statement) }
+        var result: [StoredObservation] = []
+        var status = sqlite3_step(statement)
+        while status == SQLITE_ROW {
+            result.append(StoredObservation(id: sqlite3_column_int64(statement, 0),
+                          appLabel: columnString(statement, 1), title: columnString(statement, 2),
+                          body: columnString(statement, 3), capturedAt: sqlite3_column_double(statement, 4)))
+            status = sqlite3_step(statement)
+        }
+        guard status == SQLITE_DONE else { throw failure() }
+        return result
+    }
+
+    public func appSummaries() throws -> [AppCaptureSummary] {
+        let statement = try prepare("SELECT app_label, count(*), max(captured_at) FROM observations GROUP BY app_label ORDER BY app_label")
+        defer { sqlite3_finalize(statement) }
+        var result: [AppCaptureSummary] = []
+        var status = sqlite3_step(statement)
+        while status == SQLITE_ROW {
+            result.append(AppCaptureSummary(appLabel: columnString(statement, 0),
+                          count: Int(sqlite3_column_int64(statement, 1)),
+                          lastCapturedAt: sqlite3_column_double(statement, 2)))
+            status = sqlite3_step(statement)
+        }
+        guard status == SQLITE_DONE else { throw failure() }
+        return result
+    }
+
+    private func columnString(_ statement: OpaquePointer, _ column: Int32) -> String {
+        guard let pointer = sqlite3_column_text(statement, column) else { return "" }
+        let bytes = UnsafeBufferPointer(start: pointer, count: Int(sqlite3_column_bytes(statement, column)))
+        return String(decoding: bytes, as: UTF8.self)
     }
 
     private func transaction(_ operation: () throws -> Void) throws {

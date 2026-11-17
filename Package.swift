@@ -13,12 +13,15 @@ let package = Package(
     platforms: [.macOS(.v14)],
     products: [
         .library(name: "NotifdexCore", targets: ["NotifdexCore"]),
-        .executable(name: "notifdex-capture", targets: ["NotifdexCapture"])
+        .executable(name: "notifdex-capture", targets: ["NotifdexCapture"]),
+        .executable(name: "Notifdex", targets: ["NotifdexApp"])
     ],
     targets: [
         .systemLibrary(name: "CSQLite", pkgConfig: sqlitePkgConfig),
         .target(name: "NotifdexCore", dependencies: ["CSQLite"], resources: [.copy("schema.sql")]),
-        .executableTarget(name: "NotifdexCapture", dependencies: ["NotifdexCore"]),
+        .target(name: "NotifdexMac", dependencies: ["NotifdexCore"]),
+        .executableTarget(name: "NotifdexCapture", dependencies: ["NotifdexCore", "NotifdexMac"]),
+        .executableTarget(name: "NotifdexApp", dependencies: ["NotifdexCore", "NotifdexMac"]),
         .testTarget(name: "NotifdexCoreTests", dependencies: ["NotifdexCore"])
     ]
 )

@@ -2,6 +2,7 @@
 .swiftpm/
 .DS_Store
 __pycache__/
+dist/
 *.db
 *.db-shm
 *.db-wal

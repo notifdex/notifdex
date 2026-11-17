@@ -22,6 +22,14 @@ final class ResponsivenessTests: XCTestCase {
         pump(.default, until: { delivered })
     }
 
+    func testSettingsRequestCompletesEvenBeforeStartup() {
+        let worker = CaptureWorker(directory: FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString))
+        var completed = false
+        worker.updateSettings({ $0.paused = true }) { completed = true }
+        pump(.eventTracking, until: { completed })
+        XCTAssertTrue(completed, "An unavailable settings request must not leave the UI waiting forever")
+    }
+
     func testRealWorkerStartsAndUpdatesWhileMenuIsTracking() throws {
         XCTAssertTrue(Thread.isMainThread)
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)

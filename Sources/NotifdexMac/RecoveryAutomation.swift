@@ -10,6 +10,7 @@ func axElement(_ value: CFTypeRef?) -> AXUIElement? {
 }
 
 func actionNames(_ element: AXUIElement) throws -> [String] {
+    boundMessaging(element)
     var names: CFArray?
     let result = AXUIElementCopyActionNames(element, &names)
     guard result == .success else { throw CaptureError(description: "Could not inspect navigation actions (\(result.rawValue))") }
@@ -20,6 +21,7 @@ func perform(_ action: String, on element: AXUIElement) throws {
     guard try actionNames(element).contains(action) else {
         throw CaptureError(description: "Navigation action \(action) is unavailable")
     }
+    boundMessaging(element)
     let result = AXUIElementPerformAction(element, action as CFString)
     guard result == .success else { throw CaptureError(description: "Navigation action failed (\(result.rawValue))") }
 }
@@ -146,6 +148,7 @@ final class RecoveryAutomation {
                 }
                 if let bar = axElement(try ax(node, "AXVerticalScrollBar")),
                    let value = try ax(bar, "AXValue") as? NSNumber {
+                    boundMessaging(bar)
                     var settable = DarwinBoolean(false)
                     guard AXUIElementIsAttributeSettable(bar, "AXValue" as CFString, &settable) == .success,
                           settable.boolValue else { return false }
@@ -153,6 +156,7 @@ final class RecoveryAutomation {
                     let maximum = (try ax(bar, "AXMaxValue") as? NSNumber)?.doubleValue ?? 1
                     guard maximum > minimum, value.doubleValue < maximum else { return false }
                     let next = min(maximum, value.doubleValue + (maximum - minimum) * 0.2)
+                    boundMessaging(bar)
                     let result = AXUIElementSetAttributeValue(bar, "AXValue" as CFString, NSNumber(value: next))
                     guard result == .success else { throw CaptureError(description: "Notification scrolling failed (\(result.rawValue))") }
                     return true

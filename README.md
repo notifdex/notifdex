@@ -214,3 +214,23 @@ Conditional progress and overlapping-history recovery are checked in separate co
 navigation actions, bounded steps, and conditional recovery termination.
 It is a finite model check. Implementation tests and real device trials establish
 the correspondence to the actual collector and operating system.
+
+### If the app appears frozen
+
+Before restarting, capture a short process sample in Terminal:
+
+```sh
+sample Notifdex 3 -file "$HOME/Desktop/notifdex-hang.txt"
+```
+
+Share the sample when reporting a hang. It records thread stacks and process
+metadata; inspect it before sharing. Then quit Notifdex (or use Activity Monitor
+if its menu is unresponsive) before installing a new build. Keep `capture.db`
+and `settings.json`; restart recovery uses the existing deduplication history.
+
+The collector runs away from the UI thread. Accessibility IPC uses a 0.5-second
+per-element timeout, with traversal/session deadlines checked between calls.
+These are best-effort bounds on OS messaging, not hard real-time guarantees.
+Status and settings acknowledgements are delivered in AppKit's menu-tracking and
+modal modes as well as its normal run loop. Login-item service operations run on
+a separate background queue so they cannot block the main UI thread.

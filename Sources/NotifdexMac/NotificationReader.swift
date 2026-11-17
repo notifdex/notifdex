@@ -8,7 +8,14 @@ public struct CaptureError: Error, CustomStringConvertible {
     public init(description: String) { self.description = description }
 }
 
+// A root element's timeout does not apply to children, even equal elements.
+// Apply it to every AX object before attribute/action IPC.
+func boundMessaging(_ element: AXUIElement) {
+    AXUIElementSetMessagingTimeout(element, 0.5)
+}
+
 func ax(_ element: AXUIElement, _ field: String) throws -> CFTypeRef? {
+    boundMessaging(element)
     var value: CFTypeRef?
     let status = AXUIElementCopyAttributeValue(element, field as CFString, &value)
     if status == .noValue || status == .attributeUnsupported { return nil }

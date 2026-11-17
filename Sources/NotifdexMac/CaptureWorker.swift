@@ -96,8 +96,10 @@ public final class CaptureWorker {
         }
     }
 
-    public func updateSettings(_ change: @escaping (inout CaptureSettings) throws -> Void) {
+    public func updateSettings(_ change: @escaping (inout CaptureSettings) throws -> Void,
+                               completion: @escaping () -> Void = {}) {
         queue.async {
+            defer { onAppMainLoop(completion) }
             guard var settings = self.state.settings else { return }
             do {
                 try change(&settings)
@@ -144,10 +146,7 @@ public final class CaptureWorker {
             }
             self.store = nil
             self.owner = nil
-            // NSTerminateLater runs AppKit's modal loop. A main-dispatch callback
-            // can remain blocked there, so finish in both normal and modal modes.
-            RunLoop.main.perform(inModes: [.common, .modalPanel]) { completion() }
-            CFRunLoopWakeUp(CFRunLoopGetMain())
+            onAppMainLoop(completion)
         }
     }
 

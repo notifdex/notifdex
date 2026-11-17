@@ -82,3 +82,19 @@ The recovery extension checked 224 safety states, 10 stable-progress states,
 and 7 overlapping-history recovery states locally with no violation. The native
 tests cover a replayed snapshot and a constraint failure partway through a batch.
 Actual retained-UI traversal and banner-ID continuity remain device acceptance work.
+
+## Menu responsiveness regression (2026-11-17)
+
+The menu-tracking tests run the real worker against a paused, temporary fixture
+database, then update settings while the main run loop stays in event-tracking
+mode. A separate callback test isolates delivery from storage and permissions.
+The pre-fix main-dispatch implementation fails these acceptance conditions;
+the fix schedules callbacks in normal, menu-tracking, and modal run-loop modes.
+A modal-mode stop assertion also protects graceful termination.
+
+This changes adapter scheduling and per-element AX messaging timeouts, not
+storage transitions or recovery actions. The existing four TLC configurations
+still apply. Their fairness assumptions do not prove responsiveness of AppKit,
+Notification Center, or Login Items; device testing and hang samples remain
+necessary. Settings acknowledgements now follow their own completed request,
+rather than an unrelated scan heartbeat.

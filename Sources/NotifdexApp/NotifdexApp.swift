@@ -21,18 +21,29 @@ final class AppModel: ObservableObject {
     @Published var saving = false
     @Published var uiError: String?
     @Published var loginEnabled = false
+    @Published var loginPending = false
+    private let loginQueue = DispatchQueue(label: "com.notifdex.login", qos: .utility)
     let worker: CaptureWorker
     private var sleepObservers: [NSObjectProtocol] = []
 
     init() {
-        let directory = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("Library/Application Support/Notifdex")
+        let smoke = CommandLine.arguments.contains("--smoke-test")
+        let directory = smoke
+            ? FileManager.default.temporaryDirectory.appendingPathComponent("notifdex-smoke-" + UUID().uuidString)
+            : FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/Notifdex")
         worker = CaptureWorker(directory: directory)
-        guard !CommandLine.arguments.contains("--smoke-test") else {
-            smokeTrace("model initialized without capture or login services")
-            return
+        if smoke {
+            // Exercise real startup/storage without touching user data or navigating UI.
+            do {
+                try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+                var settings = CaptureSettings(sourceID: "synthetic-smoke")
+                settings.paused = true
+                settings.automaticRecovery = false
+                try AppSettingsStore(url: directory.appendingPathComponent("settings.json")).save(settings)
+            } catch { smokeTrace("fixture failed: \(error)") }
         }
         start()
+        guard !smoke else { return }
         let center = NSWorkspace.shared.notificationCenter
         sleepObservers = [
             center.addObserver(forName: NSWorkspace.willSleepNotification, object: nil, queue: .main) { [weak self] _ in
@@ -47,13 +58,13 @@ final class AppModel: ObservableObject {
     func start() {
         worker.start { [weak self] value in
             self?.state = value
-            self?.saving = false
+            if value.ready { smokeTrace("real worker ready") }
         }
     }
 
     func change(_ update: @escaping (inout CaptureSettings) throws -> Void) {
         saving = true
-        worker.updateSettings(update)
+        worker.updateSettings(update) { [weak self] in self?.saving = false }
     }
 
     func permission() {
@@ -65,24 +76,30 @@ final class AppModel: ObservableObject {
     }
 
     func setLogin(_ enabled: Bool) {
-        do {
-            if enabled { try SMAppService.mainApp.register() }
-            else { try SMAppService.mainApp.unregister() }
+        guard !loginPending else { return }
+        loginPending = true
+        loginQueue.async { [weak self] in
+            var failure: String?
+            do {
+                if enabled { try SMAppService.mainApp.register() }
+                else { try SMAppService.mainApp.unregister() }
+            } catch { failure = "Launch at login: \(error.localizedDescription)" }
             let status = SMAppService.mainApp.status
-            loginEnabled = status == .enabled
-            uiError = status == .requiresApproval
-                ? "Approve Notifdex in System Settings → General → Login Items."
-                : nil
-        } catch {
-            loginEnabled = SMAppService.mainApp.status == .enabled
-            uiError = "Launch at login: \(error.localizedDescription)"
+            let message = failure ?? (status == .requiresApproval
+                ? "Approve Notifdex in System Settings → General → Login Items." : nil)
+            onAppMainLoop {
+                self?.loginEnabled = status == .enabled
+                self?.uiError = message
+                self?.loginPending = false
+            }
         }
     }
 
     func refreshLoginState() {
-        DispatchQueue.global(qos: .utility).async { [weak self] in
+        guard !loginPending else { return }
+        loginQueue.async { [weak self] in
             let enabled = SMAppService.mainApp.status == .enabled
-            DispatchQueue.main.async { self?.loginEnabled = enabled }
+            onAppMainLoop { self?.loginEnabled = enabled }
         }
     }
 
@@ -110,6 +127,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         smokeTrace("application requested shutdown")
         AppModel.shared.worker.stop {
             smokeTrace("worker stopped")
+            if CommandLine.arguments.contains("--smoke-test") {
+                try? FileManager.default.removeItem(at: AppModel.shared.worker.directory)
+            }
             sender.reply(toApplicationShouldTerminate: true)
         }
         return .terminateLater
@@ -327,6 +347,8 @@ struct AppCenter: View {
             Text("Cleared, hidden, or undelivered alerts may be unavailable. A completed scan leaves delivery coverage unknown.")
                 .font(.caption).foregroundStyle(.secondary)
             Toggle("Launch at login", isOn: Binding(get: { model.loginEnabled }, set: { enabled in model.setLogin(enabled) }))
+                .disabled(model.loginPending)
+            if model.loginPending { Text("Updating login item…").font(.caption) }
             Text("Saved source identity: \(model.state.settings?.sourceID ?? "pending")")
                 .font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
         }

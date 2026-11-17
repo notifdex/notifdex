@@ -95,23 +95,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 }
 
-@main
 @MainActor
 struct NotifdexApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
     @StateObject private var model: AppModel
 
     init() {
-        if CommandLine.arguments.contains("--self-check") {
-            do {
-                try Self.checkPackage()
-                print("Packaged SQLite resources and replay check passed.")
-                exit(0)
-            } catch {
-                fputs("Package check failed: \(error)\n", stderr)
-                exit(1)
-            }
-        }
         _model = StateObject(wrappedValue: AppModel.shared)
     }
 
@@ -125,7 +114,7 @@ struct NotifdexApp: App {
         .defaultSize(width: 780, height: 620)
     }
 
-    private static func checkPackage() throws {
+    fileprivate static func checkPackage() throws {
         guard Bundle.main.url(forResource: "schema", withExtension: "sql") != nil else {
             throw StoreError(description: "Packaged schema.sql is missing")
         }
@@ -141,6 +130,25 @@ struct NotifdexApp: App {
             throw StoreError(description: "Packaged replay check failed")
         }
         try store.finishRun(runID: run, at: 3)
+    }
+}
+
+@main
+@MainActor
+struct NotifdexLauncher {
+    static func main() {
+        // Validate the bundle before SwiftUI starts an application session.
+        if CommandLine.arguments.contains("--self-check") {
+            do {
+                try NotifdexApp.checkPackage()
+                print("Packaged SQLite resources and replay check passed.")
+                exit(0)
+            } catch {
+                fputs("Package check failed: \(error)\n", stderr)
+                exit(1)
+            }
+        }
+        NotifdexApp.main()
     }
 }
 

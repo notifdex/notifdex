@@ -117,4 +117,45 @@ final class StoreTests: XCTestCase {
         try Data("This is not SQLite".utf8).write(to: URL(fileURLWithPath: path))
         XCTAssertThrowsError(try CaptureStore(path: path))
     }
+
+    func testRecoverySnapshotBackfillsMissedAlertsAndReportsDuplicates() throws {
+        var store: CaptureStore? = try CaptureStore(path: path)
+        let firstRun = try store!.startRun(at: 1)
+        _ = try store!.record(observation(), runID: firstRun)
+        try store!.finishRun(runID: firstRun, at: 12)
+        store = nil
+
+        let restarted = try CaptureStore(path: path)
+        let run = try restarted.startRun(at: 20)
+        let snapshot = [observation(), observation(id: "missed-while-stopped")]
+        let recovered = try restarted.recordBatch(snapshot, runID: run, at: 21)
+        XCTAssertEqual(recovered.observed, 2)
+        XCTAssertEqual(recovered.inserted, 1)
+        XCTAssertEqual(recovered.duplicates, 1)
+
+        let replay = try restarted.recordBatch(snapshot, runID: run, at: 22)
+        XCTAssertEqual(replay.inserted, 0)
+        XCTAssertEqual(replay.duplicates, 2)
+        XCTAssertEqual(try restarted.observationCount(), 2)
+    }
+
+    func testRecoveryBatchRollsBackIfOneObservationIsInvalid() throws {
+        let store = try CaptureStore(path: path)
+        let run = try store.startRun(at: 1)
+        let values = [observation(), observation(id: "")]
+        XCTAssertThrowsError(try store.recordBatch(values, runID: run, at: 10))
+        XCTAssertEqual(try store.observationCount(), 0)
+        let retry = try store.recordBatch([observation()], runID: run, at: 11)
+        XCTAssertEqual(retry.inserted, 1)
+    }
+
+    func testEmptyRecoverySnapshotReportsZeroObserved() throws {
+        let store = try CaptureStore(path: path)
+        let run = try store.startRun(at: 1)
+        let result = try store.recordBatch([], runID: run, at: 10)
+        XCTAssertEqual(result.observed, 0)
+        XCTAssertEqual(result.inserted, 0)
+        XCTAssertEqual(result.duplicates, 0)
+        XCTAssertEqual(try store.openGapCount(), 1, "An empty scan alone does not close a gap")
+    }
 }

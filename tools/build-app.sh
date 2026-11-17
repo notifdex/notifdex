@@ -2,8 +2,13 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 if [[ "${NOTIFDEX_UNIVERSAL:-0}" == "1" ]]; then
-    swift build -c release --arch arm64 --arch x86_64 --product Notifdex
-    notifdex_bin_dir="$(swift build -c release --arch arm64 --arch x86_64 --show-bin-path)"
+    swift build -c release --arch arm64 --product Notifdex
+    notifdex_arm_dir="$(swift build -c release --arch arm64 --show-bin-path)"
+    swift build -c release --arch x86_64 --product Notifdex
+    notifdex_intel_dir="$(swift build -c release --arch x86_64 --show-bin-path)"
+    notifdex_bin_dir="$PWD/.build/notifdex-universal"
+    mkdir -p "$notifdex_bin_dir"
+    lipo -create "$notifdex_arm_dir/Notifdex" "$notifdex_intel_dir/Notifdex" -output "$notifdex_bin_dir/Notifdex"
 else
     swift build -c release --product Notifdex
     notifdex_bin_dir="$(swift build -c release --show-bin-path)"
@@ -32,5 +37,6 @@ cat > "$notifdex_app_dir/Contents/Info.plist" <<'PLIST'
 PLIST
 codesign --force --sign - --identifier com.notifdex.mac "$notifdex_app_dir"
 codesign --verify --deep --strict "$notifdex_app_dir"
+echo "Checking packaged SQLite resources and replay behavior"
 "$notifdex_app_dir/Contents/MacOS/Notifdex" --self-check
 echo "Built $notifdex_app_dir"

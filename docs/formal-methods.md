@@ -1,6 +1,6 @@
 # Formal model and implementation correspondence
 
-`spec/Capture.tla` has two executable TLC configurations. Both use two abstract
+`spec/Capture.tla` has three executable TLC configurations. They use two abstract
 event revisions. Larger instances can be checked by changing `Events` in a copy
 of the configuration. Checking one finite instance establishes the listed
 properties for that instance and abstraction. It does not establish arbitrary
@@ -12,7 +12,7 @@ OS behavior, runtime correctness, cryptographic identity, or indefinite hardware
 | `visible` | UI available to collector | `Show`/`Hide` arbitrary; real adapter tests required |
 | `pending` | Snapshot in volatile memory | Process crash may discard it |
 | `stored` | Committed observations | SQLite transaction, WAL, FULL; process-death/reopen tests |
-| `acknowledged` | Successful return / saved status | Print only after record returns successfully |
+| `acknowledged` | Successful return / saved status | Print only after record or recordBatch returns successfully |
 | `running` | Collector lifecycle | Crash/restart; durable heartbeat bounds gap |
 | `accessible` | Combined availability of UI/permissions/polling | Suspend/restore abstraction; no inferred phone state |
 | `gap` | Active interruption requiring scan | Historical intervals persist separately in SQLite |
@@ -29,6 +29,8 @@ OS behavior, runtime correctness, cryptographic identity, or indefinite hardware
 Set-valued storage abstracts effect idempotence. The implementation's UNIQUE
 constraint is independently tested, since the abstract set cannot represent
 duplicate database rows. Individual transactions map to atomic `Commit(e)`.
+Atomic recovery snapshots map to `CommitBatch`, which commits a subset of pending
+observations together. Constraint failure rolls back the entire accepted batch.
 Disk-write failure is a stuttering step followed by an error/exit, with no
 acknowledgement. Source events hidden before scanning may disappear forever.
 Observations read into RAM can also be lost before durable commit. The model
@@ -49,6 +51,14 @@ must eventually succeed and the collector must keep running for this claim to
 apply. `Capture.cfg` permits repeated crashes and hides, so it asserts safety
 without unconditional eventual capture.
 
+`Recovery.cfg` starts with one event already stored and both events retained in
+the accessible UI. It checks eventual storage of the missing event with the same
+stable-environment fairness assumptions. The implementation regression checks a
+reopened database with overlapping history, exact inserted/duplicate counts, and
+batch rollback on invalid input. The UI adapter may expose only expanded or
+onscreen alerts. Scanning retained UI requires the user to open/expand/scroll
+Notification Center, and no historical-completeness property is asserted.
+
 ## TDD and refinement workflow
 
 For the next change, write a failing contract test, identify the model transition
@@ -67,3 +77,8 @@ switching SQLite text bindings to explicit UTF-8 byte lengths.
 The restart regression also first failed with an obsolete active startup gap.
 Restart now bounds the old process's intervals and transfers active uncertainty
 to the new startup-scan interval, preserving all historical rows.
+
+The recovery extension checked 224 safety states, 10 stable-progress states,
+and 7 overlapping-history recovery states locally with no violation. The native
+tests cover a replayed snapshot and a constraint failure partway through a batch.
+Actual retained-UI traversal and banner-ID continuity remain device acceptance work.

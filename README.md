@@ -51,6 +51,56 @@ directories/files use private permissions. SQLite itself is unencrypted. The
 process owns an exclusive lock beside its database to prevent two collectors
 from managing the same capture lifecycle. Ctrl-C performs a graceful stop.
 
+### Recover retained notifications after a restart
+
+Every launch scans currently accessible notifications and uses durable database
+identity to skip observations already saved. For alerts retained inside Notification
+Center, stop the existing collector and run a recovery pass:
+
+```bash
+.build/release/notifdex-capture \
+  --db "$HOME/Library/Application Support/Notifdex/capture.db" \
+  --source macmini-2-jared \
+  --app X --recover
+```
+
+The pass lasts 30 seconds. Open Notification Center by clicking the Mac's clock,
+expand the X stack, and scroll through retained alerts while it runs. Each readable
+alert from the selected app goes through the same parser and SQLite deduplication
+as live banners. Other named apps can be included with repeated `--app` options.
+Reading a snapshot saves its accepted observations in one transaction. A malformed
+banner is reported separately, and valid banners from a partial scan can be saved
+while the coverage gap stays open.
+
+Example per-snapshot output:
+
+```text
+Scan: observed=3 new=1 duplicates=2 issues=0
+Observed banner IDs: ...
+```
+
+This proves the collector actually read three allowed-app observations and saved
+one new rendering. Counts describe each poll and may repeat across polls. They
+are not counts of unique platform messages. `observed=0` means no selected-app
+alerts were exposed in that poll. The final summary reports newly saved observations
+and the maximum observed in a single poll. Recovery includes diagnostics automatically.
+Use `--diagnostics` during normal capture to inspect counts and IDs continuously.
+Logs omit sender names and message previews.
+
+To test backfill, stop capture, send a uniquely marked DM, let its banner retire
+into Notification Center without clearing it, then run `--recover` and expose it.
+To test replay, run the same pass again with the same source and database. A
+stable banner ID and unchanged rendering should produce `new=0 duplicates=1`
+when that one alert is observed. If macOS changes the ID or rendering, a new
+observation is preserved. ID continuity between live and retained views still
+needs verification on each target macOS version. Identical message text alone
+never merges distinct banners.
+
+This UI-based recovery requires you to expose retained alerts. It does not open
+the panel, expand groups, or scroll automatically. Cleared, unrendered, or
+undelivered notifications may remain unavailable. A recovery pass leaves delivery
+completeness unknown. Retained-alert traversal still needs validation on your Mac.
+
 ### Running unit tests on macOS
 
 The test suite imports XCTest and needs a developer toolchain that includes it.
@@ -110,6 +160,6 @@ Python's standard library runs supplemental tests against the exact shipped SQL,
 including killing a writer before COMMIT. Production code is Swift and SQLite.
 The model runner uses TLA+ tools 1.7.4 in CI. TLC explores two abstract event
 revisions with arbitrary visibility changes, crashes, and availability changes.
-Conditional progress is checked in a separate stable-environment configuration.
+Conditional progress and overlapping-history recovery are checked in separate configurations.
 It is a finite model check. Implementation tests and real device trials establish
 the correspondence to the actual collector and operating system.

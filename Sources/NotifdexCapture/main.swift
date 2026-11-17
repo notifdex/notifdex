@@ -40,7 +40,36 @@ func descendants(_ root: AXUIElement) throws -> [AXUIElement] {
     return result
 }
 
-func snapshot(source: String, allowedApps: Set<String>) throws -> [Observation] {
+struct Snapshot {
+    var observations: [Observation] = []
+    var issues: [String] = []
+}
+
+func readBanner(_ node: AXUIElement, source: String, allowedApps: Set<String>) throws -> Observation? {
+    let description = try string(node, "AXAttributedDescription")
+    var fields: [String: String] = [:]
+    for child in try descendants(node) {
+        let identifier = try string(child, "AXIdentifier")
+        if ["title", "subtitle", "body"].contains(identifier) {
+            fields[identifier] = try string(child, "AXValue")
+        }
+    }
+    let identifier = try string(node, "AXIdentifier")
+    let observation = Observation(
+        sourceID: source, sourceEventID: identifier,
+        capturedAt: Date().timeIntervalSince1970, description: description,
+        title: fields["title"] ?? "", subtitle: fields["subtitle"] ?? "",
+        body: fields["body"] ?? ""
+    )
+    guard let app = observation.appLabel else {
+        throw CaptureError(description: "Unrecognized banner description; app attribution unavailable")
+    }
+    guard allowedApps.contains(app) else { return nil }
+    guard !identifier.isEmpty else { throw CaptureError(description: "Banner ID unavailable") }
+    return observation
+}
+
+func snapshot(source: String, allowedApps: Set<String>) throws -> Snapshot {
     guard AXIsProcessTrusted() else { throw CaptureError(description: "Accessibility permission unavailable") }
     guard let process = NSRunningApplication.runningApplications(
         withBundleIdentifier: "com.apple.notificationcenterui"
@@ -48,51 +77,46 @@ func snapshot(source: String, allowedApps: Set<String>) throws -> [Observation] 
     let root = AXUIElementCreateApplication(process.processIdentifier)
     AXUIElementSetMessagingTimeout(root, 0.5)
     let windows = try ax(root, "AXWindows") as? [AXUIElement] ?? []
-    var observations: [Observation] = []
+    var result = Snapshot()
     for window in windows {
-        for node in try descendants(window) {
-            let subrole = try string(node, "AXSubrole")
-            guard subrole == "AXNotificationCenterBanner" || subrole == "AXNotificationCenterAlert" else { continue }
-            let description = try string(node, "AXAttributedDescription")
-            var fields: [String: String] = [:]
-            for child in try descendants(node) {
-                let identifier = try string(child, "AXIdentifier")
-                if ["title", "subtitle", "body"].contains(identifier) {
-                    fields[identifier] = try string(child, "AXValue")
+        do {
+            for node in try descendants(window) {
+                do {
+                    let subrole = try string(node, "AXSubrole")
+                    guard subrole == "AXNotificationCenterBanner" || subrole == "AXNotificationCenterAlert" else { continue }
+                    if let observation = try readBanner(node, source: source, allowedApps: allowedApps) {
+                        result.observations.append(observation)
+                    }
+                } catch {
+                    result.issues.append(String(describing: error))
                 }
             }
-            let identifier = try string(node, "AXIdentifier")
-            let observation = Observation(
-                sourceID: source, sourceEventID: identifier,
-                capturedAt: Date().timeIntervalSince1970, description: description,
-                title: fields["title"] ?? "", subtitle: fields["subtitle"] ?? "",
-                body: fields["body"] ?? ""
-            )
-            guard let app = observation.appLabel else {
-                throw CaptureError(description: "Unrecognized banner description; app attribution unavailable")
-            }
-            guard allowedApps.contains(app) else { continue }
-            guard !identifier.isEmpty else { throw CaptureError(description: "Banner ID unavailable") }
-            observations.append(observation)
+        } catch {
+            result.issues.append(String(describing: error))
         }
     }
-    return observations
+    return result
 }
 
 func run() throws {
     let args = Array(CommandLine.arguments.dropFirst())
     if args.contains("--help") || args.isEmpty {
-        print("Usage: notifdex-capture --db PATH --source DEVICE-ID --app X [--app WhatsApp]")
+        print("Usage: notifdex-capture --db PATH --source DEVICE-ID --app X [--app WhatsApp] [--recover] [--diagnostics]")
         print("Captures only named apps. Source must stay stable for this Mac and login.")
+        print("--recover: inspect retained accessible alerts for 30 seconds, then exit.")
+        print("--diagnostics: show scan counts and matched banner IDs without previews.")
         return
     }
-    guard args.count % 2 == 0 else { throw CaptureError(description: "Options require values") }
+    let recoveryMode = args.contains("--recover")
+    let diagnostics = recoveryMode || args.contains("--diagnostics")
+    let valueArgs = args.filter { !["--recover", "--diagnostics"].contains($0) }
+    guard valueArgs.count % 2 == 0 else { throw CaptureError(description: "Options require values") }
     var options: [String: [String]] = [:]
-    for index in stride(from: 0, to: args.count, by: 2) {
-        guard ["--db", "--source", "--app"].contains(args[index]) else {
+    for index in stride(from: 0, to: valueArgs.count, by: 2) {
+        guard ["--db", "--source", "--app"].contains(valueArgs[index]) else {
             throw CaptureError(description: "Unknown option")
         }
-        options[args[index], default: []].append(args[index + 1])
+        options[valueArgs[index], default: []].append(valueArgs[index + 1])
     }
     guard let path = options["--db"]?.first, options["--db"]?.count == 1,
           let device = options["--source"]?.first, !device.isEmpty, options["--source"]?.count == 1,
@@ -140,9 +164,18 @@ func run() throws {
 
     print("Capture active for \(appNames.joined(separator: ", ")). Ctrl-C stops capture.")
     print("Notification previews will be saved locally. Coverage is best effort.")
+    if recoveryMode {
+        print("Recovery: open Notification Center now. Expand selected app stacks and scroll through retained alerts.")
+        print("This pass runs for 30 seconds. Scanning does not open, dismiss, or expand notifications.")
+    }
+    let recoveryDeadline = Date().addingTimeInterval(30)
+    var savedDuringRecovery = 0
+    var maximumObserved = 0
+    var successfulScans = 0
     var lastPoll = Date().timeIntervalSince1970
     var lastState = ""
-    while !stopped {
+    var lastReport = ""
+    while !stopped && (!recoveryMode || Date() < recoveryDeadline) {
         if let error = lifecycleError { throw error }
         let now = Date().timeIntervalSince1970
         if now - lastPoll > 3 || now < lastPoll {
@@ -151,17 +184,41 @@ func run() throws {
         lastPoll = now
         if !sleeping {
             do {
-                let observations = try snapshot(source: device + ":notificationcenter", allowedApps: Set(appNames))
-                for observation in observations {
-                    if try store.record(observation, runID: runID) { print("Saved an observation.") }
+                let scan = try snapshot(source: device + ":notificationcenter", allowedApps: Set(appNames))
+                let result = try store.recordBatch(scan.observations, runID: runID, at: Date().timeIntervalSince1970)
+                savedDuringRecovery += result.inserted
+                maximumObserved = max(maximumObserved, result.observed)
+                if scan.issues.isEmpty { successfulScans += 1 }
+                if result.inserted > 0 {
+                    print("Saved \(result.inserted) observation(s).")
+                }
+                let report = "Scan: observed=\(result.observed) new=\(result.inserted) duplicates=\(result.duplicates) issues=\(scan.issues.count)"
+                // Banner IDs make it possible to verify that a replay was actually read.
+                let identifiers = scan.observations.map(\.sourceEventID).sorted().joined(separator: ", ")
+                let signature = report + identifiers + scan.issues.joined(separator: "; ")
+                if (diagnostics || lastState != "scanning" || result.inserted > 0) && signature != lastReport {
+                    print(report)
+                    if diagnostics {
+                        if !identifiers.isEmpty { print("Observed banner IDs: \(identifiers)") }
+                        for issue in Set(scan.issues).sorted() { print("Scan issue: \(issue)") }
+                    }
+                    lastReport = signature
                 }
                 let completedAt = Date().timeIntervalSince1970
                 try store.heartbeat(runID: runID, at: completedAt)
-                try store.recover(runID: runID, at: completedAt)
-                if lastState != "scanning" {
-                    print("Scanning accessible alerts. Delivery completeness remains unknown.")
-                    lastState = "scanning"
+                if scan.issues.isEmpty {
+                    try store.recover(runID: runID, at: completedAt)
+                } else {
+                    try store.openGap(runID: runID, reason: "partial_scan", at: now)
+                    if lastState != "partial_scan" {
+                        print("Some alerts could not be read. Use --diagnostics for details.")
+                    }
                 }
+                let state = scan.issues.isEmpty ? "scanning" : "partial_scan"
+                if state == "scanning" && lastState != state {
+                    print("Scanning accessible alerts. Delivery completeness remains unknown.")
+                }
+                lastState = state
             } catch let error as CaptureError {
                 try store.openGap(runID: runID, reason: "accessibility_unavailable", at: now)
                 if lastState != error.description { print(error.description); lastState = error.description }
@@ -170,6 +227,11 @@ func run() throws {
         RunLoop.main.run(until: Date().addingTimeInterval(0.5))
     }
     try store.finishRun(runID: runID, at: Date().timeIntervalSince1970)
+    if recoveryMode {
+        print("Recovery ended: new=\(savedDuringRecovery), maximum observed in one scan=\(maximumObserved), error-free scans=\(successfulScans).")
+        if maximumObserved == 0 { print("No selected-app alerts were observed. Open and expand their retained notifications, then retry.") }
+        print("Cleared, inaccessible, or undelivered history remains unknown.")
+    }
     print("Capture stopped.")
 }
 

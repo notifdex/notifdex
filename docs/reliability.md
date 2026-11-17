@@ -32,10 +32,10 @@ Statuses below distinguish implemented paths from pending real-device verificati
 | Mac/iPhone Focus or notification summary | Capture only what becomes accessible | Trial per Focus/summary setting pending; no lossless claim |
 | Previews hidden/redacted | Preserve what UI exposes; later text is another revision | Locked/unlocked preview trials pending |
 | Alert dismissed before polling | May be missed | Measure capture window and observer feasibility; no automatic recovery promise |
-| Alert appears only in closed Notification Center | Rescan traverses exposed UI without opening panel | Manual panel comparison pending; missing historical alerts remain unknown |
+| Alert retained inside Notification Center | `--recover` scans for 30 seconds while user opens/expands/scrolls the panel | Batch backfill/replay tests; real retained-UI traversal pending |
 | Accessibility permission revoked | Record scan gap; periodically retry and recover after successful scan | Grant/revoke/restart trial pending |
 | Notification Center process restarts | Look up current PID each scan; failed traversal opens gap | Process-restart trial pending |
-| One banner malformed/disappears during scan | Surface scan gap and retry | Adapter fault-injection and per-banner isolation pending |
+| One banner malformed/disappears during scan | Report per-banner errors, retain a partial-scan gap, and commit readable observations | Adapter fault-injection pending; batch rollback test covers invalid accepted input |
 | Missing/changed banner ID | Surface attribution/ID error | New macOS/app fixture required; no fabricated stable ID |
 | Locale changes | Recognize only tested English description format; otherwise gap/unknown origin | Locale fixtures pending |
 | Clock jumps or poll delay exceeds 3s | Persist poll-interruption gap using conservative local bound | Device clock test pending |

@@ -16,7 +16,7 @@
 - Test synthetic fixtures and failure paths. Keep personal messages, databases,
   credentials, and machine-specific capture files out of Git and CI output.
 - External AI processing requires user opt-in. Keep capture and storage usable offline.
-- Run `swift test`, the SQL contract suite, and both TLC configurations for foundation
+- Run `swift test`, the SQL contract suite, and all TLC configurations for foundation
   changes. Test the macOS adapter manually against the matrix for release claims.
 - Implement in small usable milestones. The next UI is a SwiftUI menu bar app.
   CRM inference and outbound actions require their own explicit product contracts.

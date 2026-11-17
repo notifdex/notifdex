@@ -5,6 +5,12 @@ public struct StoreError: Error, CustomStringConvertible {
     public let description: String
 }
 
+public struct CaptureBatchResult {
+    public let observed: Int
+    public let inserted: Int
+    public var duplicates: Int { observed - inserted }
+}
+
 /// Use one collector owner per database. SQLite transactions protect all durable writes.
 public final class CaptureStore {
     private var database: OpaquePointer?
@@ -80,10 +86,16 @@ public final class CaptureStore {
 
     @discardableResult
     public func record(_ value: Observation, runID: String) throws -> Bool {
-        var inserted = false
+        try recordBatch([value], runID: runID, at: value.capturedAt).inserted == 1
+    }
+
+    /// Atomically persist a snapshot. Counters describe this committed attempt.
+    public func recordBatch(_ values: [Observation], runID: String, at time: Double) throws -> CaptureBatchResult {
+        var inserted = 0
         try transaction {
-            try heartbeat(runID: runID, at: value.capturedAt)
-            try execute("""
+            try heartbeat(runID: runID, at: time)
+            for value in values {
+                try execute("""
                 INSERT INTO observations
                 (source_id, source_event_id, run_id, origin, app_label, title, subtitle,
                  body, accessibility_description, captured_at, parser_version)
@@ -94,9 +106,10 @@ public final class CaptureStore {
                                value.appLabel, value.title, value.subtitle, value.body,
                                value.accessibilityDescription],
                         numbers: [value.capturedAt, Double(value.parserVersion)])
-            inserted = sqlite3_changes(database) == 1
+                inserted += Int(sqlite3_changes(database))
+            }
         }
-        return inserted
+        return CaptureBatchResult(observed: values.count, inserted: inserted)
     }
 
     public func heartbeat(runID: String, at time: Double) throws {

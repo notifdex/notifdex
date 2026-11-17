@@ -42,7 +42,7 @@ Statuses below distinguish implemented paths from pending real-device verificati
 | Two collectors, same DB | Advisory file lock permits one owner | Process-level acceptance pending; SQLite contention contract test passes |
 | SQLite busy | Bounded retry inside SQLite; unrecovered error stops collector | Contention SQL test; Swift busy case pending |
 | Disk full/I/O failure/read-only volume | Exit with storage error; next startup records unclean interval if DB writable | Injected full/read-only/I/O trials pending |
-| Database corrupt or unsupported schema | Fail startup with error | Swift unsupported/corrupt file tests pending |
+| Database corrupt or unsupported schema | Fail startup with error | Swift corrupt-file test passes; unsupported-version test pending |
 | Crash before first durable run record | No persisted record exists to describe that interval | UI must retain best-effort coverage status |
 | Collector app update changes permission identity | Permission must be re-established if required | Signed app/update milestone pending |
 

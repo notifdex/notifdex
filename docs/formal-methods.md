@@ -61,3 +61,6 @@ Foundation validation in this workspace on 2026-11-17 found 224 reachable safety
 states and 10 stable-progress states with no violation. The eight supplemental
 SQLite tests passed, including process death during an uncommitted transaction.
 Swift/macOS checks run in GitHub Actions because this workspace has no Swift SDK.
+An acknowledgement-before-storage mutation of the model produced the expected
+`AcknowledgedIsDurable` counterexample. The native NUL regression failed before
+switching SQLite text bindings to explicit UTF-8 byte lengths.

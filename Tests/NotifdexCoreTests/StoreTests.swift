@@ -32,6 +32,7 @@ final class StoreTests: XCTestCase {
         XCTAssertFalse(try reopened.record(observation(), runID: nextRun))
         XCTAssertEqual(try reopened.observationCount(), 1)
         XCTAssertEqual(try reopened.gapCount(reason: "unclean_exit"), 1)
+        XCTAssertEqual(try reopened.openGapCount(), 1, "Only the new startup scan remains active")
     }
 
     func testIdenticalMessagesWithDifferentIDsSurvive() throws {

@@ -45,6 +45,7 @@ private final class WorkflowModel: ObservableObject {
     @Published var mode: WorkflowMode = .inbox
     @Published var app: String?
     @Published var search = ""
+    @Published var inboxPresentation = InboxPresentation()
     @Published var person: String?
     @Published var selected: Int64?
     @Published var name = ""
@@ -117,6 +118,16 @@ private final class WorkflowModel: ObservableObject {
             case .failure(let error): self.error = String(describing: error)
             }
         })
+    }
+
+    func toggleAppSection(_ app: String) {
+        inboxPresentation.toggle(app)
+        clearSelectionIfCollapsed()
+    }
+
+    func clearSelectionIfCollapsed() {
+        guard mode == .inbox, let app = alert?.app, !inboxPresentation.isExpanded(app) else { return }
+        selected = nil
     }
 
     func loadMore() { limit = min(1000, limit + 50) }
@@ -277,6 +288,9 @@ struct WorkflowView: View {
                 else { model.load(query: model.query) }
             }
         }
+        .onChange(of: model.inboxPresentation.order) { _, _ in
+            model.clearSelectionIfCollapsed()
+        }
         .onChange(of: model.mode) { _, _ in
             model.selected = nil
             model.search = ""
@@ -287,6 +301,15 @@ struct WorkflowView: View {
 
     private var filterBar: some View {
         HStack {
+            if model.mode == .inbox {
+                Picker("Group inbox", selection: $model.inboxPresentation.order) {
+                    Text("Recent").tag(InboxPresentation.Order.recent)
+                    Text("By App").tag(InboxPresentation.Order.byApp)
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .fixedSize()
+            }
             if model.mode == .inbox || model.mode == .saved || model.mode == .hidden {
                 let categories = Set(apps.map { $0 == "Twitter" ? "X" : ($0.isEmpty ? "Unknown app" : $0) }).sorted()
                 Picker("App", selection: $model.app) {
@@ -312,16 +335,30 @@ struct WorkflowView: View {
 
     private var entryList: some View {
         let rows = Array(model.visibleEntries.prefix(model.limit))
-        let grouped = model.mode == .inbox || model.mode == .saved || model.mode == .hidden
+        let presentation = switch model.mode {
+        case .inbox: model.inboxPresentation
+        case .saved, .hidden: InboxPresentation(order: .byApp)
+        case .people, .today: InboxPresentation()
+        }
         return List(selection: $model.selected) {
-            if grouped {
-                ForEach(Set(rows.map(\.app)).sorted(), id: \.self) { app in
-                    Section(app) {
-                        ForEach(rows.filter { $0.app == app }) { row in entryRow(row, showHide: model.mode == .inbox).tag(row.id) }
+            ForEach(presentation.sections(for: rows), id: \.app) { section in
+                if let app = section.app {
+                    Section {
+                        if section.expanded { listedRows(section.rows) }
+                    } header: {
+                        if model.mode == .inbox {
+                            Button { model.toggleAppSection(app) } label: {
+                                Label(app, systemImage: section.expanded ? "chevron.down" : "chevron.right")
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel(section.expanded ? "Collapse \(app)" : "Expand \(app)")
+                        } else {
+                            Text(app)
+                        }
                     }
+                } else {
+                    listedRows(section.rows)
                 }
-            } else {
-                ForEach(rows) { row in entryRow(row, showHide: model.mode == .inbox).tag(row.id) }
             }
         }
         .overlay {
@@ -329,6 +366,12 @@ struct WorkflowView: View {
                 Text(ready ? "No matching alerts" : "Opening inbox…").foregroundStyle(.secondary)
                     .allowsHitTesting(false)
             }
+        }
+    }
+
+    private func listedRows(_ rows: [InboxEntry]) -> some View {
+        ForEach(rows) { row in
+            entryRow(row, showHide: model.mode == .inbox).tag(row.id)
         }
     }
 

@@ -38,12 +38,12 @@ public struct InboxEntry: Identifiable, Equatable {
     public let personRuleID: String?
 }
 
-public struct RolodexPerson: Identifiable, Equatable {
+public struct PersonRecord: Identifiable, Equatable {
     public let id: String
     public let name: String
 }
 
-public struct RolodexIdentity: Identifiable, Equatable {
+public struct PersonIdentity: Identifiable, Equatable {
     public let id: String
     public let platform: String
     public let identifier: String

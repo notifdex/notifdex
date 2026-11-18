@@ -1,4 +1,4 @@
------------------------------- MODULE Rolodex ------------------------------
+------------------------------ MODULE InboxWorkflow ------------------------------
 EXTENDS TLC
 CONSTANTS Alerts, People, DueDates, Matches
 VARIABLES saved, links, tasks, done, filterEnabled, hiddenEntries, readEntries

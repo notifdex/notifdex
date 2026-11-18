@@ -1,8 +1,8 @@
 # Notifdex
 
-A local notification rolodex for macOS. Notifications become evidence you can
-review alongside people, their platform identities, and eventually reminders
-and relationship summaries.
+Notifdex is a local **notification index** for macOS. It indexes alerts that
+macOS exposes so you can find them later, connect them to people, and schedule
+follow-ups.
 
 The first milestone is durable notification collection. The repository starts
 fresh here. The earlier Python/web implementation is preserved on
@@ -13,18 +13,20 @@ still available as historical context.
 
 ## Current scope
 
-- A native menu bar app with App Center toggles, recent observations, and capture status.
+- **Inbox** groups and searches captured alerts. Save an alert or hide recurring noise.
+- **People** connects alerts across apps to a person and their handles or addresses.
+- **Today** lists open follow-ups by due date. Complete or snooze them from the list.
+- A native menu bar app with App Center toggles and capture status.
 - A shared Accessibility collector and transactional SQLite storage, also usable from Terminal.
 - Explicit app allowlist, stable device/login source namespace, and banner revisions.
 - Durable capture runs and coverage gaps for startup, restart, sleep, scan failure,
   permission loss, and interrupted polling.
 - SQLite failure/replay tests, Swift unit tests, and finite TLA+ safety and progress models.
 
-The app is packaged locally with ad-hoc code signing. AI, funnels, and CRM screens
-are future milestones. Capture and automated panel navigation need acceptance
-testing on each target macOS/app combination. Live X capture and user-assisted
-retained-alert recovery have been tested on the user's Mac. Automated navigation
-and the packaged GUI are awaiting that device trial.
+The app is packaged locally with ad-hoc code signing. Capture is best effort:
+macOS may expose only some alerts and can redact previews. AI suggestions and
+relationship templates are planned. Automated recovery depends on the
+Notification Center controls available on your Mac.
 
 ## Run the menu bar app
 
@@ -45,15 +47,17 @@ to Terminal. The app polls for permission changes. If the system continues denyi
 access after granting it, quit and relaunch the app. Future ad-hoc rebuilds may
 need a renewed permission grant. Quit the installed app before replacing it.
 
-The Apps tab has toggles for X, Discord, Slack, Gmail, LinkedIn, WhatsApp, and
-custom exact notification labels. X starts enabled; the other apps start disabled.
+The Apps tab has toggles for X, Messages, Discord, Slack, Gmail, LinkedIn, WhatsApp,
+and custom exact notification labels. X and Messages are enabled on new installs.
+Existing capture preferences are preserved.
 Settings persist in `~/Library/Application Support/Notifdex/settings.json`.
 When the existing database has exactly one collector source, the app adopts that
 source namespace so replay can recognize prior CLI observations. Otherwise a new
 source UUID is persisted. The Recovery tab shows the source identity for inspection.
 
-The Recent tab shows up to 50 saved observations. The Recovery tab has **Recover
-now**, automatic recovery on launch/wake/selection changes, and launch at login.
+In Inbox, choose **Recent** or **By App**. Open **People** to see linked alerts
+and **Today** to track follow-ups. The Recovery tab has **Recover now**, automatic
+recovery on launch, wake, or app selection changes, and launch at login.
 Login-item registration failures are shown. Installing to `~/Applications` before
 enabling launch at login gives the helper a stable application path.
 

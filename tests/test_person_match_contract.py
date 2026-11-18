@@ -10,7 +10,7 @@ class PersonMatchContract(unittest.TestCase):
         db = sqlite3.connect(":memory:")
         self.addCleanup(db.close)
         db.execute("PRAGMA foreign_keys = ON")
-        for name in ["schema.sql", "rolodex.sql", "filters.sql"]:
+        for name in ["schema.sql", "inbox-work.sql", "filters.sql"]:
             db.executescript(SCHEMA.with_name(name).read_text())
         db.executescript("""
             INSERT INTO capture_runs VALUES ('run', 1, 1, NULL);

@@ -18,7 +18,7 @@ let package = Package(
     ],
     targets: [
         .systemLibrary(name: "CSQLite", pkgConfig: sqlitePkgConfig),
-        .target(name: "NotifdexCore", dependencies: ["CSQLite"], resources: [.copy("schema.sql"), .copy("rolodex.sql"), .copy("filters.sql"), .copy("person-matches.sql")]),
+        .target(name: "NotifdexCore", dependencies: ["CSQLite"], resources: [.copy("schema.sql"), .copy("inbox-work.sql"), .copy("filters.sql"), .copy("person-matches.sql")]),
         .target(name: "NotifdexMac", dependencies: ["NotifdexCore"]),
         .executableTarget(name: "NotifdexCapture", dependencies: ["NotifdexCore", "NotifdexMac"]),
         .executableTarget(name: "NotifdexApp", dependencies: ["NotifdexCore", "NotifdexMac"]),

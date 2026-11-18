@@ -155,3 +155,11 @@ to the Apple Account or number configured in Messages on this Mac and check
 [set up text message forwarding](https://support.apple.com/guide/messages/set-up-messages-ichte16154fb/mac)
 if needed. Notifdex captures the notification preview that macOS exposes.
 Messages history and sending are handled by the Messages app.
+
+
+### Choose how the Inbox is arranged
+
+**Recent** shows one list in the order Notifdex captured the alerts, newest
+first. **By App** groups those same results. Click an app heading to collapse
+or expand it. App filters and search work in either layout, and switching
+layouts keeps your collapsed groups for this session.

@@ -166,6 +166,9 @@ struct NotifdexApp: App {
         guard Bundle.main.url(forResource: "rolodex", withExtension: "sql") != nil else {
             throw StoreError(description: "Packaged rolodex.sql is missing")
         }
+        guard Bundle.main.url(forResource: "filters", withExtension: "sql") != nil else {
+            throw StoreError(description: "Packaged filters.sql is missing")
+        }
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -186,6 +189,12 @@ struct NotifdexApp: App {
         guard try store.inbox(InboxQuery(scope: .followUps)).first?.personID == person else {
             throw StoreError(description: "Packaged follow-up check failed")
         }
+        try store.hideAlert(alert.id)
+        guard try store.inbox(InboxQuery()).isEmpty,
+              try store.inbox(InboxQuery(scope: .hidden(app: nil))).first?.id == alert.id else {
+            throw StoreError(description: "Packaged Inbox filter check failed")
+        }
+        try store.restoreAlert(alert.id)
         try store.finishRun(runID: run, at: 3)
     }
 }

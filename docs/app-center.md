@@ -100,3 +100,26 @@ recipient when the foreground account changes.
 
 The first launch migrates the existing local capture database to version 2.
 Use the rebuilt app and CLI with that database. Older builds reject version 2.
+
+### Hide alerts and subject matches
+
+Use **Hide** on an Inbox row. **Hide this alert** affects just that entry.
+**Hide all with this subject** affects past, current, and future alerts from
+the same app with exactly the same captured subject text. Gmail is the first
+supported subject source, using the subject shown in its captured preview.
+
+Click **Undo** in the Inbox to reverse the latest hide. At any time, use
+**Hidden** to undo an individual hide or remove a subject rule. If both
+apply to an alert, remove both to restore it. Saved items, follow-ups,
+and person activity remain accessible from their own views.
+
+The filter update upgrades the local database to version 3 on first launch.
+
+Select an alert to mark it read. An unread dot and stronger text distinguish
+unopened rows. Use **Mark unread** to put the dot back. Follow-up completion
+is a separate action under **Today**.
+
+Use **Open in X**, **Open in Gmail**, or the matching app button to jump back
+to that service. WhatsApp tries the installed app first and falls back to
+WhatsApp Web. Notifdex opens the app or inbox because captured alerts do not
+currently include a link to the exact conversation.

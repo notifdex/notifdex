@@ -45,13 +45,16 @@ public final class CaptureStore {
             try execute("PRAGMA journal_mode = WAL")
             try execute("PRAGMA synchronous = FULL")
             let version = try scalar("PRAGMA user_version")
-            guard (0...2).contains(version) else {
+            guard (0...3).contains(version) else {
                 throw StoreError(description: "Unsupported database version \(version)")
             }
-            if version < 2 {
+            if version < 3 {
                 try transaction {
                     // Recheck under the write lock if another process opened concurrently.
                     let current = try scalar("PRAGMA user_version")
+                    guard (0...3).contains(current) else {
+                        throw StoreError(description: "Unsupported database version \(current)")
+                    }
                     if current == 0 {
                         guard try scalar("SELECT count(*) FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'") == 0 else {
                             throw StoreError(description: "Expected a new empty Notifdex database")
@@ -60,9 +63,10 @@ public final class CaptureStore {
                     }
                     if current == 0 || current == 1 {
                         try execute(Self.schema(named: "rolodex"))
-                        try execute("PRAGMA user_version = 2")
-                    } else if current != 2 {
-                        throw StoreError(description: "Unsupported database version \(current)")
+                    }
+                    if current < 3 {
+                        try execute(Self.schema(named: "filters"))
+                        try execute("PRAGMA user_version = 3")
                     }
                 }
             }
@@ -302,6 +306,13 @@ public extension CaptureStore {
         var filters: [String] = []
         var arguments: [String?] = []
         let app = "CASE WHEN o.app_label IN ('X', 'Twitter') THEN 'X' ELSE coalesce(nullif(o.app_label, ''), 'Unknown app') END"
+        // The probe exposed Gmail's subject as preview text. Other apps need
+        // an observed subject mapping before they can offer a subject rule.
+        let subject = "CASE WHEN o.app_label = 'Gmail' THEN o.body END"
+        let individuallyHidden = "EXISTS (SELECT 1 FROM hidden_observations h WHERE h.observation_id = o.id)"
+        let filtered = """
+            EXISTS (SELECT 1 FROM inbox_filters f WHERE f.app = \(app) AND f.subject = \(subject))
+            """
         switch query.scope {
         case .inbox(let appLabel, let saved):
             if let appLabel {
@@ -309,6 +320,13 @@ public extension CaptureStore {
                 arguments.append(appLabel)
             }
             if saved { filters.append("w.saved = 1") }
+            else { filters.append("NOT (\(individuallyHidden) OR \(filtered))") }
+        case .hidden(let appLabel):
+            filters.append("(\(individuallyHidden) OR \(filtered))")
+            if let appLabel {
+                filters.append("\(app) = ?")
+                arguments.append(appLabel)
+            }
         case .person(let id):
             filters.append("p.id = ?")
             arguments.append(id)
@@ -327,7 +345,9 @@ public extension CaptureStore {
         let order = query.scope == .followUps ? "w.due_at, o.id DESC" : "o.id DESC"
         return try readRows("""
             SELECT o.id, \(app), o.title, o.subtitle, o.body, o.captured_at,
-                   w.saved, w.due_at, w.done, p.id, p.display_name
+                   w.saved, w.due_at, w.done, p.id, p.display_name,
+                   \(subject), \(individuallyHidden), \(filtered),
+                   EXISTS (SELECT 1 FROM read_observations r WHERE r.observation_id = o.id)
             FROM observations o
             LEFT JOIN observation_work w ON w.observation_id = o.id
             LEFT JOIN person_observations l ON l.observation_id = o.id
@@ -341,8 +361,45 @@ public extension CaptureStore {
                            dueAt: sqlite3_column_type(row, 7) == SQLITE_NULL ? nil : sqlite3_column_double(row, 7),
                            done: sqlite3_column_int(row, 8) != 0,
                            personID: sqlite3_column_type(row, 9) == SQLITE_NULL ? nil : columnString(row, 9),
-                           personName: columnString(row, 10))
+                           personName: columnString(row, 10), subject: columnString(row, 11),
+                           individuallyHidden: sqlite3_column_int(row, 12) != 0,
+                           filtered: sqlite3_column_int(row, 13) != 0,
+                           isRead: sqlite3_column_int(row, 14) != 0)
             }
+    }
+
+    func setRead(_ observation: Int64, read: Bool) throws {
+        let sql = read
+            ? "INSERT INTO read_observations VALUES (?) ON CONFLICT DO NOTHING"
+            : "DELETE FROM read_observations WHERE observation_id = ?"
+        try execute(sql, strings: [String(observation)])
+    }
+
+    func hideAlert(_ observation: Int64) throws {
+        try execute("INSERT INTO hidden_observations VALUES (?) ON CONFLICT DO NOTHING",
+                    strings: [String(observation)])
+    }
+
+    func restoreAlert(_ observation: Int64) throws {
+        try execute("DELETE FROM hidden_observations WHERE observation_id = ?", strings: [String(observation)])
+    }
+
+    func hideSubject(app: String, subject: String) throws {
+        guard app == "Gmail", !subject.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw StoreError(description: "This alert has no supported subject.")
+        }
+        try execute("INSERT INTO inbox_filters (app, subject) VALUES (?, ?) ON CONFLICT DO NOTHING",
+                    strings: [app, subject])
+    }
+
+    func restoreSubject(app: String, subject: String) throws {
+        try execute("DELETE FROM inbox_filters WHERE app = ? AND subject = ?", strings: [app, subject])
+    }
+
+    func inboxFilters() throws -> [InboxFilter] {
+        try readRows("SELECT id, app, subject FROM inbox_filters ORDER BY app, subject") { row in
+            InboxFilter(id: sqlite3_column_int64(row, 0), app: columnString(row, 1), subject: columnString(row, 2))
+        }
     }
 
     func people() throws -> [RolodexPerson] {

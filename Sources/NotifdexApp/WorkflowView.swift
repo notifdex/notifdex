@@ -23,28 +23,37 @@ private enum WorkflowMode: String, CaseIterable, Hashable, Identifiable {
     var hasTriageControls: Bool { self == .inbox || self == .flagged }
 }
 
+private struct HideRulePreview: Identifiable {
+    let id = UUID()
+    let match: InboxRuleMatch
+    let count: Int
+}
+
 private enum InboxHide: Equatable {
     case alert(Int64)
-    case subject(app: String, text: String)
+    case rule(InboxRuleMatch)
 
     var message: String {
         switch self {
         case .alert: return "Alert hidden."
-        case .subject: return "Matching alerts hidden."
+        case .rule: return "Matching alerts hidden."
         }
     }
 
     func apply(to store: CaptureStore) throws {
         switch self {
         case .alert(let id): try store.hideAlert(id)
-        case .subject(let app, let text): try store.hideSubject(app: app, subject: text)
+        case .rule(let match):
+            guard try store.addHideRule(match) else {
+                throw StoreError(description: "That hide rule already exists.")
+            }
         }
     }
 
     func remove(from store: CaptureStore) throws {
         switch self {
         case .alert(let id): try store.restoreAlert(id)
-        case .subject(let app, let text): try store.restoreSubject(app: app, subject: text)
+        case .rule(let match): try store.removeHideRule(match)
         }
     }
 }
@@ -64,6 +73,7 @@ private final class WorkflowModel: ObservableObject {
     @Published var identifier = ""
     @Published var due = Date()
     @Published var matchPreview: PersonMatchPreview?
+    @Published var hideRulePreview: HideRulePreview?
     @Published var noteDraft: NoteDraft?
     @Published var noteBody = ""
     @Published var confirmingNoteDeletion = false
@@ -239,6 +249,20 @@ private final class WorkflowModel: ObservableObject {
         }
     }
 
+    func reviewHideRule(_ match: InboxRuleMatch) {
+        guard !busy else { return }
+        busy = true
+        error = nil
+        worker.withStore({ try $0.previewHideRule(match) }) { [weak self] result in
+            guard let self else { return }
+            self.busy = false
+            switch result {
+            case .success(let count): self.hideRulePreview = HideRulePreview(match: match, count: count)
+            case .failure(let error): self.error = String(describing: error)
+            }
+        }
+    }
+
     func reviewMatch(for alert: InboxEntry) {
         guard !busy else { return }
         busy = true
@@ -305,7 +329,7 @@ struct WorkflowView: View {
                 }
                 .font(.callout)
             }
-            if model.mode == .hidden && !model.rules.isEmpty { subjectRules }
+            if model.mode == .hidden && !model.rules.isEmpty { hideRules }
             if let error = model.error { Text(error).foregroundStyle(.red).textSelection(.enabled) }
             HSplitView {
                 VStack(spacing: 6) {
@@ -327,6 +351,9 @@ struct WorkflowView: View {
         .padding(.top, 10)
         .sheet(item: $model.matchPreview) { preview in
             matchReview(preview)
+        }
+        .sheet(item: $model.hideRulePreview) { preview in
+            hideRuleReview(preview)
         }
         .sheet(item: $model.noteDraft) { draft in
             PersonNoteEditor(model: model, draft: draft)
@@ -510,31 +537,36 @@ struct WorkflowView: View {
     private func hideMenu(_ entry: InboxEntry) -> some View {
         Menu {
             Button("Hide this alert") { model.hide(.alert(entry.id)) }
-            if !entry.subject.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                Button("Hide all with this subject") {
-                    model.hide(.subject(app: entry.app, text: entry.subject))
+            if entry.app != "Unknown app" {
+                ForEach(InboxRuleMatch.Field.allCases) { field in
+                    let text = field == .title ? entry.title : entry.body
+                    if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        Button("Hide all with this \(field.rawValue)") {
+                            model.reviewHideRule(InboxRuleMatch(app: entry.app, field: field, text: text))
+                        }
+                    }
                 }
-                .help("Match this exact subject within \(entry.app)")
             }
         } label: {
             Label("Hide", systemImage: "eye.slash")
         }
         .menuStyle(.borderlessButton)
         .fixedSize()
-        .help("Hide this alert or all alerts with the same subject")
+        .help("Hide this alert or match its title or body within this app")
         .disabled(!ready || model.busy)
     }
 
-    private var subjectRules: some View {
-        Menu("Subject rules") {
+    private var hideRules: some View {
+        Menu("Hide rules") {
             ForEach(model.rules) { rule in
-                Button("Remove \(rule.app) · \(rule.subject)") {
-                    model.restore(.subject(app: rule.app, text: rule.subject))
+                let match = rule.match
+                Button("Remove \(match.app) · \(match.field.rawValue.capitalized) · \(match.text)") {
+                    model.restore(.rule(match))
                 }
             }
         }
         .disabled(!ready || model.busy)
-        .help("Remove a rule to show matching alerts in the Inbox again")
+        .help("Remove a hide rule. Other hides still apply.")
     }
 
     @ViewBuilder private var detail: some View {
@@ -579,9 +611,14 @@ struct WorkflowView: View {
                 if alert.individuallyHidden {
                     Button("Undo individual hide") { model.restore(.alert(alert.id)) }
                 }
-                if alert.filtered {
-                    Button("Remove matching subject rule") {
-                        model.restore(.subject(app: alert.app, text: alert.subject))
+                if alert.titleFiltered {
+                    Button("Remove matching title rule") {
+                        model.restore(.rule(InboxRuleMatch(app: alert.app, field: .title, text: alert.title)))
+                    }
+                }
+                if alert.bodyFiltered {
+                    Button("Remove matching body rule") {
+                        model.restore(.rule(InboxRuleMatch(app: alert.app, field: .body, text: alert.body)))
                     }
                 }
             }
@@ -634,6 +671,37 @@ struct WorkflowView: View {
                 }
             }
         }
+    }
+
+    private func hideRuleReview(_ preview: HideRulePreview) -> some View {
+        let match = preview.match
+        return VStack(alignment: .leading, spacing: 12) {
+            Text("Hide all with this \(match.field.rawValue)?").font(.title2)
+            LabeledContent("App", value: match.app)
+            Text("Exact \(match.field.rawValue)")
+                .font(.headline)
+            ScrollView {
+                Text(verbatim: match.text)
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .frame(maxHeight: 110)
+            Text("Stored alerts that match: \(preview.count)")
+            Text("This rule also hides future alerts from \(match.app) with the same \(match.field.rawValue).")
+                .font(.callout).foregroundStyle(.secondary)
+            HStack {
+                Button("Cancel") { model.hideRulePreview = nil }.keyboardShortcut(.cancelAction)
+                Spacer()
+                Button("Hide matching alerts") {
+                    model.hideRulePreview = nil
+                    model.hide(.rule(match))
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(!ready || model.busy)
+            }
+        }
+        .padding(20)
+        .frame(width: 460)
     }
 
     private func matchReview(_ preview: PersonMatchPreview) -> some View {

@@ -101,19 +101,22 @@ recipient when the foreground account changes.
 The first launch migrates the existing local capture database to version 2.
 Use the rebuilt app and CLI with that database. Older builds reject version 2.
 
-### Hide alerts and subject matches
+### Hide alerts by title or body
 
-Use **Hide** on an Inbox row. **Hide this alert** affects just that entry.
-**Hide all with this subject** affects past, current, and future alerts from
-the same app with exactly the same captured subject text. Gmail is the first
-supported subject source, using the subject shown in its captured preview.
+Use **Hide** on an Inbox or Flagged row. **Hide this alert** affects just
+that entry. **Hide all with this title** and **Hide all with this body**
+match the exact notification text in that field within the same app.
+Review the text and stored match count before applying a rule. The rule
+also applies to future alerts. If a Gmail bot keeps its name in the title
+while its subject changes, choose the title rule.
 
-Click **Undo** in the Inbox to reverse the latest hide. At any time, use
-**Hidden** to undo an individual hide or remove a subject rule. If both
-apply to an alert, remove both to restore it. Saved items, follow-ups,
-and person activity remain accessible from their own views.
+Click **Undo** to reverse the latest hide. In **Hidden**, use **Hide
+rules** to remove a rule, or select an alert to remove one of its hide
+reasons. An alert reappears in Inbox after all of its hide reasons are
+removed. Saved items, follow-ups, and person activity remain accessible.
 
-The filter update upgrades the local database to version 3 on first launch.
+The version 7 database upgrade relabels existing Gmail subject rules as
+Body rules with the same text and app. Individual hides are preserved.
 
 Select an alert to mark it read. An unread dot and stronger text distinguish
 unopened rows. Use **Mark unread** to put the dot back. Follow-up completion

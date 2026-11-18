@@ -31,11 +31,11 @@ public struct InboxEntry: Identifiable, Equatable {
     public let done: Bool
     public let personID: String?
     public let personName: String
-    public let personRuleID: String?
     public let subject: String
     public let individuallyHidden: Bool
     public let filtered: Bool
     public let isRead: Bool
+    public let personRuleID: String?
 }
 
 public struct RolodexPerson: Identifiable, Equatable {

@@ -122,9 +122,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         smokeTrace("application did finish launching")
         if CommandLine.arguments.contains("--smoke-test") {
+            DispatchQueue.main.async {
+                let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 240, height: 120),
+                                      styleMask: [.titled, .closable], backing: .buffered, defer: false)
+                window.isReleasedWhenClosed = false
+                window.contentView = AppCenterPresenceView()
+                window.makeKeyAndOrderFront(nil)
+                if NSApp.activationPolicy() == .regular { smokeTrace("window entered app switcher") }
+                window.close()
+                if NSApp.activationPolicy() == .accessory { smokeTrace("closed window returned to menu bar") }
+            }
             DispatchQueue.main.asyncAfter(deadline: .now() + 2) { NSApp.terminate(nil) }
         }
     }
+
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         smokeTrace("application requested shutdown")
@@ -155,6 +167,7 @@ struct NotifdexApp: App {
         }
         Window("Notifdex · App Center", id: "app-center") {
             AppCenter(model: model)
+                .background { AppCenterPresence().allowsHitTesting(false) }
         }
         .defaultSize(width: 780, height: 620)
     }
@@ -229,6 +242,7 @@ struct MenuContent: View {
         Text("\(model.state.total) saved observations")
         Divider()
         Button("App Center…") {
+            NSApp.setActivationPolicy(.regular)
             openWindow(id: "app-center")
             NSApp.activate(ignoringOtherApps: true)
         }

@@ -51,6 +51,8 @@ private final class WorkflowModel: ObservableObject {
     @Published var identityApp = "X"
     @Published var identifier = ""
     @Published var due = Date()
+    @Published var matchPreview: PersonMatchPreview?
+    @Published private(set) var matchRules: [PersonMatchRule] = []
     @Published private(set) var limit = 50
     @Published private(set) var entries: [InboxEntry] = []
     @Published private(set) var rules: [InboxFilter] = []
@@ -97,7 +99,8 @@ private final class WorkflowModel: ObservableObject {
             let card = alert?.personID ?? (query.scope == .person(person ?? "") ? person : nil)
             let timeline = try card.map { try store.inbox(InboxQuery(scope: .person($0), limit: 12)) } ?? []
             let identities = try card.map { try store.identities(for: $0) } ?? []
-            return (entries, try store.people(), card, identities, timeline, try store.inboxFilters())
+            let matches = try card.map { try store.personMatchRules(for: $0) } ?? []
+            return (entries, try store.people(), card, identities, timeline, try store.inboxFilters(), matches)
         }, completion: { [weak self] result in
             guard let self, self.generation == request, self.query == query,
                   self.selected == selected else { return }
@@ -110,6 +113,7 @@ private final class WorkflowModel: ObservableObject {
                 self.identities = value.3
                 self.timeline = value.4
                 self.rules = value.5
+                self.matchRules = value.6
             case .failure(let error): self.error = String(describing: error)
             }
         })
@@ -161,6 +165,26 @@ private final class WorkflowModel: ObservableObject {
             guard self?.lastHide == action else { return }
             self?.lastHide = nil
         }
+    }
+
+    func reviewMatch(for alert: InboxEntry) {
+        guard !busy else { return }
+        busy = true
+        error = nil
+        worker.withStore({ try $0.previewPersonMatch(for: alert.id) }) { [weak self] result in
+            guard let self else { return }
+            self.busy = false
+            guard self.alert?.id == alert.id else { return }
+            switch result {
+            case .success(let preview): self.matchPreview = preview
+            case .failure(let error): self.error = String(describing: error)
+            }
+        }
+    }
+
+    func confirmMatch(_ preview: PersonMatchPreview, includeExisting: Bool) {
+        matchPreview = nil
+        edit { try $0.confirmPersonMatch(preview, includeExisting: includeExisting) }
     }
 
     func createPerson(linking id: Int64?) {
@@ -229,6 +253,9 @@ struct WorkflowView: View {
             }
         }
         .padding(.top, 10)
+        .sheet(item: $model.matchPreview) { preview in
+            matchReview(preview)
+        }
         .task(id: model.query) {
             let query = model.query
             do { try await Task.sleep(for: .milliseconds(150)) } catch { return }
@@ -425,11 +452,19 @@ struct WorkflowView: View {
                     Button(person.name) { model.edit { try $0.link(alert.id, to: person.id) } }
                 }
                 if alert.personID != nil {
-                    Button("Unlink") { model.edit { try $0.link(alert.id, to: nil) } }
+                    Button("Unlink and skip matching rules") { model.edit { try $0.link(alert.id, to: nil) } }
                 }
             }
             .disabled(model.people.isEmpty && alert.personID == nil)
-            if alert.personID == nil { newPerson(linking: alert.id) }
+            if alert.personID == nil {
+                newPerson(linking: alert.id)
+            } else if alert.personRuleID != nil {
+                Label("Linked by a matching rule", systemImage: "link")
+                    .font(.caption).foregroundStyle(.secondary)
+            } else if alert.app != "Unknown app", !alert.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                      !model.matchRules.contains(where: { $0.app == alert.app && $0.title == alert.title }) {
+                Button("Remember this match…") { model.reviewMatch(for: alert) }
+            }
             Divider()
             Text("Follow-up").font(.headline)
             if alert.done {
@@ -455,6 +490,27 @@ struct WorkflowView: View {
                 }
             }
         }
+    }
+
+    private func matchReview(_ preview: PersonMatchPreview) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Remember this match?").font(.title2)
+            LabeledContent("App", value: preview.app)
+            LabeledContent("Exact title", value: preview.title)
+            LabeledContent("Link to", value: preview.personName)
+            Text("Existing unlinked alerts that match: \(preview.existingCount)")
+            Text("People can share a display name. Existing manual links and explicit unlinks take priority.")
+                .font(.callout).foregroundStyle(.secondary)
+            HStack {
+                Button("Cancel") { model.matchPreview = nil }.keyboardShortcut(.cancelAction)
+                Spacer()
+                Button("Future only") { model.confirmMatch(preview, includeExisting: false) }
+                Button("Existing and future") { model.confirmMatch(preview, includeExisting: true) }
+                    .buttonStyle(.borderedProminent)
+            }
+        }
+        .padding(20)
+        .frame(width: 460)
     }
 
     private func newPerson(linking id: Int64?) -> some View {
@@ -484,6 +540,23 @@ struct WorkflowView: View {
                 TextField("Handle or address", text: $model.identifier)
                 Button("Add") { model.addIdentity(to: id) }
                     .disabled(model.identifier.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
+            if model.cardID == id && !model.matchRules.isEmpty {
+                Text("Matching rules").font(.headline)
+                ForEach(model.matchRules) { rule in
+                    HStack {
+                        VStack(alignment: .leading) {
+                            Text("\(rule.app) · \(rule.title)")
+                            if rule.hasConflict {
+                                Text("Paused: this title was linked to another person.")
+                                    .font(.caption).foregroundStyle(.secondary)
+                            }
+                        }
+                        Spacer()
+                        Button("Remove rule") { model.edit { try $0.removePersonMatchRule(rule.id) } }
+                            .help("Remove links made by this rule. Manual links stay.")
+                    }
+                }
             }
             Text("Recent activity").font(.headline)
             if model.cardID == id && model.timeline.isEmpty { Text("No linked alerts yet.").foregroundStyle(.secondary) }

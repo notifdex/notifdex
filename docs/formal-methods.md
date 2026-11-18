@@ -124,3 +124,14 @@ alerts. Hiding and reading leave saved items, links, and follow-ups unchanged.
 The SQLite migration acceptance test failed on the missing v3 schema before
 implementation. The Swift test checks exact matches, later captures, rule
 removal, and combinations of both kinds of hide.
+
+### Person matching
+
+`PersonMatch.tla` models one app/title key across three alerts. Captured
+observations determine eligibility for backfill or future-only matching.
+Explicit assignments and exclusions take precedence, and conflicting manual
+destinations pause the derived links. Removing a rule leaves explicit state
+intact. SQLite uses a unique key for the rules and computes links at read time
+with an observation-ID cutoff. Its v4 migration preserves manual links. The
+SQL acceptance test initially failed on the missing v4 schema and now passes.
+The Swift test covers restart, different apps, title rules, conflicts, and undo.

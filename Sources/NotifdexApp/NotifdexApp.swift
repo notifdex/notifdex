@@ -182,6 +182,9 @@ struct NotifdexApp: App {
         guard Bundle.main.url(forResource: "filters", withExtension: "sql") != nil else {
             throw StoreError(description: "Packaged filters.sql is missing")
         }
+        guard Bundle.main.url(forResource: "person-matches", withExtension: "sql") != nil else {
+            throw StoreError(description: "Packaged person-matches.sql is missing")
+        }
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -208,6 +211,11 @@ struct NotifdexApp: App {
             throw StoreError(description: "Packaged Inbox filter check failed")
         }
         try store.restoreAlert(alert.id)
+        let match = try store.previewPersonMatch(for: alert.id)
+        try store.confirmPersonMatch(match, includeExisting: true)
+        guard try store.personMatchRules(for: person).count == 1 else {
+            throw StoreError(description: "Packaged person match check failed")
+        }
         try store.finishRun(runID: run, at: 3)
     }
 }

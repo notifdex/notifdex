@@ -8,3 +8,5 @@ open -n -W --stdout "$notifdex_smoke_dir/stdout" --stderr "$notifdex_smoke_dir/s
 /usr/bin/grep -q 'Smoke test: application did finish launching' "$notifdex_smoke_dir/stdout"
 /usr/bin/grep -q 'Smoke test: real worker ready' "$notifdex_smoke_dir/stdout"
 /usr/bin/grep -q 'Smoke test: worker stopped' "$notifdex_smoke_dir/stdout"
+/usr/bin/grep -q 'Smoke test: window entered app switcher' "$notifdex_smoke_dir/stdout"
+/usr/bin/grep -q 'Smoke test: closed window returned to menu bar' "$notifdex_smoke_dir/stdout"

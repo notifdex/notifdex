@@ -123,3 +123,8 @@ Use **Open in X**, **Open in Gmail**, or the matching app button to jump back
 to that service. WhatsApp tries the installed app first and falls back to
 WhatsApp Web. Notifdex opens the app or inbox because captured alerts do not
 currently include a link to the exact conversation.
+
+App Center appears in the Dock and app switcher while its window is open.
+Closing the window returns Notifdex to the menu bar and leaves capture running.
+**Today** lists open follow-ups, including future ones, ordered by due date.
+**Hidden** is the last Inbox view.

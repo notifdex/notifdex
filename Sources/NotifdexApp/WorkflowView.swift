@@ -7,9 +7,9 @@ import NotifdexMac
 private enum WorkflowMode: String, CaseIterable, Hashable, Identifiable {
     case inbox = "Inbox"
     case saved = "Saved"
-    case hidden = "Hidden"
     case people = "Rolodex"
     case today = "Today"
+    case hidden = "Hidden"
 
     var id: String { rawValue }
 }

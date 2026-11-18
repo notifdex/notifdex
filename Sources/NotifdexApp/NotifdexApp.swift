@@ -193,6 +193,9 @@ struct NotifdexApp: App {
         guard Bundle.main.url(forResource: "flags", withExtension: "sql") != nil else {
             throw StoreError(description: "Packaged flags.sql is missing")
         }
+        guard Bundle.main.url(forResource: "hide-rules", withExtension: "sql") != nil else {
+            throw StoreError(description: "Packaged hide-rules.sql is missing")
+        }
         let store = try CaptureStore(path: directory.appendingPathComponent("self-check.db").path)
         let run = try store.startRun(at: 1)
         let observation = Observation(sourceID: "synthetic", sourceEventID: "1", capturedAt: 2,
@@ -228,6 +231,15 @@ struct NotifdexApp: App {
         try store.setFlag(alert.id, flagged: true)
         guard try store.inbox(InboxQuery(scope: .flagged(app: nil))).first?.id == alert.id else {
             throw StoreError(description: "Packaged Flagged check failed")
+        }
+        let titleRule = InboxRuleMatch(app: alert.app, field: .title, text: alert.title)
+        guard try store.previewHideRule(titleRule) == 1, try store.addHideRule(titleRule),
+              try store.inbox(InboxQuery(scope: .flagged(app: nil))).isEmpty else {
+            throw StoreError(description: "Packaged title hide check failed")
+        }
+        try store.removeHideRule(titleRule)
+        guard try store.inbox(InboxQuery(scope: .flagged(app: nil))).first?.id == alert.id else {
+            throw StoreError(description: "Packaged hide-rule undo check failed")
         }
         try store.finishRun(runID: run, at: 3)
     }

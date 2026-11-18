@@ -45,14 +45,14 @@ public final class CaptureStore {
             try execute("PRAGMA journal_mode = WAL")
             try execute("PRAGMA synchronous = FULL")
             let version = try scalar("PRAGMA user_version")
-            guard (0...6).contains(version) else {
+            guard (0...7).contains(version) else {
                 throw StoreError(description: "Unsupported database version \(version)")
             }
-            if version < 6 {
+            if version < 7 {
                 try transaction {
                     // Recheck under the write lock if another process opened concurrently.
                     let current = try scalar("PRAGMA user_version")
-                    guard (0...6).contains(current) else {
+                    guard (0...7).contains(current) else {
                         throw StoreError(description: "Unsupported database version \(current)")
                     }
                     if current == 0 {
@@ -75,7 +75,10 @@ public final class CaptureStore {
                     }
                     if current < 6 {
                         try execute(Self.schema(named: "flags"))
-                        try execute("PRAGMA user_version = 6")
+                    }
+                    if current < 7 {
+                        try execute(Self.schema(named: "hide-rules"))
+                        try execute("PRAGMA user_version = 7")
                     }
                 }
             }
@@ -381,9 +384,16 @@ public extension CaptureStore {
         // an observed subject mapping before they can offer a subject rule.
         let subject = "CASE WHEN o.app_label = 'Gmail' THEN o.body END"
         let individuallyHidden = "EXISTS (SELECT 1 FROM hidden_observations h WHERE h.observation_id = o.id)"
-        let filtered = """
-            EXISTS (SELECT 1 FROM inbox_filters f WHERE f.app = \(app) AND f.subject = \(subject))
-            """
+        func hasHideRule(for field: InboxRuleMatch.Field) -> String {
+            let column = field.rawValue
+            return """
+                EXISTS (SELECT 1 FROM inbox_filters f
+                        WHERE f.app = \(app) AND f.field = '\(column)' AND f.value = o.\(column))
+                """
+        }
+        let titleHidden = hasHideRule(for: .title)
+        let bodyHidden = hasHideRule(for: .body)
+        let hidden = "(\(individuallyHidden) OR \(titleHidden) OR \(bodyHidden))"
         let read = "EXISTS (SELECT 1 FROM read_observations r WHERE r.observation_id = o.id)"
         let flagged = "EXISTS (SELECT 1 FROM flagged_observations f WHERE f.observation_id = o.id)"
         switch query.scope {
@@ -393,15 +403,15 @@ public extension CaptureStore {
                 arguments.append(appLabel)
             }
             if saved { filters.append("w.saved = 1") }
-            else { filters.append("NOT (\(individuallyHidden) OR \(filtered))") }
+            else { filters.append("NOT \(hidden)") }
         case .flagged(let appLabel):
-            filters.append("\(flagged) AND NOT (\(individuallyHidden) OR \(filtered))")
+            filters.append("\(flagged) AND NOT \(hidden)")
             if let appLabel {
                 filters.append("\(app) = ?")
                 arguments.append(appLabel)
             }
         case .hidden(let appLabel):
-            filters.append("(\(individuallyHidden) OR \(filtered))")
+            filters.append(hidden)
             if let appLabel {
                 filters.append("\(app) = ?")
                 arguments.append(appLabel)
@@ -441,7 +451,7 @@ public extension CaptureStore {
         return try readRows("""
             SELECT o.id, \(app), o.title, o.subtitle, o.body, o.captured_at,
                    w.saved, w.due_at, w.done, p.id, p.display_name,
-                   \(subject), \(individuallyHidden), \(filtered),
+                   \(subject), \(individuallyHidden), \(titleHidden), \(bodyHidden),
                    \(read), m.id, \(flagged)
             FROM observations o
             LEFT JOIN observation_work w ON w.observation_id = o.id
@@ -462,10 +472,11 @@ public extension CaptureStore {
                            personID: sqlite3_column_type(row, 9) == SQLITE_NULL ? nil : columnString(row, 9),
                            personName: columnString(row, 10), subject: columnString(row, 11),
                            individuallyHidden: sqlite3_column_int(row, 12) != 0,
-                           filtered: sqlite3_column_int(row, 13) != 0,
-                           isRead: sqlite3_column_int(row, 14) != 0,
-                           isFlagged: sqlite3_column_int(row, 16) != 0,
-                           personRuleID: sqlite3_column_type(row, 15) == SQLITE_NULL ? nil : columnString(row, 15))
+                           titleFiltered: sqlite3_column_int(row, 13) != 0,
+                           bodyFiltered: sqlite3_column_int(row, 14) != 0,
+                           isRead: sqlite3_column_int(row, 15) != 0,
+                           isFlagged: sqlite3_column_int(row, 17) != 0,
+                           personRuleID: sqlite3_column_type(row, 16) == SQLITE_NULL ? nil : columnString(row, 16))
             }
     }
 
@@ -496,17 +507,46 @@ public extension CaptureStore {
         guard app == "Gmail", !subject.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             throw StoreError(description: "This alert has no supported subject.")
         }
-        try execute("INSERT INTO inbox_filters (app, subject) VALUES (?, ?) ON CONFLICT DO NOTHING",
-                    strings: [app, subject])
+        try addHideRule(InboxRuleMatch(app: app, field: .body, text: subject))
     }
 
     func restoreSubject(app: String, subject: String) throws {
-        try execute("DELETE FROM inbox_filters WHERE app = ? AND subject = ?", strings: [app, subject])
+        guard app == "Gmail" else { return }
+        try removeHideRule(InboxRuleMatch(app: app, field: .body, text: subject))
+    }
+
+    func previewHideRule(_ match: InboxRuleMatch) throws -> Int {
+        try validateHideRule(match)
+        return try scalar("""
+            SELECT count(*) FROM observations o WHERE \(Self.appCategory) = ? AND o.\(match.field.rawValue) = ?
+            """, strings: [match.app, match.text])
+    }
+
+    @discardableResult
+    func addHideRule(_ match: InboxRuleMatch) throws -> Bool {
+        try validateHideRule(match)
+        try execute("INSERT INTO inbox_filters (app, field, value) VALUES (?, ?, ?) ON CONFLICT DO NOTHING",
+                    strings: [match.app, match.field.rawValue, match.text])
+        return sqlite3_changes(database) == 1
+    }
+
+    func removeHideRule(_ match: InboxRuleMatch) throws {
+        try execute("DELETE FROM inbox_filters WHERE app = ? AND field = ? AND value = ?",
+                    strings: [match.app, match.field.rawValue, match.text])
     }
 
     func inboxFilters() throws -> [InboxFilter] {
-        try readRows("SELECT id, app, subject FROM inbox_filters ORDER BY app, subject") { row in
-            InboxFilter(id: sqlite3_column_int64(row, 0), app: columnString(row, 1), subject: columnString(row, 2))
+        try readRows("SELECT id, app, field, value FROM inbox_filters ORDER BY app, field, value") { row in
+            let field: InboxRuleMatch.Field = columnString(row, 2) == "title" ? .title : .body
+            let match = InboxRuleMatch(app: columnString(row, 1), field: field, text: columnString(row, 3))
+            return InboxFilter(id: sqlite3_column_int64(row, 0), match: match)
+        }
+    }
+
+    private func validateHideRule(_ match: InboxRuleMatch) throws {
+        guard !match.app.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, match.app != "Unknown app",
+              !match.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw StoreError(description: "Choose an alert with a known app and nonempty text.")
         }
     }
 

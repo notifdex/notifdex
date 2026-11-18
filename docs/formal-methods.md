@@ -118,12 +118,14 @@ manual linking across apps, duplicate names, normalized identities, and
 reopening persisted follow-ups. The new SQL acceptance tests initially
 failed because the v2 migration was missing and pass with it applied.
 
-Inbox visibility is derived from independent per-alert hides and app/subject
-rules. The InboxWorkflow model checks that Inbox and Hidden partition the captured
-alerts. Hiding and reading leave saved items, links, and follow-ups unchanged.
-The SQLite migration acceptance test failed on the missing v3 schema before
-implementation. The Swift test checks exact matches, later captures, rule
-removal, and combinations of both kinds of hide.
+Hidden is the union of independent per-alert hides and app-scoped
+title and body matches. The InboxWorkflow model checks the Inbox/Hidden
+partition and verifies that removing one field rule leaves the other field
+and individual hides effective. The configured match sets abstract already
+evaluated app and exact-text checks. Swift tests validate those checks,
+subsequent captures, and undo after reopening. The v7 SQL acceptance test
+failed before the migration existed and now verifies that the original
+Gmail body match, rule ID, and raw text survive the upgrade.
 
 ### Inbox flags and read views
 

@@ -48,7 +48,9 @@ public struct InboxEntry: Identifiable, Equatable {
     public let personName: String
     public let subject: String
     public let individuallyHidden: Bool
-    public let filtered: Bool
+    public let titleFiltered: Bool
+    public let bodyFiltered: Bool
+    public var filtered: Bool { titleFiltered || bodyFiltered }
     public let isRead: Bool
     public let isFlagged: Bool
     public let personRuleID: String?
@@ -73,10 +75,33 @@ public struct PersonIdentity: Identifiable, Equatable {
 }
 
 
+public struct InboxRuleMatch: Equatable {
+    public enum Field: String, CaseIterable, Identifiable {
+        case title, body
+        public var id: String { rawValue }
+    }
+
+    public let app: String
+    public let field: Field
+    public let text: String
+
+    public init(app: String, field: Field, text: String) {
+        self.app = app
+        self.field = field
+        self.text = text
+    }
+
+    public static func == (lhs: InboxRuleMatch, rhs: InboxRuleMatch) -> Bool {
+        lhs.field == rhs.field && lhs.app.utf8.elementsEqual(rhs.app.utf8)
+            && lhs.text.utf8.elementsEqual(rhs.text.utf8)
+    }
+}
+
 public struct InboxFilter: Identifiable {
     public let id: Int64
-    public let app: String
-    public let subject: String
+    public let match: InboxRuleMatch
+    public var app: String { match.app }
+    public var subject: String { match.text }
 }
 
 

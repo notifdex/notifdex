@@ -19,6 +19,9 @@ final class InboxPresentationTests: XCTestCase {
         let xRows = rows.filter { $0.app == "X" }.map(\.id)
         XCTAssertEqual(layout.sections(for: rows).last?.rows.map(\.id), xRows)
 
+        let olderFirst = try store.inbox(InboxQuery(search: "Sample", order: .oldestFirst))
+        XCTAssertEqual(layout.sections(for: olderFirst).last?.rows.map(\.id), Array(xRows.reversed()))
+
         layout.toggle("X")
         let collapsed = try XCTUnwrap(layout.sections(for: rows).last)
         XCTAssertFalse(collapsed.expanded)

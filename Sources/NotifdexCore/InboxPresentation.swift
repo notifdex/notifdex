@@ -23,7 +23,7 @@ public struct InboxPresentation {
         order == .recent || !collapsedApps.contains(app)
     }
 
-    /// Keep the source order (newest capture first) within each section.
+    /// Keep the selected capture order within each app section.
     public func sections(for rows: [InboxEntry]) -> [Section] {
         guard !rows.isEmpty else { return [] }
         if order == .recent { return [Section(app: nil, rows: rows, expanded: true)] }

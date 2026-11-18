@@ -125,6 +125,17 @@ The SQLite migration acceptance test failed on the missing v3 schema before
 implementation. The Swift test checks exact matches, later captures, rule
 removal, and combinations of both kinds of hide.
 
+### Inbox flags and read views
+
+The InboxWorkflow model verifies that visible flagged alerts exclude hidden
+alerts, hidden alerts retain their flag, and read/unread partition Inbox and
+Flagged. Changing a flag keeps read state, saved state, links, follow-ups,
+and hide state intact. Each flag operation maps to one SQLite statement.
+The SQL acceptance test first failed on the missing v6 migration and now
+passes. Swift tests cover upgrade and reopening, overlapping hide reasons,
+date ties, filtering before the limit, and lookup of an open alert after a
+read-state change. The model does not simulate pagination or SwiftUI events.
+
 ### Person matching
 
 `PersonMatch.tla` models one app/title key across three alerts. Captured

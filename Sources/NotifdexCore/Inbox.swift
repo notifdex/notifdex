@@ -3,19 +3,34 @@ import Foundation
 public struct InboxQuery: Equatable {
     public enum Scope: Equatable {
         case inbox(app: String?, saved: Bool)
+        case flagged(app: String?)
         case hidden(app: String?)
         case person(String)
         case followUps
+    }
+
+    public enum ReadFilter: Hashable {
+        case all, unread, read
+    }
+
+    public enum Order: Hashable {
+        case newestFirst, oldestFirst
     }
 
     public var scope: Scope
     public var search: String
     public var limit: Int
 
-    public init(scope: Scope = .inbox(app: nil, saved: false), search: String = "", limit: Int = 50) {
+    public var readFilter: ReadFilter
+    public var order: Order
+
+    public init(scope: Scope = .inbox(app: nil, saved: false), search: String = "", limit: Int = 50,
+                readFilter: ReadFilter = .all, order: Order = .newestFirst) {
         self.scope = scope
         self.search = search
         self.limit = limit
+        self.readFilter = readFilter
+        self.order = order
     }
 }
 
@@ -35,6 +50,7 @@ public struct InboxEntry: Identifiable, Equatable {
     public let individuallyHidden: Bool
     public let filtered: Bool
     public let isRead: Bool
+    public let isFlagged: Bool
     public let personRuleID: String?
 }
 

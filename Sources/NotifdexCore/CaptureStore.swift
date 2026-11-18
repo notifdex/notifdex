@@ -45,14 +45,14 @@ public final class CaptureStore {
             try execute("PRAGMA journal_mode = WAL")
             try execute("PRAGMA synchronous = FULL")
             let version = try scalar("PRAGMA user_version")
-            guard (0...5).contains(version) else {
+            guard (0...6).contains(version) else {
                 throw StoreError(description: "Unsupported database version \(version)")
             }
-            if version < 5 {
+            if version < 6 {
                 try transaction {
                     // Recheck under the write lock if another process opened concurrently.
                     let current = try scalar("PRAGMA user_version")
-                    guard (0...5).contains(current) else {
+                    guard (0...6).contains(current) else {
                         throw StoreError(description: "Unsupported database version \(current)")
                     }
                     if current == 0 {
@@ -72,7 +72,10 @@ public final class CaptureStore {
                     }
                     if current < 5 {
                         try execute(Self.schema(named: "person-notes"))
-                        try execute("PRAGMA user_version = 5")
+                    }
+                    if current < 6 {
+                        try execute(Self.schema(named: "flags"))
+                        try execute("PRAGMA user_version = 6")
                     }
                 }
             }
@@ -359,6 +362,18 @@ public extension CaptureStore {
     }
 
     func inbox(_ query: InboxQuery) throws -> [InboxEntry] {
+        try inboxRows(query, selectedID: nil)
+    }
+
+    /// Keep an open alert available when reading it removes it from the filtered list.
+    func selectedInboxEntry(_ id: Int64, in query: InboxQuery) throws -> InboxEntry? {
+        var lookup = query
+        lookup.readFilter = .all
+        lookup.limit = 1
+        return try inboxRows(lookup, selectedID: id).first
+    }
+
+    private func inboxRows(_ query: InboxQuery, selectedID: Int64?) throws -> [InboxEntry] {
         var filters: [String] = []
         var arguments: [String?] = []
         let app = Self.appCategory
@@ -369,6 +384,8 @@ public extension CaptureStore {
         let filtered = """
             EXISTS (SELECT 1 FROM inbox_filters f WHERE f.app = \(app) AND f.subject = \(subject))
             """
+        let read = "EXISTS (SELECT 1 FROM read_observations r WHERE r.observation_id = o.id)"
+        let flagged = "EXISTS (SELECT 1 FROM flagged_observations f WHERE f.observation_id = o.id)"
         switch query.scope {
         case .inbox(let appLabel, let saved):
             if let appLabel {
@@ -377,6 +394,12 @@ public extension CaptureStore {
             }
             if saved { filters.append("w.saved = 1") }
             else { filters.append("NOT (\(individuallyHidden) OR \(filtered))") }
+        case .flagged(let appLabel):
+            filters.append("\(flagged) AND NOT (\(individuallyHidden) OR \(filtered))")
+            if let appLabel {
+                filters.append("\(app) = ?")
+                arguments.append(appLabel)
+            }
         case .hidden(let appLabel):
             filters.append("(\(individuallyHidden) OR \(filtered))")
             if let appLabel {
@@ -389,6 +412,15 @@ public extension CaptureStore {
         case .followUps:
             filters.append("w.due_at IS NOT NULL AND w.done = 0")
         }
+        switch query.readFilter {
+        case .all: break
+        case .unread: filters.append("NOT (\(read))")
+        case .read: filters.append(read)
+        }
+        if let selectedID {
+            filters.append("o.id = ?")
+            arguments.append(String(selectedID))
+        }
         if !query.search.isEmpty {
             let term = query.search.replacingOccurrences(of: "\\", with: "\\\\")
                 .replacingOccurrences(of: "%", with: "\\%")
@@ -398,12 +430,19 @@ public extension CaptureStore {
             arguments.append(contentsOf: fields.map { _ in "%\(term)%" })
         }
         let whereClause = filters.isEmpty ? "" : "WHERE " + filters.joined(separator: " AND ")
-        let order = query.scope == .followUps ? "w.due_at, o.id DESC" : "o.id DESC"
+        let order: String
+        switch query.scope {
+        case .inbox(_, false), .flagged:
+            let direction = query.order == .newestFirst ? "DESC" : "ASC"
+            order = "o.captured_at \(direction), o.id \(direction)"
+        case .followUps: order = "w.due_at, o.id DESC"
+        default: order = "o.id DESC"
+        }
         return try readRows("""
             SELECT o.id, \(app), o.title, o.subtitle, o.body, o.captured_at,
                    w.saved, w.due_at, w.done, p.id, p.display_name,
                    \(subject), \(individuallyHidden), \(filtered),
-                   EXISTS (SELECT 1 FROM read_observations r WHERE r.observation_id = o.id), m.id
+                   \(read), m.id, \(flagged)
             FROM observations o
             LEFT JOIN observation_work w ON w.observation_id = o.id
             LEFT JOIN person_observations l ON l.observation_id = o.id
@@ -425,6 +464,7 @@ public extension CaptureStore {
                            individuallyHidden: sqlite3_column_int(row, 12) != 0,
                            filtered: sqlite3_column_int(row, 13) != 0,
                            isRead: sqlite3_column_int(row, 14) != 0,
+                           isFlagged: sqlite3_column_int(row, 16) != 0,
                            personRuleID: sqlite3_column_type(row, 15) == SQLITE_NULL ? nil : columnString(row, 15))
             }
     }
@@ -433,6 +473,13 @@ public extension CaptureStore {
         let sql = read
             ? "INSERT INTO read_observations VALUES (?) ON CONFLICT DO NOTHING"
             : "DELETE FROM read_observations WHERE observation_id = ?"
+        try execute(sql, strings: [String(observation)])
+    }
+
+    func setFlag(_ observation: Int64, flagged: Bool) throws {
+        let sql = flagged
+            ? "INSERT INTO flagged_observations VALUES (?) ON CONFLICT DO NOTHING"
+            : "DELETE FROM flagged_observations WHERE observation_id = ?"
         try execute(sql, strings: [String(observation)])
     }
 

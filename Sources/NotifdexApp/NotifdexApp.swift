@@ -187,6 +187,9 @@ struct NotifdexApp: App {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
+        guard Bundle.main.url(forResource: "person-notes", withExtension: "sql") != nil else {
+            throw StoreError(description: "Packaged person-notes.sql is missing")
+        }
         let store = try CaptureStore(path: directory.appendingPathComponent("self-check.db").path)
         let run = try store.startRun(at: 1)
         let observation = Observation(sourceID: "synthetic", sourceEventID: "1", capturedAt: 2,
@@ -214,6 +217,10 @@ struct NotifdexApp: App {
         try store.confirmPersonMatch(match, includeExisting: true)
         guard try store.personMatchRules(for: person).count == 1 else {
             throw StoreError(description: "Packaged person match check failed")
+        }
+        let note = try store.addPersonNote(person: person, body: "Synthetic note", at: 3)
+        guard try store.personNotes(for: person).first?.id == note else {
+            throw StoreError(description: "Packaged person notes check failed")
         }
         try store.finishRun(runID: run, at: 3)
     }

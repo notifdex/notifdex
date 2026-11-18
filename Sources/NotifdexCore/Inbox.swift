@@ -38,6 +38,13 @@ public struct InboxEntry: Identifiable, Equatable {
     public let personRuleID: String?
 }
 
+public struct PersonNote: Identifiable {
+    public let id: String
+    public let body: String
+    public let createdAt: Double
+    public let updatedAt: Double
+}
+
 public struct PersonRecord: Identifiable, Equatable {
     public let id: String
     public let name: String

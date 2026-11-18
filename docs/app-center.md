@@ -142,8 +142,13 @@ such as “Liked by Example” is its own title. If the same app and title are
 manually linked to different people, the rule pauses. **Unlink and skip
 matching rules** keeps that alert out of rules you create later. The
 person card lists rules so you can remove them and undo their links.
-The local database upgrades to version 4 on first launch. Older manual
-links are preserved. Earlier unlinks had no stored marker to migrate.
+Older manual links are preserved. Earlier unlinks had no stored marker to migrate.
+
+### Keep notes on a person
+
+Open **People**, choose a person, and click **Add note…**. Notes are dated
+and saved in your local database. Use **Edit…** to change or delete a note.
+The v5 database upgrade adds notes and preserves existing people and alerts.
 
 ### Apple Messages
 

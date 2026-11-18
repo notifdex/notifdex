@@ -4,6 +4,13 @@ import SwiftUI
 import NotifdexCore
 import NotifdexMac
 
+private struct NoteDraft: Identifiable {
+    let id = UUID()
+    let personID: String
+    let personName: String
+    let noteID: String?
+}
+
 private enum WorkflowMode: String, CaseIterable, Hashable, Identifiable {
     case inbox = "Inbox"
     case saved = "Saved"
@@ -53,6 +60,9 @@ private final class WorkflowModel: ObservableObject {
     @Published var identifier = ""
     @Published var due = Date()
     @Published var matchPreview: PersonMatchPreview?
+    @Published var noteDraft: NoteDraft?
+    @Published var noteBody = ""
+    @Published private(set) var notes: [PersonNote] = []
     @Published private(set) var matchRules: [PersonMatchRule] = []
     @Published private(set) var limit = 50
     @Published private(set) var entries: [InboxEntry] = []
@@ -101,7 +111,8 @@ private final class WorkflowModel: ObservableObject {
             let timeline = try card.map { try store.inbox(InboxQuery(scope: .person($0), limit: 12)) } ?? []
             let identities = try card.map { try store.identities(for: $0) } ?? []
             let matches = try card.map { try store.personMatchRules(for: $0) } ?? []
-            return (entries, try store.people(), card, identities, timeline, try store.inboxFilters(), matches)
+            let notes = try card.map { try store.personNotes(for: $0) } ?? []
+            return (entries, try store.people(), card, identities, timeline, try store.inboxFilters(), matches, notes)
         }, completion: { [weak self] result in
             guard let self, self.generation == request, self.query == query,
                   self.selected == selected else { return }
@@ -115,6 +126,7 @@ private final class WorkflowModel: ObservableObject {
                 self.timeline = value.4
                 self.rules = value.5
                 self.matchRules = value.6
+                self.notes = value.7
             case .failure(let error): self.error = String(describing: error)
             }
         })
@@ -146,6 +158,30 @@ private final class WorkflowModel: ObservableObject {
             case .failure(let error): self.error = String(describing: error)
             }
         }
+    }
+
+    func openNote(personID: String, name: String, note: PersonNote? = nil) {
+        error = nil
+        noteBody = note?.body ?? ""
+        noteDraft = NoteDraft(personID: personID, personName: name, noteID: note?.id)
+    }
+
+    func saveNote(_ draft: NoteDraft) {
+        let body = noteBody
+        let time = Date().timeIntervalSince1970
+        edit({ store in
+            if let id = draft.noteID {
+                try store.updatePersonNote(id, person: draft.personID, body: body, at: time)
+            } else {
+                try store.addPersonNote(person: draft.personID, body: body, at: time)
+            }
+        }, then: { [weak self] in self?.noteDraft = nil })
+    }
+
+    func deleteNote(_ draft: NoteDraft) {
+        guard let id = draft.noteID else { return }
+        edit({ try $0.deletePersonNote(id, person: draft.personID) },
+             then: { [weak self] in self?.noteDraft = nil })
     }
 
     func markOpened(_ alert: InboxEntry) {
@@ -266,6 +302,9 @@ struct WorkflowView: View {
         .padding(.top, 10)
         .sheet(item: $model.matchPreview) { preview in
             matchReview(preview)
+        }
+        .sheet(item: $model.noteDraft) { draft in
+            PersonNoteEditor(model: model, draft: draft)
         }
         .task(id: model.query) {
             let query = model.query
@@ -601,12 +640,74 @@ struct WorkflowView: View {
                     }
                 }
             }
+            HStack {
+                Text("Notes").font(.headline)
+                Spacer()
+                Button("Add note…") { model.openNote(personID: id, name: name) }
+            }
+            if model.cardID == id && model.notes.isEmpty {
+                Text("No notes yet.").foregroundStyle(.secondary)
+            }
+            ForEach(model.cardID == id ? model.notes : []) { note in
+                HStack(alignment: .top) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(Date(timeIntervalSince1970: note.createdAt).formatted(date: .abbreviated, time: .shortened))
+                            .font(.caption).foregroundStyle(.secondary)
+                        Text(note.body).textSelection(.enabled)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    Spacer()
+                    Button("Edit…") { model.openNote(personID: id, name: name, note: note) }
+                        .accessibilityLabel("Edit note from \(Date(timeIntervalSince1970: note.createdAt).formatted())")
+                }
+            }
             Text("Recent activity").font(.headline)
             if model.cardID == id && model.timeline.isEmpty { Text("No linked alerts yet.").foregroundStyle(.secondary) }
             ForEach(model.cardID == id ? model.timeline : []) { entry in
                 Divider()
                 entryRow(entry)
             }
+        }
+    }
+}
+
+@MainActor
+private struct PersonNoteEditor: View {
+    @ObservedObject var model: WorkflowModel
+    let draft: NoteDraft
+    @State private var confirmDelete = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(draft.noteID == nil ? "Add note for \(draft.personName)" : "Edit note for \(draft.personName)")
+                .font(.headline)
+            TextEditor(text: $model.noteBody)
+                .font(.body)
+                .accessibilityLabel("Note")
+                .frame(minHeight: 120)
+                .disabled(model.busy)
+            if let error = model.error {
+                Text(error).foregroundStyle(.red)
+            }
+            HStack {
+                if draft.noteID != nil {
+                    Button("Delete Note…", role: .destructive) { confirmDelete = true }
+                }
+                Spacer()
+                Button("Cancel") { model.noteDraft = nil }
+                    .keyboardShortcut(.cancelAction)
+                Button("Save") { model.saveNote(draft) }
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(model.noteBody.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
+            .disabled(model.busy)
+        }
+        .padding()
+        .frame(minWidth: 380)
+        .interactiveDismissDisabled(model.busy)
+        .alert("Delete this note?", isPresented: $confirmDelete) {
+            Button("Delete", role: .destructive) { model.deleteNote(draft) }
+            Button("Cancel", role: .cancel) {}
         }
     }
 }

@@ -14,7 +14,7 @@ still available as historical context.
 ## Current scope
 
 - **Inbox** groups and searches captured alerts. Save an alert or hide recurring noise.
-- **People** connects alerts across apps to a person and their handles or addresses.
+- **People** connects alerts across apps to a person, their handles or addresses, and your private notes.
 - **Today** lists open follow-ups by due date. Complete or snooze them from the list.
 - A native menu bar app with App Center toggles and capture status.
 - A shared Accessibility collector and transactional SQLite storage, also usable from Terminal.

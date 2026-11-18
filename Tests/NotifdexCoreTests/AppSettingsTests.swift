@@ -38,12 +38,22 @@ final class AppSettingsTests: XCTestCase {
         XCTAssertEqual(upgraded.sourceID, "fixture")
         XCTAssertTrue(upgraded.paused)
         XCTAssertEqual(upgraded.apps.first { $0.id == "messages" }?.enabled, false)
+        var enabled = upgraded
+        let messagesIndex = try XCTUnwrap(enabled.apps.firstIndex { $0.id == "messages" })
+        enabled.apps[messagesIndex].enabled = true
+        try store.save(enabled)
+        XCTAssertTrue(try store.loadOrCreate(sourceID: "different").allowedLabels.contains("Messages"))
 
         try legacy.addCustomApp(label: "Messages")
         try store.save(legacy)
         let custom = try store.loadOrCreate(sourceID: "different")
         XCTAssertEqual(custom.apps.filter { $0.labels.contains("Messages") }.count, 1)
         XCTAssertTrue(custom.allowedLabels.contains("Messages"))
+        legacy.apps[legacy.apps.count - 1].enabled = false
+        try store.save(legacy)
+        let disabled = try store.loadOrCreate(sourceID: "different")
+        XCTAssertEqual(disabled.apps.filter { $0.labels.contains("Messages") }.count, 1)
+        XCTAssertFalse(disabled.allowedLabels.contains("Messages"))
     }
 
     func testCorruptSettingsAreSurfaced() throws {

@@ -15,6 +15,7 @@ public struct CaptureApp: Codable, Identifiable, Equatable {
 }
 
 public struct CaptureSettings: Codable, Equatable {
+    fileprivate static let messagesApp = CaptureApp(id: "messages", name: "Messages", labels: ["Messages"])
     public var sourceID: String
     public var paused = false
     public var automaticRecovery = true
@@ -28,7 +29,8 @@ public struct CaptureSettings: Codable, Equatable {
             CaptureApp(id: "slack", name: "Slack", labels: ["Slack"]),
             CaptureApp(id: "gmail", name: "Gmail", labels: ["Gmail"]),
             CaptureApp(id: "linkedin", name: "LinkedIn", labels: ["LinkedIn"]),
-            CaptureApp(id: "whatsapp", name: "WhatsApp", labels: ["WhatsApp"])
+            CaptureApp(id: "whatsapp", name: "WhatsApp", labels: ["WhatsApp"]),
+            Self.messagesApp
         ]
     }
 
@@ -51,8 +53,12 @@ public struct AppSettingsStore {
 
     public func loadOrCreate(sourceID: String) throws -> CaptureSettings {
         if FileManager.default.fileExists(atPath: url.path) {
-            let settings = try JSONDecoder().decode(CaptureSettings.self, from: Data(contentsOf: url))
+            var settings = try JSONDecoder().decode(CaptureSettings.self, from: Data(contentsOf: url))
             guard !settings.sourceID.isEmpty else { throw StoreError(description: "Settings have no source identity") }
+            let messages = CaptureSettings.messagesApp
+            if !settings.apps.contains(where: { $0.id == messages.id || !$0.labels.isDisjoint(with: messages.labels) }) {
+                settings.apps.append(messages)
+            }
             return settings
         }
         let settings = CaptureSettings(sourceID: sourceID)

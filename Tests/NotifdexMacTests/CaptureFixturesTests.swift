@@ -30,6 +30,16 @@ private struct FixtureNode {
 }
 
 final class CaptureFixturesTests: XCTestCase {
+    func testSyntheticMessagesBannerRequiresOptIn() {
+        let messages = FixtureNode.banner("messages", app: "Messages", title: "Example", body: "Synthetic text")
+        let root = FixtureNode(children: [messages])
+        XCTAssertTrue(FixtureNode.scan([root], apps: ["X"]).observations.isEmpty)
+        let enabled = FixtureNode.scan([root], apps: ["Messages"])
+        XCTAssertEqual(enabled.observations.first?.appLabel, "Messages")
+        XCTAssertEqual(enabled.observations.first?.body, "Synthetic text")
+        XCTAssertTrue(enabled.issues.isEmpty)
+    }
+
     func testStaleSiblingDoesNotDiscardGmailAndX() {
         let gmail = FixtureNode.banner("gmail", app: "Gmail", title: "Example", body: "Synthetic Gmail")
         let x = FixtureNode.banner("x", app: "X", title: "Example", body: "Synthetic X", subrole: "AXNotificationCenterAlert")

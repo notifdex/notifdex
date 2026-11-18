@@ -144,3 +144,13 @@ matching rules** keeps that alert out of rules you create later. The
 person card lists rules so you can remove them and undo their links.
 The local database upgrades to version 4 on first launch. Older manual
 links are preserved. Earlier unlinks had no stored marker to migrate.
+
+### Apple Messages
+
+In **App Center → Apps**, enable **Messages**. Existing custom entries that
+already use the Messages label keep their current setting. Send a fresh text
+to the Apple Account or number configured in Messages on this Mac and check
+**Inbox → Messages** after the Mac alert appears. If using SMS, MMS, or RCS,
+[set up text message forwarding](https://support.apple.com/guide/messages/set-up-messages-ichte16154fb/mac)
+if needed. Notifdex captures the notification preview that macOS exposes.
+Messages history and sending are handled by the Messages app.

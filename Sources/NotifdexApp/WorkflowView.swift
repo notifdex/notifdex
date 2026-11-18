@@ -533,7 +533,7 @@ struct WorkflowView: View {
             }
             HStack {
                 Picker("App", selection: $model.identityApp) {
-                    ForEach(["X", "Gmail", "LinkedIn", "WhatsApp", "Slack", "Discord"], id: \.self) { Text($0) }
+                    ForEach(["X", "Gmail", "Messages", "LinkedIn", "WhatsApp", "Slack", "Discord"], id: \.self) { Text($0) }
                 }
                 .labelsHidden()
                 .fixedSize()

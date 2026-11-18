@@ -23,6 +23,8 @@ public struct CaptureSettings: Codable, Equatable {
 
     public init(sourceID: String) {
         self.sourceID = sourceID
+        var messages = Self.messagesApp
+        messages.enabled = true
         apps = [
             CaptureApp(id: "x", name: "X", labels: ["X", "Twitter"], enabled: true),
             CaptureApp(id: "discord", name: "Discord", labels: ["Discord"]),
@@ -30,7 +32,7 @@ public struct CaptureSettings: Codable, Equatable {
             CaptureApp(id: "gmail", name: "Gmail", labels: ["Gmail"]),
             CaptureApp(id: "linkedin", name: "LinkedIn", labels: ["LinkedIn"]),
             CaptureApp(id: "whatsapp", name: "WhatsApp", labels: ["WhatsApp"]),
-            Self.messagesApp
+            messages
         ]
     }
 

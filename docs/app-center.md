@@ -128,3 +128,19 @@ App Center appears in the Dock and app switcher while its window is open.
 Closing the window returns Notifdex to the menu bar and leaves capture running.
 **Today** lists open follow-ups, including future ones, ordered by due date.
 **Hidden** is the last Inbox view.
+
+### Remember a person match
+
+Open a linked alert and choose **Remember this match…**. Review the exact
+app and title, destination person, and the number of existing unlinked
+matches. Choose **Existing and future** or **Future only**. Future means
+newly captured by Notifdex after you confirm, including retained alerts
+that have never been captured.
+
+Matching is exact. X and Twitter share the X category. An engagement label
+such as “Liked by Example” is its own title. If the same app and title are
+manually linked to different people, the rule pauses. **Unlink and skip
+matching rules** keeps that alert out of rules you create later. The
+person card lists rules so you can remove them and undo their links.
+The local database upgrades to version 4 on first launch. Older manual
+links are preserved. Earlier unlinks had no stored marker to migrate.

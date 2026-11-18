@@ -31,6 +31,7 @@ public struct InboxEntry: Identifiable, Equatable {
     public let done: Bool
     public let personID: String?
     public let personName: String
+    public let personRuleID: String?
     public let subject: String
     public let individuallyHidden: Bool
     public let filtered: Bool
@@ -75,4 +76,22 @@ public enum InboxDestination {
     public static func nativeURL(for app: String) -> URL? {
         app == "WhatsApp" ? URL(string: "whatsapp://") : nil
     }
+}
+
+
+public struct PersonMatchPreview: Identifiable {
+    public var id: Int64 { observationID }
+    public let observationID: Int64
+    public let app: String
+    public let title: String
+    public let personID: String
+    public let personName: String
+    public let existingCount: Int
+}
+
+public struct PersonMatchRule: Identifiable {
+    public let id: String
+    public let app: String
+    public let title: String
+    public let hasConflict: Bool
 }

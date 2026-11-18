@@ -17,7 +17,7 @@ notifdex_app_dir="$PWD/dist/Notifdex.app"
 rm -rf "$notifdex_app_dir"
 mkdir -p "$notifdex_app_dir/Contents/MacOS" "$notifdex_app_dir/Contents/Resources"
 install -m 755 "$notifdex_bin_dir/Notifdex" "$notifdex_app_dir/Contents/MacOS/Notifdex"
-cp Sources/NotifdexCore/{schema,rolodex,filters}.sql "$notifdex_app_dir/Contents/Resources/"
+cp Sources/NotifdexCore/{schema,rolodex,filters,person-matches}.sql "$notifdex_app_dir/Contents/Resources/"
 cat > "$notifdex_app_dir/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">

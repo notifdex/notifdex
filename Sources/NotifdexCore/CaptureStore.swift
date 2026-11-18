@@ -45,14 +45,14 @@ public final class CaptureStore {
             try execute("PRAGMA journal_mode = WAL")
             try execute("PRAGMA synchronous = FULL")
             let version = try scalar("PRAGMA user_version")
-            guard (0...3).contains(version) else {
+            guard (0...4).contains(version) else {
                 throw StoreError(description: "Unsupported database version \(version)")
             }
-            if version < 3 {
+            if version < 4 {
                 try transaction {
                     // Recheck under the write lock if another process opened concurrently.
                     let current = try scalar("PRAGMA user_version")
-                    guard (0...3).contains(current) else {
+                    guard (0...4).contains(current) else {
                         throw StoreError(description: "Unsupported database version \(current)")
                     }
                     if current == 0 {
@@ -66,7 +66,10 @@ public final class CaptureStore {
                     }
                     if current < 3 {
                         try execute(Self.schema(named: "filters"))
-                        try execute("PRAGMA user_version = 3")
+                    }
+                    if current < 4 {
+                        try execute(Self.schema(named: "person-matches"))
+                        try execute("PRAGMA user_version = 4")
                     }
                 }
             }
@@ -302,10 +305,20 @@ public final class CaptureStore {
 }
 
 public extension CaptureStore {
+    private static let appCategory = "CASE WHEN o.app_label IN ('X', 'Twitter') THEN 'X' ELSE coalesce(nullif(o.app_label, ''), 'Unknown app') END"
+
+    private static let matchConflict = """
+        EXISTS (
+            SELECT 1 FROM observations o
+            JOIN person_observations conflicting ON conflicting.observation_id = o.id
+            WHERE o.title = m.title AND \(appCategory) = m.app AND conflicting.person_id <> m.person_id
+        )
+        """
+
     func inbox(_ query: InboxQuery) throws -> [InboxEntry] {
         var filters: [String] = []
         var arguments: [String?] = []
-        let app = "CASE WHEN o.app_label IN ('X', 'Twitter') THEN 'X' ELSE coalesce(nullif(o.app_label, ''), 'Unknown app') END"
+        let app = Self.appCategory
         // The probe exposed Gmail's subject as preview text. Other apps need
         // an observed subject mapping before they can offer a subject rule.
         let subject = "CASE WHEN o.app_label = 'Gmail' THEN o.body END"
@@ -347,11 +360,15 @@ public extension CaptureStore {
             SELECT o.id, \(app), o.title, o.subtitle, o.body, o.captured_at,
                    w.saved, w.due_at, w.done, p.id, p.display_name,
                    \(subject), \(individuallyHidden), \(filtered),
-                   EXISTS (SELECT 1 FROM read_observations r WHERE r.observation_id = o.id)
+                   EXISTS (SELECT 1 FROM read_observations r WHERE r.observation_id = o.id), m.id
             FROM observations o
             LEFT JOIN observation_work w ON w.observation_id = o.id
             LEFT JOIN person_observations l ON l.observation_id = o.id
-            LEFT JOIN people p ON p.id = l.person_id
+            LEFT JOIN person_match_rules m
+              ON l.person_id IS NULL AND m.app = \(app) AND m.title = o.title
+              AND o.id > m.after_observation_id AND NOT (\(Self.matchConflict))
+              AND NOT EXISTS (SELECT 1 FROM person_match_exclusions e WHERE e.observation_id = o.id)
+            LEFT JOIN people p ON p.id = coalesce(l.person_id, m.person_id)
             \(whereClause) ORDER BY \(order) LIMIT ?
             """, strings: arguments, numbers: [Double(max(1, min(query.limit, 1001)))]) { row in
                 InboxEntry(id: sqlite3_column_int64(row, 0), app: columnString(row, 1),
@@ -364,7 +381,8 @@ public extension CaptureStore {
                            personName: columnString(row, 10), subject: columnString(row, 11),
                            individuallyHidden: sqlite3_column_int(row, 12) != 0,
                            filtered: sqlite3_column_int(row, 13) != 0,
-                           isRead: sqlite3_column_int(row, 14) != 0)
+                           isRead: sqlite3_column_int(row, 14) != 0,
+                           personRuleID: sqlite3_column_type(row, 15) == SQLITE_NULL ? nil : columnString(row, 15))
             }
     }
 
@@ -433,8 +451,74 @@ public extension CaptureStore {
                 ON CONFLICT(observation_id) DO UPDATE SET person_id = excluded.person_id, method = 'manual'
                 """, strings: [String(observation), person])
         } else {
-            try execute("DELETE FROM person_observations WHERE observation_id = ?", strings: [String(observation)])
+            try transaction {
+                try execute("DELETE FROM person_observations WHERE observation_id = ?", strings: [String(observation)])
+                try execute("INSERT INTO person_match_exclusions VALUES (?) ON CONFLICT DO NOTHING",
+                            strings: [String(observation)])
+            }
         }
+    }
+
+    func previewPersonMatch(for observation: Int64) throws -> PersonMatchPreview {
+        let source = try readRows("""
+            SELECT \(Self.appCategory), o.title, p.id, p.display_name
+            FROM observations o JOIN person_observations l ON l.observation_id = o.id
+            JOIN people p ON p.id = l.person_id WHERE o.id = ?
+            """, strings: [String(observation)]) { row in
+                (columnString(row, 0), columnString(row, 1), columnString(row, 2), columnString(row, 3))
+            }
+        guard let (app, title, person, name) = source.first, app != "Unknown app",
+              !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw StoreError(description: "Link the alert to a person first. A rule needs an app and a title.")
+        }
+        if try scalar("SELECT count(*) FROM person_match_rules WHERE app = ? AND title = ?", strings: [app, title]) > 0 {
+            throw StoreError(description: "A rule already uses this app and title. Remove the existing rule before creating another.")
+        }
+        let conflicts = try scalar("""
+            SELECT count(*) FROM observations o
+            JOIN person_observations l ON l.observation_id = o.id
+            WHERE \(Self.appCategory) = ? AND o.title = ? AND l.person_id <> ?
+            """, strings: [app, title, person])
+        guard conflicts == 0 else {
+            throw StoreError(description: "This app and title are linked to more than one person. Keep linking these alerts individually.")
+        }
+        let count = try scalar("""
+            SELECT count(*) FROM observations o
+            WHERE \(Self.appCategory) = ? AND o.title = ?
+              AND NOT EXISTS (SELECT 1 FROM person_observations l WHERE l.observation_id = o.id)
+              AND NOT EXISTS (SELECT 1 FROM person_match_exclusions e WHERE e.observation_id = o.id)
+            """, strings: [app, title])
+        return PersonMatchPreview(observationID: observation, app: app, title: title, personID: person,
+                                  personName: name, existingCount: count)
+    }
+
+    func confirmPersonMatch(_ preview: PersonMatchPreview, includeExisting: Bool) throws {
+        try transaction {
+            let current = try previewPersonMatch(for: preview.observationID)
+            guard current.app == preview.app, current.title == preview.title,
+                  current.personID == preview.personID else {
+                throw StoreError(description: "The alert link changed. Review the match again.")
+            }
+            let cutoff = includeExisting ? 0 : try scalar("SELECT coalesce(max(id), 0) FROM observations")
+            try execute("""
+                INSERT INTO person_match_rules (id, app, title, person_id, after_observation_id)
+                VALUES (?, ?, ?, ?, ?)
+                """, strings: [UUID().uuidString, current.app, current.title, current.personID, String(cutoff)])
+        }
+    }
+
+    func personMatchRules(for person: String) throws -> [PersonMatchRule] {
+        try readRows("""
+            SELECT m.id, m.app, m.title, \(Self.matchConflict)
+            FROM person_match_rules m WHERE m.person_id = ? ORDER BY m.app, m.title
+            """, strings: [person]) { row in
+            PersonMatchRule(id: columnString(row, 0), app: columnString(row, 1),
+                            title: columnString(row, 2), hasConflict: sqlite3_column_int(row, 3) != 0)
+        }
+    }
+
+    func removePersonMatchRule(_ id: String) throws {
+        try execute("DELETE FROM person_match_rules WHERE id = ?", strings: [id])
     }
 
     func addIdentity(person: String, platform: String, identifier: String) throws {

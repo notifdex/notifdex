@@ -39,3 +39,86 @@ final class CaptureFixturesTests: XCTestCase {
         XCTAssertEqual(scan.issues.count, 1)
     }
 }
+
+#if os(macOS)
+extension CaptureFixturesTests {
+    func testFixtureThroughWorkerDatabaseAndInbox() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        var settings = CaptureSettings(sourceID: "fixture")
+        settings.automaticRecovery = false
+        settings.apps = [
+            CaptureApp(id: "x", name: "X", labels: ["X", "Twitter"], enabled: true),
+            CaptureApp(id: "gmail", name: "Gmail", labels: ["Gmail"], enabled: true)
+        ]
+        try AppSettingsStore(url: directory.appendingPathComponent("settings.json")).save(settings)
+        let window = FixtureNode(children: [
+            FixtureNode.banner("g", app: "Gmail", title: "Sample", body: "Gmail subject"),
+            FixtureNode(stale: true),
+            FixtureNode.banner("x", app: "X", title: "Sample", body: "X DM"),
+            FixtureNode.banner("d", app: "Discord", title: "Sample", body: "Disabled")
+        ])
+        let worker = CaptureWorker(directory: directory, isTrusted: { true }, readSnapshot: {
+            FixtureNode.scan([window], apps: $1, source: $0)
+        })
+        let first = expectation(description: "both alerts saved")
+        let duplicate = expectation(description: "repeat deduplicated")
+        var sawFirst = false
+        var sawDuplicate = false
+        worker.start { state in
+            if !sawFirst, state.total == 2 {
+                sawFirst = true
+                XCTAssertTrue(state.lastScan.contains("New 2"))
+                XCTAssertNil(state.recoveryBlocker)
+                XCTAssertNotNil(state.lastSavedAt)
+                XCTAssertNotNil(state.lastCaptureIssue)
+                first.fulfill()
+            }
+            if sawFirst, !sawDuplicate, state.lastScan.contains("Duplicates 2") {
+                sawDuplicate = true
+                duplicate.fulfill()
+            }
+        }
+        wait(for: [first, duplicate], timeout: 7)
+        let inspected = expectation(description: "inbox is readable")
+        worker.withStore({ store in
+            (try store.inbox(InboxQuery()), try store.gapCount(reason: "partial_scan"))
+        }) { result in
+            defer { inspected.fulfill() }
+            do {
+                let (rows, gaps) = try result.get()
+                XCTAssertEqual(Set(rows.map(\.app)), ["Gmail", "X"])
+                XCTAssertEqual(Set(rows.map(\.body)), ["Gmail subject", "X DM"])
+                XCTAssertEqual(gaps, 1)
+            } catch { XCTFail("Inbox query failed: \(error)") }
+        }
+        wait(for: [inspected], timeout: 3)
+        let stopped = expectation(description: "worker stopped")
+        worker.stop { stopped.fulfill() }
+        wait(for: [stopped], timeout: 3)
+    }
+
+    func testDeniedPermissionExplainsRecoveryBlockAndDoesNotRead() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let worker = CaptureWorker(directory: directory, isTrusted: { false }, readSnapshot: { _, _ in
+            XCTFail("AX was read without permission")
+            return Snapshot()
+        })
+        let blocked = expectation(description: "permission blocker surfaced")
+        var sawBlocker = false
+        worker.start { state in
+            guard !sawBlocker, state.status == "Accessibility permission needed" else { return }
+            sawBlocker = true
+            XCTAssertEqual(state.recoveryBlocker, "Grant Accessibility access to Notifdex in System Settings.")
+            XCTAssertEqual(state.total, 0)
+            blocked.fulfill()
+        }
+        wait(for: [blocked], timeout: 5)
+        let stopped = expectation(description: "worker stopped")
+        worker.stop { stopped.fulfill() }
+        wait(for: [stopped], timeout: 3)
+    }
+}
+#endif

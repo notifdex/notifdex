@@ -135,3 +135,19 @@ intact. SQLite uses a unique key for the rules and computes links at read time
 with an observation-ID cutoff. Its v4 migration preserves manual links. The
 SQL acceptance test initially failed on the missing v4 schema and now passes.
 The Swift test covers restart, different apps, title rules, conflicts, and undo.
+
+### Notification Center fixture coverage
+
+The macOS tests supply a synthetic tree at the read-only Accessibility
+boundary: windows and children, banner/alert subroles, identifiers,
+attributed descriptions, and title/body values. The production scanner
+uses the same traversal, parsing, and app allowlist. A stale sibling
+fixture initially reproduced the existing all-or-nothing traversal.
+The end-to-end fixture drives the real capture worker, SQLite and Inbox
+query, including repeat capture and a denied permission case.
+
+The Capture model's PartialScan action allows readable observations to
+commit while keeping coverage marked as incomplete. This abstracts
+failed subtrees. The fixtures cannot certify Accessibility permissions
+after installation, the live iPhone mirroring path, or undocumented
+changes to the OS tree. Verify those on a Mac with fresh test alerts.

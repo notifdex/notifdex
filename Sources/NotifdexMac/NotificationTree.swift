@@ -58,21 +58,34 @@ func scanNotificationTree<Node>(_ windows: [Node], source: String, allowedApps: 
                                 attribute: (Node, String) throws -> String,
                                 inspect: ((Observation, Node) -> Void)? = nil) -> Snapshot {
     var result = Snapshot()
-    for window in windows {
+    var pending = windows.reversed().map { ($0, 0) }
+    var visited = 0
+    while let (node, depth) = pending.popLast() {
+        guard visited < 2000, Date() < deadline else {
+            result.issues.append("Accessibility traversal limit reached")
+            break
+        }
+        visited += 1
+        guard depth < 30 else {
+            result.issues.append("Accessibility traversal depth reached")
+            continue
+        }
+
+        var subrole = ""
+        do { subrole = try attribute(node, "AXSubrole") }
+        catch { result.issues.append(String(describing: error)) }
+
         do {
-            for node in try treeDescendants(window, deadline: deadline, children: children) {
-                guard Date() < deadline else { throw CaptureError(description: "Notification inspection deadline reached") }
-                do {
-                    let subrole = try attribute(node, "AXSubrole")
-                    guard subrole == "AXNotificationCenterBanner" || subrole == "AXNotificationCenterAlert" else { continue }
-                    if let observation = try readBanner(node, source: source, allowedApps: allowedApps, deadline: deadline,
-                                                        children: children, attribute: attribute) {
-                        result.observations.append(observation)
-                        inspect?(observation, node)
-                    }
-                } catch {
-                    result.issues.append(String(describing: error))
+            if subrole == "AXNotificationCenterBanner" || subrole == "AXNotificationCenterAlert" {
+                // A banner owns its text children. Inspect it now so a failed
+                // or slow sibling cannot discard an already-readable alert.
+                if let observation = try readBanner(node, source: source, allowedApps: allowedApps, deadline: deadline,
+                                                    children: children, attribute: attribute) {
+                    result.observations.append(observation)
+                    inspect?(observation, node)
                 }
+            } else {
+                pending.append(contentsOf: try children(node).map { ($0, depth + 1) })
             }
         } catch {
             result.issues.append(String(describing: error))

@@ -10,14 +10,27 @@ public struct AppCaptureState {
     public var permissionGranted = false
     public var ready = false
     public var recovering = false
+    public var sleeping = false
     public var status = "Starting capture"
     public var recoveryStatus = "No recovery run yet"
     public var lastScan = "No scan yet"
+    public var lastCaptureIssue: String?
+    public var lastSavedAt: Date?
     public var recent: [StoredObservation] = []
     public var summaries: [AppCaptureSummary] = []
     public var total = 0
     public var error: String?
     public init() {}
+
+    public var recoveryBlocker: String? {
+        if !ready { return error ?? "Waiting for the capture database to open." }
+        if sleeping { return "Recovery can run when this Mac wakes." }
+        if settings?.paused != false { return "Resume capture to recover alerts." }
+        if settings?.allowedLabels.isEmpty != false { return "Enable an app in Apps to recover its alerts." }
+        if !permissionGranted { return "Grant Accessibility access to Notifdex in System Settings." }
+        if recovering { return "A recovery scan is already running." }
+        return nil
+    }
 }
 
 private final class DatabaseOwner {
@@ -46,7 +59,8 @@ public final class CaptureWorker {
     private var state = AppCaptureState()
     private var settingsStore: AppSettingsStore { AppSettingsStore(url: directory.appendingPathComponent("settings.json")) }
     private var notify: ((AppCaptureState) -> Void)?
-    private var sleeping = false
+    private let isTrusted: () -> Bool
+    private let readSnapshot: (String, Set<String>) throws -> Snapshot
     private var needsRecovery = true
     private var automation: RecoveryAutomation?
     private var recoveryInserted = 0
@@ -55,7 +69,15 @@ public final class CaptureWorker {
     private var lastPoll = Date().timeIntervalSince1970
     private var lastPermission = false
 
-    public init(directory: URL) { self.directory = directory }
+    public convenience init(directory: URL) {
+        self.init(directory: directory, isTrusted: AXIsProcessTrusted, readSnapshot: snapshot(source:allowedApps:))
+    }
+
+    init(directory: URL, isTrusted: @escaping () -> Bool, readSnapshot: @escaping (String, Set<String>) throws -> Snapshot) {
+        self.directory = directory
+        self.isTrusted = isTrusted
+        self.readSnapshot = readSnapshot
+    }
 
     public func start(onChange: @escaping (AppCaptureState) -> Void) {
         queue.async {
@@ -129,7 +151,7 @@ public final class CaptureWorker {
 
     public func recoverNow() {
         queue.async {
-            guard let settings = self.state.settings, !settings.paused, !settings.allowedLabels.isEmpty else { return }
+            guard self.state.recoveryBlocker == nil else { self.emit(); return }
             self.needsRecovery = true
             self.tick(manualRecovery: true)
         }
@@ -137,7 +159,7 @@ public final class CaptureWorker {
 
     public func setSleeping(_ value: Bool) {
         queue.async {
-            self.sleeping = value
+            self.state.sleeping = value
             if value {
                 self.endRecovery(reason: "Recovery stopped for sleep")
                 if let store = self.store, let run = self.runID {
@@ -169,12 +191,12 @@ public final class CaptureWorker {
         let now = Date().timeIntervalSince1970
         let interrupted = now - lastPoll > 3 || now < lastPoll
         lastPoll = now
-        state.permissionGranted = AXIsProcessTrusted()
+        state.permissionGranted = isTrusted()
         if state.permissionGranted && !lastPermission { needsRecovery = settings.automaticRecovery || manualRecovery }
         lastPermission = state.permissionGranted
         do {
             if interrupted { try store.openGap(runID: run, reason: "poll_interruption", at: now) }
-            guard !sleeping else { state.status = "Sleeping"; emit(); return }
+            guard !state.sleeping else { state.status = "Sleeping"; emit(); return }
             guard !settings.paused, !settings.allowedLabels.isEmpty else {
                 endRecovery(reason: "Recovery stopped while capture is paused")
                 try store.openGap(runID: run, reason: "paused", at: now)
@@ -209,7 +231,7 @@ public final class CaptureWorker {
                     try store.openGap(runID: run, reason: "recovery_navigation", at: now)
                 }
             }
-            let scan = try snapshot(source: settings.sourceID + ":notificationcenter", allowedApps: settings.allowedLabels)
+            let scan = try readSnapshot(settings.sourceID + ":notificationcenter", settings.allowedLabels)
             // Settings changes are serialized here, so disabling an app cancels the
             // navigation session before the next snapshot can persist that app.
             let accepted = scan.observations.filter { observation in
@@ -217,6 +239,7 @@ public final class CaptureWorker {
                 return settings.allowedLabels.contains(app)
             }
             let result = try store.recordBatch(accepted, runID: run, at: Date().timeIntervalSince1970)
+            if result.inserted > 0 { state.lastSavedAt = Date() }
             state.lastScan = "Observed \(result.observed) · New \(result.inserted) · Duplicates \(result.duplicates) · Issues \(scan.issues.count)"
             state.status = automation == nil ? "Collecting accessible alerts" : "Recovering retained alerts"
             if scan.issues.isEmpty {
@@ -225,6 +248,7 @@ public final class CaptureWorker {
             } else {
                 try store.openGap(runID: run, reason: "partial_scan", at: now)
                 state.error = scan.issues.first
+                state.lastCaptureIssue = scan.issues.first
             }
             if let recovery = automation {
                 recoveryInserted += result.inserted
@@ -243,6 +267,7 @@ public final class CaptureWorker {
         } catch let error as CaptureError {
             endRecovery(reason: "Recovery stopped: \(error)")
             state.status = error.description
+            state.lastCaptureIssue = error.description
             do { try store.openGap(runID: run, reason: "accessibility_unavailable", at: now) }
             catch { fail(error) }
         } catch { fail(error) }

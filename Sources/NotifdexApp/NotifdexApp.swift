@@ -112,8 +112,7 @@ final class AppModel: ObservableObject {
     }
 
     var recoveryEnabled: Bool {
-        state.ready && state.permissionGranted && !(state.settings?.paused ?? true)
-            && !(state.settings?.allowedLabels.isEmpty ?? true) && !state.recovering
+        state.recoveryBlocker == nil
     }
 }
 
@@ -371,6 +370,17 @@ struct AppCenter: View {
                 Button(model.state.recovering ? "Recovering…" : "Recover now") { model.worker.recoverNow() }
                     .disabled(!model.recoveryEnabled)
                 Text(model.state.recoveryStatus).textSelection(.enabled)
+            }
+            if let blocker = model.state.recoveryBlocker {
+                Text(blocker).font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
+            }
+            if let saved = model.state.lastSavedAt {
+                LabeledContent("Last new capture this session") {
+                    Text(saved.formatted(date: .abbreviated, time: .standard))
+                }
+            }
+            if let issue = model.state.lastCaptureIssue {
+                LabeledContent("Last scan issue") { Text(issue).textSelection(.enabled) }
             }
             Text("Cleared, hidden, or undelivered alerts may be unavailable. A completed scan leaves delivery coverage unknown.")
                 .font(.caption).foregroundStyle(.secondary)

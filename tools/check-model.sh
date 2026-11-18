@@ -6,3 +6,4 @@ java -XX:+UseParallelGC -cp "$TLA_JAR" tlc2.TLC -workers 1 -config Capture.cfg C
 java -XX:+UseParallelGC -cp "$TLA_JAR" tlc2.TLC -workers 1 -config Progress.cfg Capture.tla
 java -XX:+UseParallelGC -cp "$TLA_JAR" tlc2.TLC -workers 1 -config Recovery.cfg Capture.tla
 java -XX:+UseParallelGC -cp "$TLA_JAR" tlc2.TLC -workers 1 -config AppRecovery.cfg AppRecovery.tla
+java -XX:+UseParallelGC -cp "$TLA_JAR" tlc2.TLC -workers 1 -config Rolodex.cfg Rolodex.tla

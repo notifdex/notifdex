@@ -113,6 +113,20 @@ public final class CaptureWorker {
         }
     }
 
+    /// Run inbox reads and edits on the same queue as the capture writer.
+    public func withStore<Value>(_ operation: @escaping (CaptureStore) throws -> Value,
+                                 completion: @escaping @MainActor (Result<Value, Error>) -> Void) {
+        queue.async {
+            let result = Result {
+                guard self.state.ready, let store = self.store else {
+                    throw CaptureError(description: "Open your Notifdex database before editing the inbox.")
+                }
+                return try operation(store)
+            }
+            onAppMainLoop { completion(result) }
+        }
+    }
+
     public func recoverNow() {
         queue.async {
             guard let settings = self.state.settings, !settings.paused, !settings.allowedLabels.isEmpty else { return }

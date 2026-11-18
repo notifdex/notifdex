@@ -25,6 +25,7 @@ private final class WorkflowModel: ObservableObject {
     @Published var due = Date()
     @Published private(set) var limit = 50
     @Published private(set) var entries: [InboxEntry] = []
+    @Published private(set) var loadedQuery: InboxQuery?
     @Published private(set) var people: [RolodexPerson] = []
     @Published private(set) var cardID: String?
     @Published private(set) var identities: [RolodexIdentity] = []
@@ -46,7 +47,12 @@ private final class WorkflowModel: ObservableObject {
     }
 
     var query: InboxQuery { InboxQuery(scope: scope, search: search, limit: limit + 1) }
-    var alert: InboxEntry? { entries.first { $0.id == selected } }
+    var visibleEntries: [InboxEntry] {
+        guard loadedQuery?.scope == scope, loadedQuery?.search == search else { return [] }
+        return entries
+    }
+
+    var alert: InboxEntry? { visibleEntries.first { $0.id == selected } }
 
     func load(query: InboxQuery) {
         guard self.query == query else { return }
@@ -66,6 +72,7 @@ private final class WorkflowModel: ObservableObject {
                   self.selected == selected else { return }
             switch result {
             case .success(let value):
+                self.loadedQuery = query
                 self.entries = value.0
                 self.people = value.1
                 self.cardID = value.2
@@ -140,7 +147,7 @@ struct WorkflowView: View {
                             .font(.caption).foregroundStyle(.secondary)
                     }
                     entryList
-                    if model.entries.count > model.limit {
+                    if model.visibleEntries.count > model.limit {
                         if model.limit < 1000 { Button("Show more") { model.loadMore() } }
                         else { Text("Refine search to see more results.").font(.caption) }
                     }
@@ -203,7 +210,7 @@ struct WorkflowView: View {
     }
 
     private var entryList: some View {
-        let rows = Array(model.entries.prefix(model.limit))
+        let rows = Array(model.visibleEntries.prefix(model.limit))
         let grouped = model.mode == .inbox || model.mode == .saved
         return List(selection: $model.selected) {
             if grouped {

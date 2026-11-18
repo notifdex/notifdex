@@ -62,6 +62,7 @@ private final class WorkflowModel: ObservableObject {
     @Published var matchPreview: PersonMatchPreview?
     @Published var noteDraft: NoteDraft?
     @Published var noteBody = ""
+    @Published var confirmingNoteDeletion = false
     @Published private(set) var notes: [PersonNote] = []
     @Published private(set) var matchRules: [PersonMatchRule] = []
     @Published private(set) var limit = 50
@@ -163,6 +164,7 @@ private final class WorkflowModel: ObservableObject {
     func openNote(personID: String, name: String, note: PersonNote? = nil) {
         error = nil
         noteBody = note?.body ?? ""
+        confirmingNoteDeletion = false
         noteDraft = NoteDraft(personID: personID, personName: name, noteID: note?.id)
     }
 
@@ -675,7 +677,6 @@ struct WorkflowView: View {
 private struct PersonNoteEditor: View {
     @ObservedObject var model: WorkflowModel
     let draft: NoteDraft
-    @State private var confirmDelete = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -691,7 +692,7 @@ private struct PersonNoteEditor: View {
             }
             HStack {
                 if draft.noteID != nil {
-                    Button("Delete Note…", role: .destructive) { confirmDelete = true }
+                    Button("Delete Note…", role: .destructive) { model.confirmingNoteDeletion = true }
                 }
                 Spacer()
                 Button("Cancel") { model.noteDraft = nil }
@@ -705,7 +706,7 @@ private struct PersonNoteEditor: View {
         .padding()
         .frame(minWidth: 380)
         .interactiveDismissDisabled(model.busy)
-        .alert("Delete this note?", isPresented: $confirmDelete) {
+        .alert("Delete this note?", isPresented: $model.confirmingNoteDeletion) {
             Button("Delete", role: .destructive) { model.deleteNote(draft) }
             Button("Cancel", role: .cancel) {}
         }

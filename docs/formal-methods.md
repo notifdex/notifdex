@@ -104,3 +104,16 @@ the two menu-tracking tests. The fix run (`44192435367`) passed 22 Swift tests,
 8 SQLite contract tests, all four finite TLC configurations, real-worker app
 startup/shutdown, and native/universal packaging. These CI results use synthetic
 data and do not establish recovery coverage on a user's device.
+
+### Inbox, person links, and follow-ups
+
+`spec/Rolodex.tla` models saved status, explicit links, and one due date
+and completion state per existing observation. It checks two alerts, two
+people, two dates, and histories with relinking, snoozing and completion.
+Scheduling reopens a completed follow-up. Saving does not change a link
+or due date. Failed transactions are stuttering steps in this abstraction.
+The foreign keys and migration test cover referential integrity and
+preservation of existing evidence and links in SQLite. Swift tests exercise
+manual linking across apps, duplicate names, normalized identities, and
+reopening persisted follow-ups. The new SQL acceptance tests initially
+failed because the v2 migration was missing and pass with it applied.

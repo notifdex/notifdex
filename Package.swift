@@ -18,11 +18,11 @@ let package = Package(
     ],
     targets: [
         .systemLibrary(name: "CSQLite", pkgConfig: sqlitePkgConfig),
-        .target(name: "NotifdexCore", dependencies: ["CSQLite"], resources: [.copy("schema.sql")]),
+        .target(name: "NotifdexCore", dependencies: ["CSQLite"], resources: [.copy("schema.sql"), .copy("rolodex.sql")]),
         .target(name: "NotifdexMac", dependencies: ["NotifdexCore"]),
         .executableTarget(name: "NotifdexCapture", dependencies: ["NotifdexCore", "NotifdexMac"]),
         .executableTarget(name: "NotifdexApp", dependencies: ["NotifdexCore", "NotifdexMac"]),
-        .testTarget(name: "NotifdexCoreTests", dependencies: ["NotifdexCore"]),
+        .testTarget(name: "NotifdexCoreTests", dependencies: ["NotifdexCore", "CSQLite"]),
         .testTarget(name: "NotifdexMacTests", dependencies: ["NotifdexMac", "NotifdexCore"])
     ]
 )

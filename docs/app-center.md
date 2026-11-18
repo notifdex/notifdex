@@ -85,3 +85,18 @@ with the marker remains. Review output before sharing because it may contain
 account identifiers. A different banner UUID identifies a different alert, and
 does not establish which account received it. Look for a field that follows the
 recipient when the foreground account changes.
+
+### Try the Inbox → Rolodex → Today workflow
+
+1. Open **App Center → Inbox**. Search for a captured alert or filter by app.
+2. Select the alert and click **Save for later**. It appears in **Saved**.
+3. Enter a name and click **Create and link**. Select an alert from a different
+   app and choose the same person under **Link to person**.
+4. Open **Rolodex** and choose the person to see both alerts and add handles
+   or addresses. These links are manual. Names on notifications can overlap.
+5. Select either alert, choose a due date, and click **Add follow-up**.
+   Open **Today**, select it, then use **Snooze a day** or **Mark done**.
+   Today lists open follow-ups, including future ones, in due-date order.
+
+The first launch migrates the existing local capture database to version 2.
+Use the rebuilt app and CLI with that database. Older builds reject version 2.

@@ -163,6 +163,9 @@ struct NotifdexApp: App {
         guard Bundle.main.url(forResource: "schema", withExtension: "sql") != nil else {
             throw StoreError(description: "Packaged schema.sql is missing")
         }
+        guard Bundle.main.url(forResource: "rolodex", withExtension: "sql") != nil else {
+            throw StoreError(description: "Packaged rolodex.sql is missing")
+        }
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -173,6 +176,15 @@ struct NotifdexApp: App {
         _ = try store.record(observation, runID: run)
         guard try !store.record(observation, runID: run), try store.observationCount() == 1 else {
             throw StoreError(description: "Packaged replay check failed")
+        }
+        guard let alert = try store.inbox(InboxQuery()).first else {
+            throw StoreError(description: "Packaged inbox check failed")
+        }
+        let person = try store.createPerson(name: "Example", linking: alert.id)
+        try store.setSaved(alert.id, saved: true)
+        try store.schedule(alert.id, dueAt: 3)
+        guard try store.inbox(InboxQuery(scope: .followUps)).first?.personID == person else {
+            throw StoreError(description: "Packaged follow-up check failed")
         }
         try store.finishRun(runID: run, at: 3)
     }
@@ -252,8 +264,10 @@ struct AppCenter: View {
                 }
             }
             TabView {
+                WorkflowView(worker: model.worker, ready: model.state.ready,
+                             total: model.state.total, apps: model.state.summaries.map(\.appLabel))
+                    .tabItem { Label("Inbox", systemImage: "tray") }
                 appsView.tabItem { Label("Apps", systemImage: "square.grid.2x2") }
-                recentView.tabItem { Label("Recent", systemImage: "tray") }
                 recoveryView.tabItem { Label("Recovery", systemImage: "arrow.clockwise") }
             }
             HStack {
@@ -311,25 +325,6 @@ struct AppCenter: View {
                 .font(.caption).foregroundStyle(.secondary)
         }
         .padding(.top, 10)
-    }
-
-    private var recentView: some View {
-        List(model.state.recent) { observation in
-            VStack(alignment: .leading, spacing: 5) {
-                HStack {
-                    Text(observation.title.isEmpty ? "Notification" : observation.title).font(.headline)
-                    Spacer()
-                    Text(observation.appLabel).foregroundStyle(.secondary)
-                    Text(Date(timeIntervalSince1970: observation.capturedAt), style: .time)
-                        .font(.caption).foregroundStyle(.secondary)
-                }
-                Text(observation.body).lineLimit(4).textSelection(.enabled)
-            }
-            .padding(.vertical, 5)
-        }
-        .overlay {
-            if model.state.recent.isEmpty { Text("Captured notifications will appear here.").foregroundStyle(.secondary) }
-        }
     }
 
     private var recoveryView: some View {

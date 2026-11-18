@@ -117,3 +117,10 @@ preservation of existing evidence and links in SQLite. Swift tests exercise
 manual linking across apps, duplicate names, normalized identities, and
 reopening persisted follow-ups. The new SQL acceptance tests initially
 failed because the v2 migration was missing and pass with it applied.
+
+Inbox visibility is derived from independent per-alert hides and app/subject
+rules. The Rolodex model checks that Inbox and Hidden partition the captured
+alerts. Hiding and reading leave saved items, links, and follow-ups unchanged.
+The SQLite migration acceptance test failed on the missing v3 schema before
+implementation. The Swift test checks exact matches, later captures, rule
+removal, and combinations of both kinds of hide.

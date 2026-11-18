@@ -3,6 +3,7 @@ import Foundation
 public struct InboxQuery: Equatable {
     public enum Scope: Equatable {
         case inbox(app: String?, saved: Bool)
+        case hidden(app: String?)
         case person(String)
         case followUps
     }
@@ -30,6 +31,10 @@ public struct InboxEntry: Identifiable, Equatable {
     public let done: Bool
     public let personID: String?
     public let personName: String
+    public let subject: String
+    public let individuallyHidden: Bool
+    public let filtered: Bool
+    public let isRead: Bool
 }
 
 public struct RolodexPerson: Identifiable, Equatable {
@@ -41,4 +46,33 @@ public struct RolodexIdentity: Identifiable, Equatable {
     public let id: String
     public let platform: String
     public let identifier: String
+}
+
+
+public struct InboxFilter: Identifiable {
+    public let id: Int64
+    public let app: String
+    public let subject: String
+}
+
+
+/// Static destinations keep notification text out of the URL we open.
+public enum InboxDestination {
+    public static func webURL(for app: String) -> URL? {
+        let address: String
+        switch app {
+        case "X": address = "https://x.com/messages"
+        case "Gmail": address = "https://mail.google.com/"
+        case "WhatsApp": address = "https://web.whatsapp.com/"
+        case "Discord": address = "https://discord.com/channels/@me"
+        case "Slack": address = "https://app.slack.com/"
+        case "LinkedIn": address = "https://www.linkedin.com/messaging/"
+        default: return nil
+        }
+        return URL(string: address)
+    }
+
+    public static func nativeURL(for app: String) -> URL? {
+        app == "WhatsApp" ? URL(string: "whatsapp://") : nil
+    }
 }

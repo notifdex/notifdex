@@ -5,7 +5,7 @@ import unittest
 from test_storage_contract import INSERT, SCHEMA
 
 
-class RolodexContract(unittest.TestCase):
+class InboxWorkflowContract(unittest.TestCase):
     def setUp(self):
         self.db = sqlite3.connect(":memory:")
         self.addCleanup(self.db.close)
@@ -14,7 +14,7 @@ class RolodexContract(unittest.TestCase):
         self.db.execute("INSERT INTO capture_runs VALUES ('run', 1, 1, NULL)")
         self.db.execute(INSERT, ("a", "Hello", "X, Alex, Hello, from iPhone"))
         self.db.commit()
-        self.db.executescript(SCHEMA.with_name("rolodex.sql").read_text())
+        self.db.executescript(SCHEMA.with_name("inbox-work.sql").read_text())
 
     def test_upgrade_keeps_observations_and_clears_no_evidence(self):
         self.assertEqual(self.db.execute("SELECT body FROM observations").fetchone(), ("Hello",))

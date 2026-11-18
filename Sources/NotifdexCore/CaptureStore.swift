@@ -62,7 +62,7 @@ public final class CaptureStore {
                         try execute(Self.schema(named: "schema"))
                     }
                     if current == 0 || current == 1 {
-                        try execute(Self.schema(named: "rolodex"))
+                        try execute(Self.schema(named: "inbox-work"))
                     }
                     if current < 3 {
                         try execute(Self.schema(named: "filters"))
@@ -420,16 +420,16 @@ public extension CaptureStore {
         }
     }
 
-    func people() throws -> [RolodexPerson] {
+    func people() throws -> [PersonRecord] {
         try readRows("SELECT id, display_name FROM people ORDER BY display_name COLLATE NOCASE, id") { row in
-            RolodexPerson(id: columnString(row, 0), name: columnString(row, 1))
+            PersonRecord(id: columnString(row, 0), name: columnString(row, 1))
         }
     }
 
-    func identities(for person: String) throws -> [RolodexIdentity] {
+    func identities(for person: String) throws -> [PersonIdentity] {
         try readRows("SELECT id, platform, identifier FROM identities WHERE person_id = ? ORDER BY platform, identifier",
                      strings: [person]) { row in
-            RolodexIdentity(id: columnString(row, 0), platform: columnString(row, 1), identifier: columnString(row, 2))
+            PersonIdentity(id: columnString(row, 0), platform: columnString(row, 1), identifier: columnString(row, 2))
         }
     }
 
@@ -535,7 +535,7 @@ public extension CaptureStore {
             let owners = try readRows("SELECT person_id FROM identities WHERE platform = ? AND identifier = ?",
                                      strings: [platform, identifier]) { columnString($0, 0) }
             if let owner = owners.first {
-                guard owner == person else { throw StoreError(description: "This identity is already in the Rolodex.") }
+                guard owner == person else { throw StoreError(description: "This identity is already linked to another person.") }
                 return
             }
             try execute("INSERT INTO identities (id, person_id, platform, identifier) VALUES (?, ?, ?, ?)",

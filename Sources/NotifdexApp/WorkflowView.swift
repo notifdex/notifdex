@@ -7,7 +7,7 @@ import NotifdexMac
 private enum WorkflowMode: String, CaseIterable, Hashable, Identifiable {
     case inbox = "Inbox"
     case saved = "Saved"
-    case people = "Rolodex"
+    case people = "People"
     case today = "Today"
     case hidden = "Hidden"
 
@@ -59,9 +59,9 @@ private final class WorkflowModel: ObservableObject {
     @Published private(set) var rules: [InboxFilter] = []
     @Published private(set) var lastHide: InboxHide?
     @Published private(set) var loadedQuery: InboxQuery?
-    @Published private(set) var people: [RolodexPerson] = []
+    @Published private(set) var people: [PersonRecord] = []
     @Published private(set) var cardID: String?
-    @Published private(set) var identities: [RolodexIdentity] = []
+    @Published private(set) var identities: [PersonIdentity] = []
     @Published private(set) var timeline: [InboxEntry] = []
     @Published private(set) var busy = false
     @Published private(set) var error: String?

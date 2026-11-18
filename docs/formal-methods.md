@@ -107,7 +107,7 @@ data and do not establish recovery coverage on a user's device.
 
 ### Inbox, person links, and follow-ups
 
-`spec/Rolodex.tla` models saved status, explicit links, and one due date
+`spec/InboxWorkflow.tla` models saved status, explicit links, and one due date
 and completion state per existing observation. It checks two alerts, two
 people, two dates, and histories with relinking, snoozing and completion.
 Scheduling reopens a completed follow-up. Saving does not change a link
@@ -119,7 +119,7 @@ reopening persisted follow-ups. The new SQL acceptance tests initially
 failed because the v2 migration was missing and pass with it applied.
 
 Inbox visibility is derived from independent per-alert hides and app/subject
-rules. The Rolodex model checks that Inbox and Hidden partition the captured
+rules. The InboxWorkflow model checks that Inbox and Hidden partition the captured
 alerts. Hiding and reading leave saved items, links, and follow-ups unchanged.
 The SQLite migration acceptance test failed on the missing v3 schema before
 implementation. The Swift test checks exact matches, later captures, rule

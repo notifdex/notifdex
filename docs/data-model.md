@@ -1,6 +1,6 @@
 # Evidence and people
 
-SQLite schema version 1 lives in `Sources/NotifdexCore/schema.sql`. The core
+The baseline SQLite schema (version 1) lives in `Sources/NotifdexCore/schema.sql`. The core
 installs it transactionally, rejects unknown versions, and refuses a populated
 version-zero database from an older application. Future changes need migrations
 that preserve observations and explicit user decisions.
@@ -14,9 +14,10 @@ that preserve observations and explicit user decisions.
 | Identity | Exact platform identifier such as a handle or email, optionally linked to a person |
 | Person observation | Explicit assignment with manual or verified-identifier provenance |
 
-Only capture entities are used by the executable in this milestone. Person
-tables reserve the minimal relationship boundary. Person creation/linking screens,
-verified identifier extraction, merges, follow-ups, funnels, and AI are future work.
+The app uses person and identity records for the People view. Later migrations
+add saved alerts, follow-ups, Inbox filters, and user-approved app-and-title
+match rules. Rule matches are derived links. Explicit links and unlinks take
+precedence. Verified identifier extraction and AI summaries are future work.
 
 ## Notification identity and revisions
 

@@ -175,8 +175,8 @@ struct NotifdexApp: App {
         guard Bundle.main.url(forResource: "schema", withExtension: "sql") != nil else {
             throw StoreError(description: "Packaged schema.sql is missing")
         }
-        guard Bundle.main.url(forResource: "rolodex", withExtension: "sql") != nil else {
-            throw StoreError(description: "Packaged rolodex.sql is missing")
+        guard Bundle.main.url(forResource: "inbox-work", withExtension: "sql") != nil else {
+            throw StoreError(description: "Packaged inbox-work.sql is missing")
         }
         guard Bundle.main.url(forResource: "filters", withExtension: "sql") != nil else {
             throw StoreError(description: "Packaged filters.sql is missing")

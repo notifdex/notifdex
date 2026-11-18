@@ -3,7 +3,7 @@ import XCTest
 @testable import NotifdexCore
 import CSQLite
 
-final class RolodexTests: XCTestCase {
+final class InboxWorkflowTests: XCTestCase {
     func testInboxToPersonToFollowUpSurvivesReopen() throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)

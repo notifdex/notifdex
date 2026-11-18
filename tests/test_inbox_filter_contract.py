@@ -10,7 +10,7 @@ class InboxFilterContract(unittest.TestCase):
         with sqlite3.connect(":memory:") as db:
             self.addCleanup(db.close)
             db.executescript(SCHEMA.read_text())
-            db.executescript(SCHEMA.with_name("rolodex.sql").read_text())
+            db.executescript(SCHEMA.with_name("inbox-work.sql").read_text())
             db.execute("INSERT INTO capture_runs VALUES ('run', 1, 1, NULL)")
             db.execute("""INSERT INTO observations VALUES
                 (1,'device','alert','run',2,'iphone','Gmail','Example','','Weekly Digest','fixture',1)""")

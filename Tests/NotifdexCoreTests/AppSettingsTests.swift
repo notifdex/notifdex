@@ -21,6 +21,31 @@ final class AppSettingsTests: XCTestCase {
         XCTAssertFalse(restored.allowedLabels.contains("X"))
     }
 
+    func testMessagesIsOptInForNewAndExistingSettings() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = AppSettingsStore(url: directory.appendingPathComponent("settings.json"))
+        let fresh = try store.loadOrCreate(sourceID: "fixture")
+        XCTAssertEqual(fresh.apps.first { $0.id == "messages" }?.enabled, false)
+        XCTAssertFalse(fresh.allowedLabels.contains("Messages"))
+
+        var legacy = fresh
+        legacy.apps.removeAll { $0.id == "messages" }
+        legacy.paused = true
+        try store.save(legacy)
+        let upgraded = try store.loadOrCreate(sourceID: "different")
+        XCTAssertEqual(upgraded.sourceID, "fixture")
+        XCTAssertTrue(upgraded.paused)
+        XCTAssertEqual(upgraded.apps.first { $0.id == "messages" }?.enabled, false)
+
+        try legacy.addCustomApp(label: "Messages")
+        try store.save(legacy)
+        let custom = try store.loadOrCreate(sourceID: "different")
+        XCTAssertEqual(custom.apps.filter { $0.labels.contains("Messages") }.count, 1)
+        XCTAssertTrue(custom.allowedLabels.contains("Messages"))
+    }
+
     func testCorruptSettingsAreSurfaced() throws {
         let file = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: file) }

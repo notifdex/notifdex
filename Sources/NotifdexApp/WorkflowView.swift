@@ -132,6 +132,7 @@ private final class WorkflowModel: ObservableObject {
         let request = generation
         let selected = selected
         let person = person
+        let isPeople = mode == .people
         let keepsOpenDetail = mode.hasTriageControls
         worker.withStore({ store in
             let entries = try store.inbox(query)
@@ -139,8 +140,10 @@ private final class WorkflowModel: ObservableObject {
             if alert == nil, keepsOpenDetail, let selected {
                 alert = try store.selectedInboxEntry(selected, in: query)
             }
-            let card = alert?.personID ?? (query.scope == .person(person ?? "") ? person : nil)
-            let timeline = try card.map { try store.inbox(InboxQuery(scope: .person($0), limit: 12)) } ?? []
+            let card = isPeople ? person : alert?.personID
+            let timeline = try (isPeople ? nil : card).map {
+                try store.inbox(InboxQuery(scope: .person($0), limit: 12))
+            } ?? []
             let identities = try card.map { try store.identities(for: $0) } ?? []
             let matches = try card.map { try store.personMatchRules(for: $0) } ?? []
             let notes = try card.map { try store.personNotes(for: $0) } ?? []
@@ -344,8 +347,18 @@ struct WorkflowView: View {
                     }
                 }
                 .frame(minWidth: 250)
-                ScrollView { detail.padding(12).frame(maxWidth: .infinity, alignment: .leading) }
-                    .frame(minWidth: 280)
+                VStack(alignment: .leading, spacing: 0) {
+                    if model.mode == .people, model.alert != nil {
+                        Button { model.selected = nil } label: {
+                            Label("Back to person", systemImage: "chevron.left")
+                        }
+                        .padding(12)
+                        Divider()
+                    }
+                    ScrollView { detail.padding(12).frame(maxWidth: .infinity, alignment: .leading) }
+                        .id(model.mode == .people ? model.selected : nil)
+                }
+                .frame(minWidth: 280)
             }
         }
         .padding(.top, 10)
@@ -573,13 +586,13 @@ struct WorkflowView: View {
         VStack(alignment: .leading, spacing: 12) {
             if let alert = model.alert {
                 alertDetail(alert)
-                if let id = alert.personID {
+                if model.mode != .people, let id = alert.personID {
                     Divider()
-                    personCard(id: id, name: alert.personName)
+                    personCard(id: id, name: alert.personName, showRecentActivity: true)
                 }
             } else if model.mode == .people {
                 if let card = model.people.first(where: { $0.id == model.person }) {
-                    personCard(id: card.id, name: card.name)
+                    personCard(id: card.id, name: card.name, showRecentActivity: false)
                 } else {
                     Text("Choose a person or create a card.").foregroundStyle(.secondary)
                     newPerson(linking: nil)
@@ -733,7 +746,7 @@ struct WorkflowView: View {
         }
     }
 
-    private func personCard(id: String, name: String) -> some View {
+    private func personCard(id: String, name: String, showRecentActivity: Bool) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             Label(name, systemImage: "person.crop.circle").font(.title3)
             ForEach(model.cardID == id ? model.identities : []) { identity in
@@ -791,11 +804,15 @@ struct WorkflowView: View {
                         .accessibilityLabel("Edit note from \(Date(timeIntervalSince1970: note.createdAt).formatted())")
                 }
             }
-            Text("Recent activity").font(.headline)
-            if model.cardID == id && model.timeline.isEmpty { Text("No linked alerts yet.").foregroundStyle(.secondary) }
-            ForEach(model.cardID == id ? model.timeline : []) { entry in
-                Divider()
-                entryRow(entry)
+            if showRecentActivity {
+                Text("Recent activity").font(.headline)
+                if model.cardID == id && model.timeline.isEmpty {
+                    Text("No linked alerts yet.").foregroundStyle(.secondary)
+                }
+                ForEach(model.cardID == id ? model.timeline : []) { entry in
+                    Divider()
+                    entryRow(entry)
+                }
             }
         }
     }

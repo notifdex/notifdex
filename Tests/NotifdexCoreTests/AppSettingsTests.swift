@@ -3,7 +3,7 @@ import XCTest
 @testable import NotifdexCore
 
 final class AppSettingsTests: XCTestCase {
-    func testDefaultsEnableOnlyXAndSettingsSurviveRelaunch() throws {
+    func testDefaultsAndSettingsSurviveRelaunch() throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -21,14 +21,14 @@ final class AppSettingsTests: XCTestCase {
         XCTAssertFalse(restored.allowedLabels.contains("X"))
     }
 
-    func testMessagesIsOptInForNewAndExistingSettings() throws {
+    func testMessagesDefaultsOnOnlyForNewSettings() throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
         let store = AppSettingsStore(url: directory.appendingPathComponent("settings.json"))
         let fresh = try store.loadOrCreate(sourceID: "fixture")
-        XCTAssertEqual(fresh.apps.first { $0.id == "messages" }?.enabled, false)
-        XCTAssertFalse(fresh.allowedLabels.contains("Messages"))
+        XCTAssertEqual(fresh.apps.first { $0.id == "messages" }?.enabled, true)
+        XCTAssertEqual(fresh.allowedLabels, ["X", "Twitter", "Messages"])
 
         var legacy = fresh
         legacy.apps.removeAll { $0.id == "messages" }
@@ -38,9 +38,11 @@ final class AppSettingsTests: XCTestCase {
         XCTAssertEqual(upgraded.sourceID, "fixture")
         XCTAssertTrue(upgraded.paused)
         XCTAssertEqual(upgraded.apps.first { $0.id == "messages" }?.enabled, false)
+        let installed = try XCTUnwrap(upgraded.apps.firstIndex { $0.id == "messages" })
+        try store.save(upgraded)
+        XCTAssertFalse(try store.loadOrCreate(sourceID: "different").allowedLabels.contains("Messages"))
         var enabled = upgraded
-        let messagesIndex = try XCTUnwrap(enabled.apps.firstIndex { $0.id == "messages" })
-        enabled.apps[messagesIndex].enabled = true
+        enabled.apps[installed].enabled = true
         try store.save(enabled)
         XCTAssertTrue(try store.loadOrCreate(sourceID: "different").allowedLabels.contains("Messages"))
 

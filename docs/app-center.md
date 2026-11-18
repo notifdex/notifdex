@@ -147,8 +147,9 @@ links are preserved. Earlier unlinks had no stored marker to migrate.
 
 ### Apple Messages
 
-In **App Center → Apps**, enable **Messages**. Existing custom entries that
-already use the Messages label keep their current setting. Send a fresh text
+Messages is enabled by default on a new install. If you already use
+Notifdex, check **App Center → Apps → Messages**. Existing capture settings
+are preserved, including when Messages is off. Send a fresh text
 to the Apple Account or number configured in Messages on this Mac and check
 **Inbox → Messages** after the Mac alert appears. If using SMS, MMS, or RCS,
 [set up text message forwarding](https://support.apple.com/guide/messages/set-up-messages-ichte16154fb/mac)

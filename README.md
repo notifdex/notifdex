@@ -55,7 +55,9 @@ When the existing database has exactly one collector source, the app adopts that
 source namespace so replay can recognize prior CLI observations. Otherwise a new
 source UUID is persisted. The Recovery tab shows the source identity for inspection.
 
-In Inbox, choose **Recent** or **By App**. Open **People** to see linked alerts
+In Inbox, choose **All**, **Unread**, or **Read**. Use **View** to group by app
+or change the date order. Flag an alert to find it again in **Flagged**.
+Open **People** to see linked alerts
 and **Today** to track follow-ups. The Recovery tab has **Recover now**, automatic
 recovery on launch, wake, or app selection changes, and launch at login.
 Login-item registration failures are shown. Installing to `~/Applications` before

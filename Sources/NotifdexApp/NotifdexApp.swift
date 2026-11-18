@@ -190,6 +190,9 @@ struct NotifdexApp: App {
         guard Bundle.main.url(forResource: "person-notes", withExtension: "sql") != nil else {
             throw StoreError(description: "Packaged person-notes.sql is missing")
         }
+        guard Bundle.main.url(forResource: "flags", withExtension: "sql") != nil else {
+            throw StoreError(description: "Packaged flags.sql is missing")
+        }
         let store = try CaptureStore(path: directory.appendingPathComponent("self-check.db").path)
         let run = try store.startRun(at: 1)
         let observation = Observation(sourceID: "synthetic", sourceEventID: "1", capturedAt: 2,
@@ -221,6 +224,10 @@ struct NotifdexApp: App {
         let note = try store.addPersonNote(person: person, body: "Synthetic note", at: 3)
         guard try store.personNotes(for: person).first?.id == note else {
             throw StoreError(description: "Packaged person notes check failed")
+        }
+        try store.setFlag(alert.id, flagged: true)
+        guard try store.inbox(InboxQuery(scope: .flagged(app: nil))).first?.id == alert.id else {
+            throw StoreError(description: "Packaged Flagged check failed")
         }
         try store.finishRun(runID: run, at: 3)
     }

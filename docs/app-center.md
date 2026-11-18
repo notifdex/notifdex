@@ -40,7 +40,7 @@ Those measurements use a different Mac; Notifdex's own UI trials are pending.
 
 1. Stop the CLI. Build/install the app and grant Notifdex Accessibility access.
 2. Open App Center. Verify prior X observations and the same source identity appear.
-3. Send an X DM. Confirm it appears once in Recent and the saved count increases.
+3. Send an X DM. Confirm it appears once in Inbox and the saved count increases.
 4. Disable X. Send another DM and verify it is not saved after the toggle is applied.
 5. Enable X and use Recover now. Observe the clock/panel/stack actions and report
    the recovery status and scan counts. Avoid clearing the test alerts.
@@ -164,7 +164,15 @@ Messages history and sending are handled by the Messages app.
 
 ### Choose how the Inbox is arranged
 
-**Recent** shows one list in the order Notifdex captured the alerts, newest
-first. **By App** groups those same results. Click an app heading to collapse
-or expand it. App filters and search work in either layout, and switching
-layouts keeps your collapsed groups for this session.
+Inbox starts with **All** alerts in one list, newest capture first. Choose
+**Unread** to see alerts you haven't opened in Notifdex, or **Read** to find
+alerts you've opened. Opening an unread alert keeps its detail available
+even after it leaves the Unread list.
+
+Use **View** to group by app or switch between **Newest first** and **Oldest
+first**. Both date orders work inside each app group. Click an app heading
+to expand or collapse it. The app filter and search work in either layout.
+
+Click the flag next to an alert to find it again in **Flagged**. Removing
+the flag drops it from that view. A hidden alert keeps its flag and returns
+to Flagged when all reasons for hiding it are removed.

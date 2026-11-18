@@ -13,12 +13,14 @@ private struct NoteDraft: Identifiable {
 
 private enum WorkflowMode: String, CaseIterable, Hashable, Identifiable {
     case inbox = "Inbox"
+    case flagged = "Flagged"
     case saved = "Saved"
     case people = "People"
     case today = "Today"
     case hidden = "Hidden"
 
     var id: String { rawValue }
+    var hasTriageControls: Bool { self == .inbox || self == .flagged }
 }
 
 private enum InboxHide: Equatable {
@@ -53,6 +55,8 @@ private final class WorkflowModel: ObservableObject {
     @Published var app: String?
     @Published var search = ""
     @Published var inboxPresentation = InboxPresentation()
+    @Published var readFilter: InboxQuery.ReadFilter = .all
+    @Published var captureOrder: InboxQuery.Order = .newestFirst
     @Published var person: String?
     @Published var selected: Int64?
     @Published var name = ""
@@ -70,6 +74,7 @@ private final class WorkflowModel: ObservableObject {
     @Published private(set) var rules: [InboxFilter] = []
     @Published private(set) var lastHide: InboxHide?
     @Published private(set) var loadedQuery: InboxQuery?
+    @Published private var loadedAlert: InboxEntry?
     @Published private(set) var people: [PersonRecord] = []
     @Published private(set) var cardID: String?
     @Published private(set) var identities: [PersonIdentity] = []
@@ -85,19 +90,31 @@ private final class WorkflowModel: ObservableObject {
     var scope: InboxQuery.Scope {
         switch mode {
         case .inbox, .saved: return .inbox(app: app, saved: mode == .saved)
+        case .flagged: return .flagged(app: app)
         case .hidden: return .hidden(app: app)
         case .people: return .person(person ?? "")
         case .today: return .followUps
         }
     }
 
-    var query: InboxQuery { InboxQuery(scope: scope, search: search, limit: limit + 1) }
-    var visibleEntries: [InboxEntry] {
-        guard loadedQuery?.scope == scope, loadedQuery?.search == search else { return [] }
-        return entries
+    var query: InboxQuery {
+        InboxQuery(scope: scope, search: search, limit: limit + 1,
+                   readFilter: mode.hasTriageControls ? readFilter : .all,
+                   order: mode.hasTriageControls ? captureOrder : .newestFirst)
     }
 
-    var alert: InboxEntry? { visibleEntries.first { $0.id == selected } }
+    private var isCurrentQuery: Bool {
+        guard var previous = loadedQuery else { return false }
+        previous.limit = query.limit
+        return previous == query
+    }
+
+    var visibleEntries: [InboxEntry] { isCurrentQuery ? entries : [] }
+
+    var alert: InboxEntry? {
+        guard isCurrentQuery else { return nil }
+        return entries.first { $0.id == selected } ?? (loadedAlert?.id == selected ? loadedAlert : nil)
+    }
 
     func load(query: InboxQuery) {
         guard self.query == query else { return }
@@ -105,15 +122,19 @@ private final class WorkflowModel: ObservableObject {
         let request = generation
         let selected = selected
         let person = person
+        let keepsOpenDetail = mode.hasTriageControls
         worker.withStore({ store in
             let entries = try store.inbox(query)
-            let alert = entries.first { $0.id == selected }
+            var alert = entries.first { $0.id == selected }
+            if alert == nil, keepsOpenDetail, let selected {
+                alert = try store.selectedInboxEntry(selected, in: query)
+            }
             let card = alert?.personID ?? (query.scope == .person(person ?? "") ? person : nil)
             let timeline = try card.map { try store.inbox(InboxQuery(scope: .person($0), limit: 12)) } ?? []
             let identities = try card.map { try store.identities(for: $0) } ?? []
             let matches = try card.map { try store.personMatchRules(for: $0) } ?? []
             let notes = try card.map { try store.personNotes(for: $0) } ?? []
-            return (entries, try store.people(), card, identities, timeline, try store.inboxFilters(), matches, notes)
+            return (entries, try store.people(), card, identities, timeline, try store.inboxFilters(), matches, notes, alert)
         }, completion: { [weak self] result in
             guard let self, self.generation == request, self.query == query,
                   self.selected == selected else { return }
@@ -128,6 +149,8 @@ private final class WorkflowModel: ObservableObject {
                 self.rules = value.5
                 self.matchRules = value.6
                 self.notes = value.7
+                self.loadedAlert = value.8
+                if keepsOpenDetail, selected != nil, value.8 == nil { self.selected = nil }
             case .failure(let error): self.error = String(describing: error)
             }
         })
@@ -139,7 +162,7 @@ private final class WorkflowModel: ObservableObject {
     }
 
     func clearSelectionIfCollapsed() {
-        guard mode == .inbox, let app = alert?.app, !inboxPresentation.isExpanded(app) else { return }
+        guard mode.hasTriageControls, let app = alert?.app, !inboxPresentation.isExpanded(app) else { return }
         selected = nil
     }
 
@@ -342,16 +365,29 @@ struct WorkflowView: View {
 
     private var filterBar: some View {
         HStack {
-            if model.mode == .inbox {
-                Picker("Group inbox", selection: $model.inboxPresentation.order) {
-                    Text("Recent").tag(InboxPresentation.Order.recent)
-                    Text("By App").tag(InboxPresentation.Order.byApp)
+            if model.mode.hasTriageControls {
+                Picker("Read status", selection: $model.readFilter) {
+                    Text("All").tag(InboxQuery.ReadFilter.all)
+                    Text("Unread").tag(InboxQuery.ReadFilter.unread)
+                    Text("Read").tag(InboxQuery.ReadFilter.read)
                 }
                 .pickerStyle(.segmented)
                 .labelsHidden()
                 .fixedSize()
+
+                Menu("View") {
+                    Picker("Group by", selection: $model.inboxPresentation.order) {
+                        Text("None").tag(InboxPresentation.Order.recent)
+                        Text("App").tag(InboxPresentation.Order.byApp)
+                    }
+                    Picker("Sort", selection: $model.captureOrder) {
+                        Text("Newest first").tag(InboxQuery.Order.newestFirst)
+                        Text("Oldest first").tag(InboxQuery.Order.oldestFirst)
+                    }
+                }
+                .fixedSize()
             }
-            if model.mode == .inbox || model.mode == .saved || model.mode == .hidden {
+            if model.mode.hasTriageControls || model.mode == .saved || model.mode == .hidden {
                 let categories = Set(apps.map { $0 == "Twitter" ? "X" : ($0.isEmpty ? "Unknown app" : $0) }).sorted()
                 Picker("App", selection: $model.app) {
                     Text("All apps").tag(nil as String?)
@@ -377,17 +413,25 @@ struct WorkflowView: View {
     private var entryList: some View {
         let rows = Array(model.visibleEntries.prefix(model.limit))
         let presentation = switch model.mode {
-        case .inbox: model.inboxPresentation
+        case .inbox, .flagged: model.inboxPresentation
         case .saved, .hidden: InboxPresentation(order: .byApp)
         case .people, .today: InboxPresentation()
         }
-        return List(selection: $model.selected) {
+        // SwiftUI may clear a selection when its row leaves the list. Keep the
+        // detail open in Inbox and Flagged until the user chooses another item.
+        let selection = Binding<Int64?>(
+            get: { rows.contains { $0.id == model.selected } ? model.selected : nil },
+            set: { id in
+                if id != nil || !model.mode.hasTriageControls { model.selected = id }
+            }
+        )
+        return List(selection: selection) {
             ForEach(presentation.sections(for: rows), id: \.app) { section in
                 if let app = section.app {
                     Section {
                         if section.expanded { listedRows(section.rows) }
                     } header: {
-                        if model.mode == .inbox {
+                        if model.mode.hasTriageControls {
                             Button { model.toggleAppSection(app) } label: {
                                 Label(app, systemImage: section.expanded ? "chevron.down" : "chevron.right")
                             }
@@ -412,11 +456,11 @@ struct WorkflowView: View {
 
     private func listedRows(_ rows: [InboxEntry]) -> some View {
         ForEach(rows) { row in
-            entryRow(row, showHide: model.mode == .inbox).tag(row.id)
+            entryRow(row, showActions: model.mode.hasTriageControls).tag(row.id)
         }
     }
 
-    private func entryRow(_ entry: InboxEntry, showHide: Bool = false) -> some View {
+    private func entryRow(_ entry: InboxEntry, showActions: Bool = false) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack {
                 if !entry.isRead {
@@ -431,7 +475,20 @@ struct WorkflowView: View {
                     .foregroundStyle(entry.isRead ? Color.secondary : Color.primary)
                 Spacer()
                 if entry.saved { Image(systemName: "bookmark.fill").accessibilityLabel("Saved") }
-                if showHide { hideMenu(entry) }
+                if showActions {
+                    Button {
+                        model.edit { try $0.setFlag(entry.id, flagged: !entry.isFlagged) }
+                    } label: {
+                        Image(systemName: entry.isFlagged ? "flag.fill" : "flag")
+                    }
+                    .buttonStyle(.borderless)
+                    .accessibilityLabel(entry.isFlagged ? "Remove flag" : "Flag alert")
+                    .help(entry.isFlagged ? "Remove flag" : "Flag alert")
+                    .disabled(!ready || model.busy)
+                    hideMenu(entry)
+                } else if entry.isFlagged {
+                    Image(systemName: "flag.fill").accessibilityLabel("Flagged")
+                }
             }
             if !entry.body.isEmpty {
                 Text(entry.body).lineLimit(2)
@@ -527,6 +584,9 @@ struct WorkflowView: View {
                         model.restore(.subject(app: alert.app, text: alert.subject))
                     }
                 }
+            }
+            Button(alert.isFlagged ? "Remove flag" : "Flag alert") {
+                model.edit { try $0.setFlag(alert.id, flagged: !alert.isFlagged) }
             }
             Button(alert.saved ? "Remove from Saved" : "Save for later") {
                 model.edit { try $0.setSaved(alert.id, saved: !alert.saved) }

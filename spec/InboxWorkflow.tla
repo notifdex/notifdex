@@ -1,9 +1,9 @@
 ------------------------------ MODULE InboxWorkflow ------------------------------
 EXTENDS TLC
 CONSTANTS Alerts, People, DueDates, Matches
-VARIABLES saved, links, tasks, done, filterEnabled, hiddenEntries, readEntries
+VARIABLES saved, links, tasks, done, filterEnabled, hiddenEntries, readEntries, flags
 
-vars == <<saved, links, tasks, done, filterEnabled, hiddenEntries, readEntries>>
+vars == <<saved, links, tasks, done, filterEnabled, hiddenEntries, readEntries, flags>>
 NoLink == "unassigned"
 NoTask == "unscheduled"
 
@@ -15,41 +15,50 @@ Init ==
     /\ filterEnabled = FALSE
     /\ hiddenEntries = {}
     /\ readEntries = {}
+    /\ flags = {}
 
 SetSaved(a, enabled) ==
     /\ saved' = IF enabled THEN saved \cup {a} ELSE saved \ {a}
-    /\ UNCHANGED <<links, tasks, done, filterEnabled, hiddenEntries, readEntries>>
+    /\ UNCHANGED <<links, tasks, done, filterEnabled, hiddenEntries, readEntries, flags>>
 
 Link(a, p) ==
     /\ links' = [links EXCEPT ![a] = p]
-    /\ UNCHANGED <<saved, tasks, done, filterEnabled, hiddenEntries, readEntries>>
+    /\ UNCHANGED <<saved, tasks, done, filterEnabled, hiddenEntries, readEntries, flags>>
 
 Schedule(a, due) ==
     /\ tasks' = [tasks EXCEPT ![a] = due]
     /\ done' = done \ {a}
-    /\ UNCHANGED <<saved, links, filterEnabled, hiddenEntries, readEntries>>
+    /\ UNCHANGED <<saved, links, filterEnabled, hiddenEntries, readEntries, flags>>
 
 Complete(a) ==
     /\ tasks[a] # NoTask
     /\ done' = done \cup {a}
-    /\ UNCHANGED <<saved, links, tasks, filterEnabled, hiddenEntries, readEntries>>
+    /\ UNCHANGED <<saved, links, tasks, filterEnabled, hiddenEntries, readEntries, flags>>
 
 ToggleFilter ==
     /\ filterEnabled' = ~filterEnabled
-    /\ UNCHANGED <<saved, links, tasks, done, hiddenEntries, readEntries>>
+    /\ UNCHANGED <<saved, links, tasks, done, hiddenEntries, readEntries, flags>>
 
 SetHidden(a, enabled) ==
     /\ hiddenEntries' = IF enabled THEN hiddenEntries \cup {a} ELSE hiddenEntries \ {a}
-    /\ UNCHANGED <<saved, links, tasks, done, filterEnabled, readEntries>>
+    /\ UNCHANGED <<saved, links, tasks, done, filterEnabled, readEntries, flags>>
 
 SetRead(a, enabled) ==
     /\ readEntries' = IF enabled THEN readEntries \cup {a} ELSE readEntries \ {a}
-    /\ UNCHANGED <<saved, links, tasks, done, filterEnabled, hiddenEntries>>
+    /\ UNCHANGED <<saved, links, tasks, done, filterEnabled, hiddenEntries, flags>>
+
+SetFlag(a, enabled) ==
+    /\ flags' = IF enabled THEN flags \cup {a} ELSE flags \ {a}
+    /\ UNCHANGED <<saved, links, tasks, done, filterEnabled, hiddenEntries, readEntries>>
 
 Hidden == hiddenEntries \cup (IF filterEnabled THEN Matches ELSE {})
 Visible == Alerts \ Hidden
+Flagged == flags \cap Visible
+Read(items) == items \cap readEntries
+Unread(items) == items \ readEntries
 Next ==
     \/ ToggleFilter
+    \/ \E a \in Alerts, b \in BOOLEAN : SetFlag(a, b)
     \/ \E a \in Alerts, b \in BOOLEAN : SetRead(a, b)
     \/ \E a \in Alerts, b \in BOOLEAN : SetHidden(a, b)
     \/ \E a \in Alerts, b \in BOOLEAN : SetSaved(a, b)
@@ -66,9 +75,21 @@ TypeOK ==
     /\ filterEnabled \in BOOLEAN
     /\ hiddenEntries \subseteq Alerts
     /\ readEntries \subseteq Alerts
+    /\ flags \subseteq Alerts
 CompleteRequiresSchedule == \A a \in done : tasks[a] # NoTask
 InboxPartition ==
     /\ Hidden \union Visible = Alerts
     /\ Hidden \intersect Visible = {}
     /\ Hidden \subseteq (Matches \cup hiddenEntries)
+FlaggedVisibility ==
+    /\ Flagged \cap Hidden = {}
+    /\ Flagged \cup (flags \cap Hidden) = flags
+
+ReadPartition ==
+    \A items \in {Visible, Flagged} :
+        /\ Read(items) \cup Unread(items) = items
+        /\ Read(items) \cap Unread(items) = {}
+
+FlagStateIndependence ==
+    [][(flags' # flags) => UNCHANGED <<readEntries, saved, links, tasks, done, Hidden>>]_vars
 =============================================================================

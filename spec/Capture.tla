@@ -23,6 +23,14 @@ Scan == /\ running /\ accessible
         /\ resumeNeeded' = FALSE /\ gap' = FALSE
         /\ UNCHANGED <<visible, stored, acknowledged, running, accessible>>
 
+\* A stale or inaccessible subtree may coexist with readable siblings.
+\* A partial scan can supply evidence without closing the coverage gap.
+PartialScan == \E observations \in SUBSET visible :
+    /\ running /\ accessible
+    /\ pending' = pending \cup observations
+    /\ resumeNeeded' = TRUE /\ gap' = TRUE
+    /\ UNCHANGED <<visible, stored, acknowledged, running, accessible>>
+
 Commit(e) == /\ running /\ accessible /\ e \in pending
              /\ stored' = stored \cup {e}
              /\ acknowledged' = acknowledged \cup {e}
@@ -50,7 +58,7 @@ Restore == /\ ~accessible /\ accessible' = TRUE /\ gap' = TRUE
            /\ UNCHANGED <<visible, pending, stored, acknowledged, running>>
 
 Next == \/ \E e \in Events : Show(e) \/ Hide(e) \/ Commit(e)
-        \/ Scan \/ CommitBatch \/ Crash \/ Restart \/ Suspend \/ Restore
+        \/ Scan \/ PartialScan \/ CommitBatch \/ Crash \/ Restart \/ Suspend \/ Restore
 Spec == Init /\ [][Next]_vars
 
 TypeOK == /\ visible \subseteq Events /\ pending \subseteq Events

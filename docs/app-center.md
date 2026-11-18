@@ -57,3 +57,31 @@ The CLI and app cannot simultaneously own the database. Rebuilding an ad-hoc
 signed app may reset its permission identity. No Apple Developer ID certificate
 or notarized distribution package is provided in this prototype. The build script
 verifies the signature and runs a packaged SQLite-resource/deduplication self-check.
+
+### Check which X or Gmail account received an alert
+
+Use synthetic DMs and emails for this test. The probe prints text attributes for
+the first matching alert. It does not open alerts or write to the capture database.
+
+```sh
+swift build -c release --product notifdex-capture
+.build/release/notifdex-capture --probe-account NOTIFDEX-ACCOUNT-TEST --app Gmail
+```
+
+1. With both accounts signed in, start the probe and send an email from a third
+   account to mailbox A. Use `NOTIFDEX-ACCOUNT-TEST` as the subject or in the
+   first line of the message so it appears in the preview.
+2. Keep the output and dismiss that test alert. Run the same command and send
+   the same email from the same sender to mailbox B. Repeat with the other
+   mailbox active in Gmail to check whether the signal follows the recipient.
+3. Run the same comparison with `--app X` and the marker in the DM text.
+   Use the same sender and matching text for both receiving accounts.
+4. If testing retained alerts, leave the matching alert in Notification Center
+   and open its stack while the probe waits. Compare the live and retained fields.
+
+Terminal needs Accessibility permission for the probe. If an alert is missed,
+make sure iPhone mirroring shows a preview and only the intended test alert
+with the marker remains. Review output before sharing because it may contain
+account identifiers. A different banner UUID identifies a different alert, and
+does not establish which account received it. Look for a field that follows the
+recipient when the foreground account changes.

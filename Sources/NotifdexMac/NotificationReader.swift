@@ -76,6 +76,11 @@ func readBanner(_ node: AXUIElement, source: String, allowedApps: Set<String>, d
 }
 
 public func snapshot(source: String, allowedApps: Set<String>) throws -> Snapshot {
+    try snapshot(source: source, allowedApps: allowedApps, inspect: nil)
+}
+
+private func snapshot(source: String, allowedApps: Set<String>,
+                      inspect: ((Observation, AXUIElement) -> Void)?) throws -> Snapshot {
     let deadline = Date().addingTimeInterval(5)
     guard AXIsProcessTrusted() else { throw CaptureError(description: "Accessibility permission unavailable") }
     guard let process = NSRunningApplication.runningApplications(
@@ -94,6 +99,7 @@ public func snapshot(source: String, allowedApps: Set<String>) throws -> Snapsho
                     guard subrole == "AXNotificationCenterBanner" || subrole == "AXNotificationCenterAlert" else { continue }
                     if let observation = try readBanner(node, source: source, allowedApps: allowedApps, deadline: deadline) {
                         result.observations.append(observation)
+                        inspect?(observation, node)
                     }
                 } catch {
                     result.issues.append(String(describing: error))
@@ -104,6 +110,52 @@ public func snapshot(source: String, allowedApps: Set<String>) throws -> Snapsho
         }
     }
     return result
+}
+
+/// Screen diagnostics for an explicitly marked test notification. No actions
+/// or writes are performed, and attributes on other banners are never printed.
+public func probeAccount(app: String, marker: String) throws -> [String]? {
+    let labels: Set<String> = app == "X" ? ["X", "Twitter"] : [app]
+    var report: [String]?
+    let scan = try snapshot(source: "account-probe", allowedApps: labels) { observation, banner in
+        guard report == nil,
+              [observation.title, observation.subtitle, observation.body].contains(where: { $0.contains(marker) })
+        else { return }
+        var lines = [
+            "Matched \(app) test notification.",
+            "title: \(observation.title.debugDescription)",
+            "subtitle: \(observation.subtitle.debugDescription)",
+            "body: \(observation.body.debugDescription)",
+            "banner description: \(observation.accessibilityDescription.debugDescription)"
+        ]
+        let deadline = Date().addingTimeInterval(3)
+        do {
+            for (index, node) in try descendants(banner, deadline: deadline).enumerated() {
+                guard Date() < deadline else { throw CaptureError(description: "Probe inspection timed out") }
+                var names: CFArray?
+                boundMessaging(node)
+                let status = AXUIElementCopyAttributeNames(node, &names)
+                guard status == .success else {
+                    lines.append("element \(index): could not list attributes (\(status.rawValue))")
+                    continue
+                }
+                for name in (names as? [String] ?? []).sorted() {
+                    guard Date() < deadline else { throw CaptureError(description: "Probe inspection timed out") }
+                    do {
+                        let value = try string(node, name)
+                        if !value.isEmpty { lines.append("element \(index) \(name): \(value.debugDescription)") }
+                    } catch {
+                        lines.append("element \(index) \(name): unavailable")
+                    }
+                }
+            }
+        } catch { lines.append("Partial inspection: \(error)") }
+        report = lines
+    }
+    if report == nil, let issue = scan.issues.first {
+        throw CaptureError(description: issue)
+    }
+    return report
 }
 
 #endif

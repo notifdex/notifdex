@@ -7,6 +7,32 @@ import ApplicationServices
 import Darwin
 import NotifdexMac
 
+func runAccountProbe(_ args: [String]) throws {
+    guard args.count == 4, args[0] == "--probe-account", args[2] == "--app",
+          ["X", "Gmail"].contains(args[3]), args[1].hasPrefix("NOTIFDEX-"),
+          args[1].count > "NOTIFDEX-".count else {
+        throw CaptureError(description: "Use --probe-account NOTIFDEX-<test-marker> --app X (or Gmail)")
+    }
+    let marker = args[1]
+    let app = args[3]
+    guard AXIsProcessTrusted() else { throw CaptureError(description: "Accessibility permission unavailable") }
+    print("Waiting up to 45 seconds for a \(app) test notification containing \(marker).")
+    fflush(stdout)
+    let deadline = Date().addingTimeInterval(45)
+    var lastIssue: String?
+    while Date() < deadline {
+        do {
+            if let report = try probeAccount(app: app, marker: marker) {
+                print(report.joined(separator: "\n"))
+                return
+            }
+        } catch { lastIssue = String(describing: error) }
+        RunLoop.main.run(until: Date().addingTimeInterval(0.4))
+    }
+    if let issue = lastIssue { print("Last scan issue: \(issue)") }
+    throw CaptureError(description: "No matching test notification was found. Try again or open its retained alert in Notification Center.")
+}
+
 func run() throws {
     let args = Array(CommandLine.arguments.dropFirst())
     if args.contains("--help") || args.isEmpty {
@@ -14,8 +40,10 @@ func run() throws {
         print("Captures only named apps. Source must stay stable for this Mac and login.")
         print("--recover: inspect retained accessible alerts for 30 seconds, then exit.")
         print("--diagnostics: show scan counts and matched banner IDs without previews.")
+        print("Account probe: notifdex-capture --probe-account NOTIFDEX-<test-marker> --app X (or Gmail)")
         return
     }
+    if args.first == "--probe-account" { try runAccountProbe(args); return }
     let recoveryMode = args.contains("--recover")
     let diagnostics = recoveryMode || args.contains("--diagnostics")
     let valueArgs = args.filter { !["--recover", "--diagnostics"].contains($0) }

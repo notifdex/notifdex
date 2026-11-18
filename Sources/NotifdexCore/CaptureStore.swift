@@ -45,14 +45,14 @@ public final class CaptureStore {
             try execute("PRAGMA journal_mode = WAL")
             try execute("PRAGMA synchronous = FULL")
             let version = try scalar("PRAGMA user_version")
-            guard (0...4).contains(version) else {
+            guard (0...5).contains(version) else {
                 throw StoreError(description: "Unsupported database version \(version)")
             }
-            if version < 4 {
+            if version < 5 {
                 try transaction {
                     // Recheck under the write lock if another process opened concurrently.
                     let current = try scalar("PRAGMA user_version")
-                    guard (0...4).contains(current) else {
+                    guard (0...5).contains(current) else {
                         throw StoreError(description: "Unsupported database version \(current)")
                     }
                     if current == 0 {
@@ -69,7 +69,10 @@ public final class CaptureStore {
                     }
                     if current < 4 {
                         try execute(Self.schema(named: "person-matches"))
-                        try execute("PRAGMA user_version = 4")
+                    }
+                    if current < 5 {
+                        try execute(Self.schema(named: "person-notes"))
+                        try execute("PRAGMA user_version = 5")
                     }
                 }
             }
@@ -314,6 +317,46 @@ public extension CaptureStore {
             WHERE o.title = m.title AND \(appCategory) = m.app AND conflicting.person_id <> m.person_id
         )
         """
+
+    func personNotes(for person: String) throws -> [PersonNote] {
+        try readRows("""
+            SELECT id, body, created_at, updated_at FROM person_notes
+            WHERE person_id = ? ORDER BY created_at DESC, id
+            """, strings: [person]) { row in
+                PersonNote(id: columnString(row, 0), body: columnString(row, 1),
+                           createdAt: sqlite3_column_double(row, 2), updatedAt: sqlite3_column_double(row, 3))
+            }
+    }
+
+    @discardableResult
+    func addPersonNote(person: String, body: String, at time: Double) throws -> String {
+        try Self.validateNote(body, at: time)
+        let id = UUID().uuidString
+        try execute("""
+            INSERT INTO person_notes (id, person_id, body, created_at, updated_at) VALUES (?, ?, ?, ?, ?)
+            """, strings: [id, person, body], numbers: [time, time])
+        return id
+    }
+
+    func updatePersonNote(_ id: String, person: String, body: String, at time: Double) throws {
+        try Self.validateNote(body, at: time)
+        try execute("""
+            UPDATE person_notes SET updated_at = max(updated_at, ?), body = ? WHERE id = ? AND person_id = ?
+            """, numbersFirst: [time], strings: [body, id, person])
+        guard sqlite3_changes(database) == 1 else { throw StoreError(description: "This note no longer exists for this person.") }
+    }
+
+    func deletePersonNote(_ id: String, person: String) throws {
+        try execute("DELETE FROM person_notes WHERE id = ? AND person_id = ?", strings: [id, person])
+        guard sqlite3_changes(database) == 1 else { throw StoreError(description: "This note no longer exists for this person.") }
+    }
+
+    private static func validateNote(_ body: String, at time: Double) throws {
+        guard !body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw StoreError(description: "Enter a note before saving.")
+        }
+        guard time.isFinite else { throw StoreError(description: "Invalid note timestamp.") }
+    }
 
     func inbox(_ query: InboxQuery) throws -> [InboxEntry] {
         var filters: [String] = []

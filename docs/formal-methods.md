@@ -136,6 +136,17 @@ with an observation-ID cutoff. Its v4 migration preserves manual links. The
 SQL acceptance test initially failed on the missing v4 schema and now passes.
 The Swift test covers restart, different apps, title rules, conflicts, and undo.
 
+### Person notes
+
+`PersonNotes.tla` models adding, editing, and deleting notes for two
+people. Each live note has one owner, and editing keeps the owner fixed.
+The model abstracts SQLite commits as atomic transitions and failed writes
+as stuttering. It omits timestamps, which the store records separately.
+The SQL acceptance test failed before the v5 schema existed and passes
+with it applied. Swift tests open an existing v4 database, exercise the
+note lifecycle across store reopen, and reject edits or deletions for
+another person.
+
 ### Notification Center fixture coverage
 
 The macOS tests supply a synthetic tree at the read-only Accessibility

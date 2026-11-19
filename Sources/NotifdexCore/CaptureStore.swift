@@ -45,14 +45,14 @@ public final class CaptureStore {
             try execute("PRAGMA journal_mode = WAL")
             try execute("PRAGMA synchronous = FULL")
             let version = try scalar("PRAGMA user_version")
-            guard (0...7).contains(version) else {
+            guard (0...8).contains(version) else {
                 throw StoreError(description: "Unsupported database version \(version)")
             }
-            if version < 7 {
+            if version < 8 {
                 try transaction {
                     // Recheck under the write lock if another process opened concurrently.
                     let current = try scalar("PRAGMA user_version")
-                    guard (0...7).contains(current) else {
+                    guard (0...8).contains(current) else {
                         throw StoreError(description: "Unsupported database version \(current)")
                     }
                     if current == 0 {
@@ -78,7 +78,10 @@ public final class CaptureStore {
                     }
                     if current < 7 {
                         try execute(Self.schema(named: "hide-rules"))
-                        try execute("PRAGMA user_version = 7")
+                    }
+                    if current < 8 {
+                        try execute(Self.schema(named: "relationship-templates"))
+                        try execute("PRAGMA user_version = 8")
                     }
                 }
             }
@@ -238,11 +241,12 @@ public final class CaptureStore {
         return String(decoding: bytes, as: UTF8.self)
     }
 
-    private func transaction(_ operation: () throws -> Void) throws {
+    private func transaction<T>(_ operation: () throws -> T) throws -> T {
         try execute("BEGIN IMMEDIATE")
         do {
-            try operation()
+            let result = try operation()
             try execute("COMMIT")
+            return result
         } catch {
             try? execute("ROLLBACK")
             throw error
@@ -710,5 +714,100 @@ public extension CaptureStore {
         }
         guard status == SQLITE_DONE else { throw failure() }
         return rows
+    }
+}
+
+public extension CaptureStore {
+    @discardableResult
+    func installTemplate(_ definition: RelationshipTemplate) throws -> RelationshipTemplate {
+        try transaction {
+            if let existing = try installedTemplate(matching: definition) { return existing }
+            try execute("""
+                INSERT INTO relationship_templates (template_id, version, definition) VALUES (?, ?, ?)
+                """, strings: [definition.id, String(definition.version), try definition.encodedDefinition()])
+            return definition
+        }
+    }
+
+    func templateAssignment(for person: String) throws -> RelationshipTemplateAssignment? {
+        let rows = try readRows("""
+            SELECT t.definition, p.stage_id, m.milestone_id, m.completed
+            FROM person_templates p
+            JOIN relationship_templates t USING (template_id, version)
+            LEFT JOIN person_template_milestones m USING (person_id)
+            WHERE p.person_id = ?
+            """, strings: [person]) { row in
+                (definition: columnString(row, 0), stage: columnString(row, 1),
+                 milestone: columnString(row, 2), completed: sqlite3_column_int(row, 3) == 1)
+            }
+        guard let first = rows.first else { return nil }
+        return RelationshipTemplateAssignment(
+            definition: try RelationshipTemplate.decode(Data(first.definition.utf8)),
+            stageID: first.stage,
+            completedMilestones: Set(rows.filter { $0.completed }.map { $0.milestone })
+        )
+    }
+
+    @discardableResult
+    func applyTemplate(_ definition: RelationshipTemplate, to person: String) throws -> RelationshipTemplateAssignment {
+        try transaction {
+            if let existing = try templateAssignment(for: person) {
+                guard existing.definition.id == definition.id, existing.definition.version == definition.version else {
+                    throw RelationshipTemplateError.assignmentConflict
+                }
+                guard existing.definition == definition else { throw RelationshipTemplateError.versionConflict }
+                return existing
+            }
+            guard let installed = try installedTemplate(matching: definition) else {
+                throw RelationshipTemplateError.versionNotInstalled
+            }
+            let initialStage = installed.stages[0].id
+            try execute("""
+                INSERT INTO person_templates (person_id, template_id, version, stage_id) VALUES (?, ?, ?, ?)
+                """, strings: [person, installed.id, String(installed.version), initialStage])
+            for milestone in installed.milestones {
+                try execute("""
+                    INSERT INTO person_template_milestones (person_id, milestone_id, completed) VALUES (?, ?, 0)
+                    """, strings: [person, milestone.id])
+            }
+            return RelationshipTemplateAssignment(definition: installed, stageID: initialStage, completedMilestones: [])
+        }
+    }
+
+    func setTemplateStage(_ stageID: String, for person: String) throws {
+        try transaction {
+            guard let assignment = try templateAssignment(for: person) else {
+                throw RelationshipTemplateError.noAssignment
+            }
+            guard assignment.definition.stages.contains(where: { $0.id == stageID }) else {
+                throw RelationshipTemplateError.unknownStage
+            }
+            try execute("UPDATE person_templates SET stage_id = ? WHERE person_id = ?",
+                        strings: [stageID, person])
+        }
+    }
+
+    func setTemplateMilestone(_ milestoneID: String, completed: Bool, for person: String) throws {
+        try transaction {
+            guard let assignment = try templateAssignment(for: person) else {
+                throw RelationshipTemplateError.noAssignment
+            }
+            guard assignment.definition.milestones.contains(where: { $0.id == milestoneID }) else {
+                throw RelationshipTemplateError.unknownMilestone
+            }
+            try execute("""
+                UPDATE person_template_milestones SET completed = ? WHERE person_id = ? AND milestone_id = ?
+                """, numbersFirst: [completed ? 1 : 0], strings: [person, milestoneID])
+        }
+    }
+
+    private func installedTemplate(matching definition: RelationshipTemplate) throws -> RelationshipTemplate? {
+        let stored = try readRows("""
+            SELECT definition FROM relationship_templates WHERE template_id = ? AND version = ?
+            """, strings: [definition.id, String(definition.version)]) { columnString($0, 0) }
+        guard let json = stored.first else { return nil }
+        let existing = try RelationshipTemplate.decode(Data(json.utf8))
+        guard existing == definition else { throw RelationshipTemplateError.versionConflict }
+        return existing
     }
 }

@@ -241,6 +241,18 @@ struct NotifdexApp: App {
         guard try store.inbox(InboxQuery(scope: .flagged(app: nil))).first?.id == alert.id else {
             throw StoreError(description: "Packaged hide-rule undo check failed")
         }
+        guard Bundle.main.url(forResource: "relationship-templates", withExtension: "sql") != nil,
+              Bundle.main.url(forResource: "founder-outreach-v1", withExtension: "json", subdirectory: "templates") != nil else {
+            throw StoreError(description: "Packaged relationship template resources are missing")
+        }
+        let template = try store.installTemplate(RelationshipTemplate.bundledFounderOutreach())
+        try store.applyTemplate(template, to: person)
+        try store.setTemplateStage("evaluating", for: person)
+        try store.setTemplateMilestone("joined-slack", completed: true, for: person)
+        let replay = try store.applyTemplate(template, to: person)
+        guard replay.stageID == "evaluating", replay.completedMilestones == ["joined-slack"] else {
+            throw StoreError(description: "Packaged relationship template replay check failed")
+        }
         try store.finishRun(runID: run, at: 3)
     }
 }

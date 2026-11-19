@@ -1,0 +1,15 @@
+{
+  "id": "founder-outreach",
+  "version": 1,
+  "name": "Founder Outreach",
+  "stages": [
+    { "id": "contacted", "name": "Contacted" },
+    { "id": "invited-to-try", "name": "Invited to try" },
+    { "id": "evaluating", "name": "Evaluating" },
+    { "id": "converted", "name": "Converted" }
+  ],
+  "milestones": [
+    { "id": "tried-product", "name": "Tried the product" },
+    { "id": "joined-slack", "name": "Joined Slack" }
+  ]
+}

@@ -175,3 +175,28 @@ commit while keeping coverage marked as incomplete. This abstracts
 failed subtrees. The fixtures cannot certify Accessibility permissions
 after installation, the live iPhone mirroring path, or undocumented
 changes to the OS tree. Verify those on a Mac with fresh test alerts.
+
+### Relationship templates
+
+`RelationshipTemplates.tla` checks two people, two immutable versions of one
+template ID, two candidate definitions, two stages, and two independent
+milestones. Person assignments pin an installed version. The model treats stage
+and milestone IDs as validated inputs and uses the same finite ID sets for
+both versions. The Swift tests also exercise a newer version with a different
+stage set. The model abstracts database commits and failed writes, and checks
+durable state. Swift tests separately assert returned assignments and errors.
+
+| Case | Model action and property | Swift store verification |
+| --- | --- | --- |
+| Install or replay | `Install`, `PreserveExisting` | Equal definition returns the installed version. Changing its contents reports a conflict. |
+| Apply or replay | `Apply`, `CompleteAssignments`, `PreserveExisting` | Initial stage and unchecked milestones commit together. Reapplying after progress preserves it. |
+| Explicit progress | `SetStage`, `SetMilestone`, `SafeSteps` | Repeated stage and checkbox sets have the same result. Setting or clearing a milestone leaves the stage intact. |
+| New version | `Install` and `Apply`, `PreserveExisting` | A new person can use v2. The existing person keeps v1 and applying v2 to them reports a conflict. |
+| Failed write and retry | `FailedWrite`, `CompleteAssignments`, `SafeSteps` | A trigger aborts the second milestone insert. Reopening finds no assignment, and retry after removing the trigger succeeds. |
+
+The v8 migration adds tables under the existing SQLite write transaction and
+advances `user_version` on commit. The Swift migration fixture opens a v7
+database with captured evidence, links, notes, hide rules and follow-up state.
+It also round-trips the separate capture settings file. The SQL atomicity test
+failed on the missing schema before implementation. The standalone model ran
+before the Swift store change and checked 7,378 reachable states.

@@ -11,6 +11,11 @@ private struct NoteDraft: Identifiable {
     let noteID: String?
 }
 
+private struct TemplateRemoval {
+    let personID: String
+    let definition: RelationshipTemplate
+}
+
 private enum WorkflowMode: String, CaseIterable, Hashable, Identifiable {
     case inbox = "Inbox"
     case flagged = "Flagged"
@@ -80,6 +85,7 @@ private final class WorkflowModel: ObservableObject {
     @Published var noteDraft: NoteDraft?
     @Published var noteBody = ""
     @Published var confirmingNoteDeletion = false
+    @Published var templateRemoval: TemplateRemoval?
     @Published private(set) var notes: [PersonNote] = []
     @Published private(set) var templateAssignment: RelationshipTemplateAssignment?
     @Published private(set) var matchRules: [PersonMatchRule] = []
@@ -231,6 +237,10 @@ private final class WorkflowModel: ObservableObject {
             guard let self, self.mode == .people, self.person == person else { return }
             self.selected = nil
         })
+    }
+
+    func removeTemplate(_ removal: TemplateRemoval) {
+        edit { try $0.removeTemplate(removal.definition, from: removal.personID) }
     }
 
     func openNote(personID: String, name: String, note: PersonNote? = nil) {
@@ -423,6 +433,15 @@ struct WorkflowView: View {
         }
         .sheet(isPresented: $model.showingNewWorkspace) {
             workspaceEditor
+        }
+        .alert("Remove template?", isPresented: Binding(
+            get: { model.templateRemoval != nil },
+            set: { if !$0 { model.templateRemoval = nil } }
+        ), presenting: model.templateRemoval) { removal in
+            Button("Cancel", role: .cancel) {}
+            Button("Remove template", role: .destructive) { model.removeTemplate(removal) }
+        } message: { removal in
+            Text("Removing \(removal.definition.name) clears this person's stage and milestones.")
         }
         .task(id: model.query) {
             let query = model.query
@@ -853,6 +872,10 @@ struct WorkflowView: View {
             HStack {
                 Text(assignment.definition.name).font(.headline)
                 Text("v\(assignment.definition.version)").font(.caption).foregroundStyle(.secondary)
+                Spacer()
+                Button("Remove template…") {
+                    model.templateRemoval = TemplateRemoval(personID: person, definition: assignment.definition)
+                }
             }
             Picker("Stage", selection: Binding(
                 get: { assignment.stageID },
@@ -873,20 +896,36 @@ struct WorkflowView: View {
         .disabled(!ready || model.busy)
     }
 
-    private func personCard(id: String, name: String, showRecentActivity: Bool) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Label(name, systemImage: "person.crop.circle").font(.title3)
-            if model.mode == .people, model.cardID == id, !model.workspaces.isEmpty {
-                Text("Workspaces").font(.headline)
+    private func workspaceMembershipMenu(for person: String) -> some View {
+        let memberships = model.workspaces.filter { model.personWorkspaceIDs.contains($0.id) }
+        let summary = memberships.isEmpty ? "None" : memberships.map(\.name).joined(separator: ", ")
+        return LabeledContent("Workspaces") {
+            Menu(summary) {
                 ForEach(model.workspaces) { workspace in
                     Toggle(workspace.name, isOn: Binding(
                         get: { model.personWorkspaceIDs.contains(workspace.id) },
                         set: { isMember in
-                            model.edit { try $0.setWorkspaceMembership(person: id, workspace: workspace.id, isMember: isMember) }
+                            model.edit {
+                                try $0.setWorkspaceMembership(person: person, workspace: workspace.id, isMember: isMember)
+                            }
                         }
                     ))
-                    .toggleStyle(.checkbox)
                 }
+                if !model.workspaces.isEmpty { Divider() }
+                Button("New workspace…") { model.openWorkspaceEditor() }
+            }
+            .lineLimit(1)
+            .accessibilityLabel("Workspace memberships")
+            .accessibilityValue(summary)
+            .help(summary)
+        }
+    }
+
+    private func personCard(id: String, name: String, showRecentActivity: Bool) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Label(name, systemImage: "person.crop.circle").font(.title3)
+            if model.mode == .people, model.cardID == id {
+                workspaceMembershipMenu(for: id)
             }
             ForEach(model.cardID == id ? model.identities : []) { identity in
                 HStack {

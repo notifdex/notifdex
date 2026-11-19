@@ -4,6 +4,38 @@ import XCTest
 @testable import NotifdexCore
 
 final class PeopleWorkspaceTests: XCTestCase {
+    func testWorkspaceTimelineKeepsNewLinkedAlertsWithoutExplicitRouting() throws {
+        let store = try CaptureStore(path: ":memory:")
+        let run = try store.startRun(at: 1)
+        func capture(_ tag: String, title: String = "Alex") throws -> Int64 {
+            try store.record(Observation(sourceID: "phone", sourceEventID: tag, capturedAt: 2,
+                                         description: "X, \(title), \(tag), from iPhone",
+                                         title: title, body: tag), runID: run)
+            return try XCTUnwrap(store.inbox(InboxQuery(search: tag)).first?.id)
+        }
+        let first = try capture("anchor-message")
+        let person = try store.createPerson(name: "Alex", linking: first)
+        try store.confirmPersonMatch(store.previewPersonMatch(for: first), includeExisting: false)
+        let workspace = try store.createWorkspace(name: "Startup")
+        let other = try store.createWorkspace(name: "Personal")
+        try store.setWorkspaceMembership(person: person, workspace: workspace, isMember: true)
+        let future = try capture("new-message")
+        _ = try capture("unrelated-message", title: "Other sender")
+        let query = InboxQuery(scope: .person(person), workspaceID: workspace)
+        let entries = try store.inbox(query)
+        XCTAssertEqual(entries.map(\.id), [future, first])
+        XCTAssertNotNil(entries.first?.personRuleID)
+        XCTAssertTrue(entries.allSatisfy { $0.workspaceID == nil })
+        XCTAssertEqual(try store.selectedInboxEntry(first, in: query)?.id, first)
+
+        try store.setAlertWorkspace(future, to: other)
+        XCTAssertEqual(try store.inbox(query).map(\.id), [first])
+        XCTAssertNil(try store.selectedInboxEntry(future, in: query))
+        XCTAssertTrue(try store.inbox(InboxQuery(workspaceID: workspace)).isEmpty)
+        try store.setAlertWorkspace(future, to: nil)
+        XCTAssertEqual(try store.inbox(query).map(\.id), [future, first])
+    }
+
     func testUpgradeReopenAndIndependentMembershipAndRouting() throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -51,13 +83,15 @@ final class PeopleWorkspaceTests: XCTestCase {
                 try store.setWorkspaceMembership(person: "alex", workspace: personal, isMember: true)
             }
             try store.setWorkspaceMembership(person: "alex", workspace: startup, isMember: true)
-            XCTAssertEqual(try alerts(store, personal), [])
+            XCTAssertEqual(try alerts(store, personal), [3, 2, 1])
             try store.setAlertWorkspace(1, to: personal)
             try store.setAlertWorkspace(2, to: startup)
-            XCTAssertEqual(try alerts(store, personal), [1])
-            XCTAssertEqual(try alerts(store, startup), [2])
+            XCTAssertEqual(try alerts(store, personal), [3, 1])
+            XCTAssertEqual(try alerts(store, startup), [3, 2])
             let routeSearch = InboxQuery(scope: .person("alex"), search: "Startup alert", workspaceID: personal)
             XCTAssertTrue(try store.inbox(routeSearch).isEmpty)
+            let unassignedSearch = InboxQuery(scope: .person("alex"), search: "Unassigned alert", workspaceID: personal)
+            XCTAssertEqual(try store.inbox(unassignedSearch).map(\.id), [3])
         }
 
         let reopened = try CaptureStore(path: path)
@@ -70,7 +104,7 @@ final class PeopleWorkspaceTests: XCTestCase {
         }
         XCTAssertEqual(try reopened.people(in: personal).map(\.id), [])
         XCTAssertEqual(try alerts(reopened, personal), [])
-        XCTAssertEqual(try alerts(reopened, startup), [2])
+        XCTAssertEqual(try alerts(reopened, startup), [3, 2])
         XCTAssertEqual(try reopened.inbox(InboxQuery(workspaceID: personal)).map(\.id), [1])
         XCTAssertEqual(try reopened.people().map(\.id), ["alex", "sam"])
         XCTAssertEqual(try reopened.identities(for: "alex").map(\.identifier), ["alex"])
@@ -84,9 +118,9 @@ final class PeopleWorkspaceTests: XCTestCase {
         XCTAssertThrowsError(try reopened.setAlertWorkspace(1, to: "unknown"))
         XCTAssertEqual(try reopened.inbox(InboxQuery(workspaceID: personal)).map(\.id), [1])
         try reopened.setAlertWorkspace(1, to: startup)
-        XCTAssertEqual(try alerts(reopened, startup), [2, 1])
+        XCTAssertEqual(try alerts(reopened, startup), [3, 2, 1])
         try reopened.setAlertWorkspace(1, to: nil)
-        XCTAssertEqual(try alerts(reopened, startup), [2])
+        XCTAssertEqual(try alerts(reopened, startup), [3, 2, 1])
         XCTAssertEqual(try alerts(reopened), [3, 2, 1])
     }
 }

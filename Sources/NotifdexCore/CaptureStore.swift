@@ -430,13 +430,17 @@ public extension CaptureStore {
             filters.append("w.due_at IS NOT NULL AND w.done = 0")
         }
         if let workspace = query.workspaceID {
-            filters.append("route.workspace_id = ?")
-            arguments.append(workspace)
             if case .person = query.scope {
+                // Unassigned alerts follow the linked person's membership in this view.
                 filters.append("""
-                    EXISTS (SELECT 1 FROM person_workspaces pw
-                            WHERE pw.person_id = p.id AND pw.workspace_id = route.workspace_id)
+                    (route.workspace_id IS NULL OR route.workspace_id = ?)
+                    AND EXISTS (SELECT 1 FROM person_workspaces pw
+                                WHERE pw.person_id = p.id AND pw.workspace_id = ?)
                     """)
+                arguments.append(contentsOf: [workspace, workspace])
+            } else {
+                filters.append("route.workspace_id = ?")
+                arguments.append(workspace)
             }
         }
         switch query.readFilter {

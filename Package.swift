@@ -24,7 +24,14 @@ let package = Package(
             path: ".",
             exclude: ["AGENTS.md", "README.md", "Sources/CSQLite", "Sources/NotifdexMac",
                       "Sources/NotifdexCapture", "Sources/NotifdexApp", "Tests", "tests", "spec", "tools", "docs"],
-            sources: ["Sources/NotifdexCore"],
+            sources: [
+                "Sources/NotifdexCore/AppSettings.swift",
+                "Sources/NotifdexCore/CaptureStore.swift",
+                "Sources/NotifdexCore/Inbox.swift",
+                "Sources/NotifdexCore/InboxPresentation.swift",
+                "Sources/NotifdexCore/Observation.swift",
+                "Sources/NotifdexCore/RelationshipTemplate.swift"
+            ],
             resources: [
                 .copy("Sources/NotifdexCore/schema.sql"), .copy("Sources/NotifdexCore/inbox-work.sql"),
                 .copy("Sources/NotifdexCore/filters.sql"), .copy("Sources/NotifdexCore/person-matches.sql"),

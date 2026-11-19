@@ -49,7 +49,7 @@ ValidReferences ==
 PeopleIn(w) == IF w = Empty THEN People ELSE {p \in People : <<p,w>> \in members}
 Timeline(p, w) ==
     IF p \in PeopleIn(w)
-    THEN {a \in Alerts : Linked[a] = p /\ (w = Empty \/ routes[a] = w)}
+    THEN {a \in Alerts : Linked[a] = p /\ (w = Empty \/ routes[a] \in {w, Empty})}
     ELSE {}
 
 ScopedTimeline ==

@@ -67,6 +67,9 @@ private final class WorkflowModel: ObservableObject {
     @Published var readFilter: InboxQuery.ReadFilter = .all
     @Published var captureOrder: InboxQuery.Order = .newestFirst
     @Published var person: String?
+    @Published var workspaceID: String?
+    @Published var showingNewWorkspace = false
+    @Published var workspaceName = ""
     @Published var selected: Int64?
     @Published var name = ""
     @Published var identityApp = "X"
@@ -87,6 +90,9 @@ private final class WorkflowModel: ObservableObject {
     @Published private(set) var loadedQuery: InboxQuery?
     @Published private var loadedAlert: InboxEntry?
     @Published private(set) var people: [PersonRecord] = []
+    @Published private(set) var workspaces: [WorkspaceRecord] = []
+    @Published private(set) var personWorkspaceIDs: Set<String> = []
+    @Published private var workspacePeople: [PersonRecord] = []
     @Published private(set) var cardID: String?
     @Published private(set) var identities: [PersonIdentity] = []
     @Published private(set) var timeline: [InboxEntry] = []
@@ -111,7 +117,8 @@ private final class WorkflowModel: ObservableObject {
     var query: InboxQuery {
         InboxQuery(scope: scope, search: search, limit: limit + 1,
                    readFilter: mode.hasTriageControls ? readFilter : .all,
-                   order: mode.hasTriageControls ? captureOrder : .newestFirst)
+                   order: mode.hasTriageControls ? captureOrder : .newestFirst,
+                   workspaceID: mode == .people ? workspaceID : nil)
     }
 
     private var isCurrentQuery: Bool {
@@ -121,6 +128,11 @@ private final class WorkflowModel: ObservableObject {
     }
 
     var visibleEntries: [InboxEntry] { isCurrentQuery ? entries : [] }
+
+    var visiblePeople: [PersonRecord] {
+        guard let workspaceID else { return people }
+        return loadedQuery?.workspaceID == workspaceID ? workspacePeople : []
+    }
 
     var alert: InboxEntry? {
         guard isCurrentQuery else { return nil }
@@ -141,7 +153,10 @@ private final class WorkflowModel: ObservableObject {
             if alert == nil, keepsOpenDetail, let selected {
                 alert = try store.selectedInboxEntry(selected, in: query)
             }
-            let card = isPeople ? person : alert?.personID
+            let allPeople = try store.people()
+            let scopedPeople = try query.workspaceID.map { try store.people(in: $0) } ?? allPeople
+            let visiblePerson = scopedPeople.first { $0.id == person }?.id
+            let card = isPeople ? visiblePerson : alert?.personID
             let timeline = try (isPeople ? nil : card).map {
                 try store.inbox(InboxQuery(scope: .person($0), limit: 12))
             } ?? []
@@ -149,8 +164,10 @@ private final class WorkflowModel: ObservableObject {
             let matches = try card.map { try store.personMatchRules(for: $0) } ?? []
             let notes = try card.map { try store.personNotes(for: $0) } ?? []
             let assignment = try (isPeople ? card : nil).flatMap { try store.templateAssignment(for: $0) }
-            return (entries, try store.people(), card, identities, timeline, try store.inboxFilters(),
-                    matches, notes, alert, assignment)
+            let membership = try (isPeople ? card : nil).map { try store.workspaceIDs(for: $0) } ?? []
+            let workspaceState = (options: try store.workspaces(), people: scopedPeople, memberships: membership)
+            return (entries, allPeople, card, identities, timeline, try store.inboxFilters(),
+                    matches, notes, alert, assignment, workspaceState)
         }, completion: { [weak self] result in
             guard let self, self.generation == request, self.query == query,
                   self.selected == selected else { return }
@@ -167,6 +184,11 @@ private final class WorkflowModel: ObservableObject {
                 self.notes = value.7
                 self.loadedAlert = value.8
                 self.templateAssignment = value.9
+                self.workspaces = value.10.options
+                self.workspacePeople = value.10.people
+                self.personWorkspaceIDs = value.10.memberships
+                if isPeople, person != nil, value.2 == nil { self.person = nil }
+                if isPeople, query.workspaceID != nil, selected != nil, value.8 == nil { self.selected = nil }
                 if keepsOpenDetail, selected != nil, value.8 == nil { self.selected = nil }
             case .failure(let error): self.error = String(describing: error)
             }
@@ -300,9 +322,23 @@ private final class WorkflowModel: ObservableObject {
         edit { try $0.confirmPersonMatch(preview, includeExisting: includeExisting) }
     }
 
+    func openWorkspaceEditor() {
+        error = nil
+        workspaceName = ""
+        showingNewWorkspace = true
+    }
+
+    func createWorkspace() {
+        let name = workspaceName
+        edit({ store in _ = try store.createWorkspace(name: name) }) { [weak self] in
+            self?.showingNewWorkspace = false
+        }
+    }
+
     func createPerson(linking id: Int64?) {
         let name = name
-        edit({ store in _ = try store.createPerson(name: name, linking: id) }) { [weak self] in
+        let workspace = mode == .people ? workspaceID : nil
+        edit({ store in _ = try store.createPerson(name: name, linking: id, workspace: workspace) }) { [weak self] in
             self?.name = ""
         }
     }
@@ -385,6 +421,9 @@ struct WorkflowView: View {
         .sheet(item: $model.noteDraft) { draft in
             PersonNoteEditor(model: model, draft: draft)
         }
+        .sheet(isPresented: $model.showingNewWorkspace) {
+            workspaceEditor
+        }
         .task(id: model.query) {
             let query = model.query
             do { try await Task.sleep(for: .milliseconds(150)) } catch { return }
@@ -450,9 +489,24 @@ struct WorkflowView: View {
                 .fixedSize()
             }
             if model.mode == .people {
+                Picker("Workspace", selection: $model.workspaceID) {
+                    Text("All People").tag(nil as String?)
+                    ForEach(model.workspaces) { workspace in
+                        Text(workspace.name).tag(Optional(workspace.id))
+                    }
+                }
+                .labelsHidden()
+                .fixedSize()
+                .onChange(of: model.workspaceID) { _, _ in model.selected = nil }
+                Button { model.openWorkspaceEditor() } label: {
+                    Label("New workspace", systemImage: "plus")
+                        .labelStyle(.iconOnly)
+                }
+                .help("Create a workspace")
+                .disabled(!ready || model.busy)
                 Picker("Person", selection: $model.person) {
                     Text("Choose a person").tag(nil as String?)
-                    ForEach(model.people) { person in Text(person.name).tag(Optional(person.id)) }
+                    ForEach(model.visiblePeople) { person in Text(person.name).tag(Optional(person.id)) }
                 }
                 .onChange(of: model.person) { _, _ in
                     model.selected = nil
@@ -612,7 +666,7 @@ struct WorkflowView: View {
                     personCard(id: id, name: alert.personName, showRecentActivity: true)
                 }
             } else if model.mode == .people {
-                if let card = model.people.first(where: { $0.id == model.person }) {
+                if let card = model.visiblePeople.first(where: { $0.id == model.person }) {
                     personCard(id: card.id, name: card.name, showRecentActivity: false)
                 } else {
                     Text("Choose a person or create a card.").foregroundStyle(.secondary)
@@ -640,6 +694,16 @@ struct WorkflowView: View {
                 Button(alert.isRead ? "Mark unread" : "Mark read") {
                     model.edit { try $0.setRead(alert.id, read: !alert.isRead) }
                 }
+            }
+            if !model.workspaces.isEmpty {
+                Picker("Alert workspace", selection: Binding(
+                    get: { alert.workspaceID },
+                    set: { workspace in model.edit { try $0.setAlertWorkspace(alert.id, to: workspace) } }
+                )) {
+                    Text("Unassigned").tag(nil as String?)
+                    ForEach(model.workspaces) { workspace in Text(workspace.name).tag(Optional(workspace.id)) }
+                }
+                .help("Route this alert independently of the person's workspace memberships.")
             }
             if model.mode == .hidden {
                 if alert.individuallyHidden {
@@ -759,6 +823,23 @@ struct WorkflowView: View {
         .frame(width: 460)
     }
 
+    private var workspaceEditor: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("New workspace").font(.title2)
+            TextField("Workspace name", text: $model.workspaceName)
+            if let error = model.error { Text(error).foregroundStyle(.red) }
+            HStack {
+                Button("Cancel") { model.showingNewWorkspace = false }.keyboardShortcut(.cancelAction)
+                Spacer()
+                Button("Create") { model.createWorkspace() }
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(model.busy || model.workspaceName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
+        }
+        .padding(20)
+        .frame(width: 360)
+    }
+
     private func newPerson(linking id: Int64?) -> some View {
         HStack {
             TextField("New person name", text: $model.name)
@@ -795,6 +876,18 @@ struct WorkflowView: View {
     private func personCard(id: String, name: String, showRecentActivity: Bool) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             Label(name, systemImage: "person.crop.circle").font(.title3)
+            if model.mode == .people, model.cardID == id, !model.workspaces.isEmpty {
+                Text("Workspaces").font(.headline)
+                ForEach(model.workspaces) { workspace in
+                    Toggle(workspace.name, isOn: Binding(
+                        get: { model.personWorkspaceIDs.contains(workspace.id) },
+                        set: { isMember in
+                            model.edit { try $0.setWorkspaceMembership(person: id, workspace: workspace.id, isMember: isMember) }
+                        }
+                    ))
+                    .toggleStyle(.checkbox)
+                }
+            }
             ForEach(model.cardID == id ? model.identities : []) { identity in
                 HStack {
                     Text("\(identity.platform) · \(identity.identifier)").textSelection(.enabled)
@@ -828,6 +921,10 @@ struct WorkflowView: View {
                             .help("Remove links made by this rule. Manual links stay.")
                     }
                 }
+            }
+            if model.mode == .people, model.workspaceID != nil {
+                Text("Notes and template progress are shared across this person's workspaces.")
+                    .font(.caption).foregroundStyle(.secondary)
             }
             if model.mode == .people, model.cardID == id, let assignment = model.templateAssignment {
                 templateProgress(assignment, for: id)

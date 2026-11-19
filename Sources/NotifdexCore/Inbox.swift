@@ -23,14 +23,16 @@ public struct InboxQuery: Equatable {
 
     public var readFilter: ReadFilter
     public var order: Order
+    public var workspaceID: String?
 
     public init(scope: Scope = .inbox(app: nil, saved: false), search: String = "", limit: Int = 50,
-                readFilter: ReadFilter = .all, order: Order = .newestFirst) {
+                readFilter: ReadFilter = .all, order: Order = .newestFirst, workspaceID: String? = nil) {
         self.scope = scope
         self.search = search
         self.limit = limit
         self.readFilter = readFilter
         self.order = order
+        self.workspaceID = workspaceID
     }
 }
 
@@ -54,6 +56,7 @@ public struct InboxEntry: Identifiable, Equatable {
     public let isRead: Bool
     public let isFlagged: Bool
     public let personRuleID: String?
+    public let workspaceID: String?
 }
 
 public struct PersonNote: Identifiable {
@@ -61,6 +64,11 @@ public struct PersonNote: Identifiable {
     public let body: String
     public let createdAt: Double
     public let updatedAt: Double
+}
+
+public struct WorkspaceRecord: Identifiable, Equatable {
+    public let id: String
+    public let name: String
 }
 
 public struct PersonRecord: Identifiable, Equatable {

@@ -45,14 +45,14 @@ public final class CaptureStore {
             try execute("PRAGMA journal_mode = WAL")
             try execute("PRAGMA synchronous = FULL")
             let version = try scalar("PRAGMA user_version")
-            guard (0...8).contains(version) else {
+            guard (0...9).contains(version) else {
                 throw StoreError(description: "Unsupported database version \(version)")
             }
-            if version < 8 {
+            if version < 9 {
                 try transaction {
                     // Recheck under the write lock if another process opened concurrently.
                     let current = try scalar("PRAGMA user_version")
-                    guard (0...8).contains(current) else {
+                    guard (0...9).contains(current) else {
                         throw StoreError(description: "Unsupported database version \(current)")
                     }
                     if current == 0 {
@@ -81,7 +81,10 @@ public final class CaptureStore {
                     }
                     if current < 8 {
                         try execute(Self.schema(named: "relationship-templates"))
-                        try execute("PRAGMA user_version = 8")
+                    }
+                    if current < 9 {
+                        try execute(Self.schema(named: "workspaces"))
+                        try execute("PRAGMA user_version = 9")
                     }
                 }
             }
@@ -426,6 +429,16 @@ public extension CaptureStore {
         case .followUps:
             filters.append("w.due_at IS NOT NULL AND w.done = 0")
         }
+        if let workspace = query.workspaceID {
+            filters.append("route.workspace_id = ?")
+            arguments.append(workspace)
+            if case .person = query.scope {
+                filters.append("""
+                    EXISTS (SELECT 1 FROM person_workspaces pw
+                            WHERE pw.person_id = p.id AND pw.workspace_id = route.workspace_id)
+                    """)
+            }
+        }
         switch query.readFilter {
         case .all: break
         case .unread: filters.append("NOT (\(read))")
@@ -456,8 +469,9 @@ public extension CaptureStore {
             SELECT o.id, \(app), o.title, o.subtitle, o.body, o.captured_at,
                    w.saved, w.due_at, w.done, p.id, p.display_name,
                    \(subject), \(individuallyHidden), \(titleHidden), \(bodyHidden),
-                   \(read), m.id, \(flagged)
+                   \(read), m.id, \(flagged), route.workspace_id
             FROM observations o
+            LEFT JOIN observation_workspaces route ON route.observation_id = o.id
             LEFT JOIN observation_work w ON w.observation_id = o.id
             LEFT JOIN person_observations l ON l.observation_id = o.id
             LEFT JOIN person_match_rules m
@@ -480,7 +494,8 @@ public extension CaptureStore {
                            bodyFiltered: sqlite3_column_int(row, 14) != 0,
                            isRead: sqlite3_column_int(row, 15) != 0,
                            isFlagged: sqlite3_column_int(row, 17) != 0,
-                           personRuleID: sqlite3_column_type(row, 16) == SQLITE_NULL ? nil : columnString(row, 16))
+                           personRuleID: sqlite3_column_type(row, 16) == SQLITE_NULL ? nil : columnString(row, 16),
+                           workspaceID: sqlite3_column_type(row, 18) == SQLITE_NULL ? nil : columnString(row, 18))
             }
     }
 
@@ -554,9 +569,63 @@ public extension CaptureStore {
         }
     }
 
-    func people() throws -> [PersonRecord] {
-        try readRows("SELECT id, display_name FROM people ORDER BY display_name COLLATE NOCASE, id") { row in
-            PersonRecord(id: columnString(row, 0), name: columnString(row, 1))
+    func people(in workspace: String? = nil) throws -> [PersonRecord] {
+        let membership = workspace == nil ? "" : """
+            WHERE EXISTS (SELECT 1 FROM person_workspaces pw WHERE pw.person_id = people.id AND pw.workspace_id = ?)
+            """
+        return try readRows("""
+            SELECT id, display_name FROM people \(membership) ORDER BY display_name COLLATE NOCASE, id
+            """, strings: workspace.map { [$0] } ?? []) { row in
+                PersonRecord(id: columnString(row, 0), name: columnString(row, 1))
+            }
+    }
+
+    func workspaces() throws -> [WorkspaceRecord] {
+        try readRows("SELECT id, name FROM workspaces ORDER BY name COLLATE NOCASE, id") { row in
+            WorkspaceRecord(id: columnString(row, 0), name: columnString(row, 1))
+        }
+    }
+
+    @discardableResult
+    func createWorkspace(name: String) throws -> String {
+        let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty, !name.utf8.contains(0), name.caseInsensitiveCompare("All People") != .orderedSame,
+              name.caseInsensitiveCompare("Unassigned") != .orderedSame else {
+            throw StoreError(description: "Choose a workspace name other than All People or Unassigned.")
+        }
+        let id = UUID().uuidString
+        try execute("""
+            INSERT INTO workspaces (id, name) VALUES (?, ?) ON CONFLICT(name) DO NOTHING
+            """, strings: [id, name])
+        guard sqlite3_changes(database) == 1 else { throw StoreError(description: "A workspace already uses that name.") }
+        return id
+    }
+
+    func workspaceIDs(for person: String) throws -> Set<String> {
+        Set(try readRows("SELECT workspace_id FROM person_workspaces WHERE person_id = ?",
+                         strings: [person]) { columnString($0, 0) })
+    }
+
+    func setWorkspaceMembership(person: String, workspace: String, isMember: Bool) throws {
+        if isMember {
+            try execute("""
+                INSERT INTO person_workspaces (person_id, workspace_id) VALUES (?, ?)
+                ON CONFLICT(person_id, workspace_id) DO NOTHING
+                """, strings: [person, workspace])
+        } else {
+            try execute("DELETE FROM person_workspaces WHERE person_id = ? AND workspace_id = ?",
+                        strings: [person, workspace])
+        }
+    }
+
+    func setAlertWorkspace(_ observation: Int64, to workspace: String?) throws {
+        if let workspace {
+            try execute("""
+                INSERT INTO observation_workspaces (observation_id, workspace_id) VALUES (?, ?)
+                ON CONFLICT(observation_id) DO UPDATE SET workspace_id = excluded.workspace_id
+                """, strings: [String(observation), workspace])
+        } else {
+            try execute("DELETE FROM observation_workspaces WHERE observation_id = ?", strings: [String(observation)])
         }
     }
 
@@ -567,13 +636,14 @@ public extension CaptureStore {
         }
     }
 
-    func createPerson(name: String, linking observation: Int64? = nil) throws -> String {
+    func createPerson(name: String, linking observation: Int64? = nil, workspace: String? = nil) throws -> String {
         let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty else { throw StoreError(description: "Enter a name for this person.") }
         let id = UUID().uuidString
         try transaction {
             try execute("INSERT INTO people (id, display_name) VALUES (?, ?)", strings: [id, name])
             if let observation { try link(observation, to: id) }
+            if let workspace { try setWorkspaceMembership(person: id, workspace: workspace, isMember: true) }
         }
         return id
     }

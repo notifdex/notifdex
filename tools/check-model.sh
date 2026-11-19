@@ -10,3 +10,4 @@ java -XX:+UseParallelGC -cp "$TLA_JAR" tlc2.TLC -workers 1 -config InboxWorkflow
 java -XX:+UseParallelGC -cp "$TLA_JAR" tlc2.TLC -workers 1 -config PersonMatch.cfg PersonMatch.tla
 java -XX:+UseParallelGC -cp "$TLA_JAR" tlc2.TLC -workers 1 -config PersonNotes.cfg PersonNotes.tla
 java -XX:+UseParallelGC -cp "$TLA_JAR" tlc2.TLC -workers 1 -config RelationshipTemplates.cfg RelationshipTemplates.tla
+java -XX:+UseParallelGC -cp "$TLA_JAR" tlc2.TLC -workers 1 -config PeopleWorkspaces.cfg PeopleWorkspaces.tla

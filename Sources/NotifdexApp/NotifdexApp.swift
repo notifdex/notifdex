@@ -253,6 +253,16 @@ struct NotifdexApp: App {
         guard replay.stageID == "evaluating", replay.completedMilestones == ["joined-slack"] else {
             throw StoreError(description: "Packaged relationship template replay check failed")
         }
+        guard Bundle.main.url(forResource: "workspaces", withExtension: "sql") != nil else {
+            throw StoreError(description: "Packaged workspaces.sql is missing")
+        }
+        let workspace = try store.createWorkspace(name: "Example workspace")
+        try store.setWorkspaceMembership(person: person, workspace: workspace, isMember: true)
+        try store.setAlertWorkspace(alert.id, to: workspace)
+        guard try store.people(in: workspace).map(\.id) == [person],
+              try store.inbox(InboxQuery(scope: .person(person), workspaceID: workspace)).map(\.id) == [alert.id] else {
+            throw StoreError(description: "Packaged workspace scope check failed")
+        }
         try store.finishRun(runID: run, at: 3)
     }
 }

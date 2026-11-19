@@ -201,6 +201,14 @@ It also round-trips the separate capture settings file. The SQL atomicity test
 failed on the missing schema before implementation. The standalone model ran
 before the Swift store change and checked 7,378 reachable states.
 
+Removing a relationship template is a version-scoped `Remove` step. It
+clears one person's assignment and progress atomically. SQLite uses the
+existing assignment-to-milestones cascade. Other assignments and installed
+versions are preserved. The Swift test covers a mismatched version, a
+repeated removal, and reapplying from the initial stage. It also checks that
+notes and workspace membership survive. The People control acceptance check
+failed before the workspace menu and removal confirmation were added.
+
 ### People workspaces
 
 `PeopleWorkspaces.tla` models two workspaces, two people, and two alerts

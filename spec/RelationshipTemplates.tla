@@ -1,5 +1,5 @@
 ----------------------- MODULE RelationshipTemplates -----------------------
-EXTENDS Naturals
+EXTENDS Naturals, FiniteSets
 
 CONSTANTS People, Versions, Definitions, Stages, Milestones, InitialStage, Empty
 VARIABLES installed, assignments, stage, milestones, operation
@@ -40,6 +40,15 @@ SetMilestone(p, m, completed) ==
     /\ milestones' = [milestones EXCEPT ![p][m] = completed]
     /\ UNCHANGED <<installed, assignments, stage>>
 
+Remove(p, v) ==
+    /\ operation' = "remove"
+    /\ IF assignments[p] = v
+          THEN /\ assignments' = [assignments EXCEPT ![p] = Empty]
+               /\ stage' = [stage EXCEPT ![p] = Empty]
+               /\ milestones' = [milestones EXCEPT ![p] = Empty]
+          ELSE UNCHANGED <<assignments, stage, milestones>>
+    /\ UNCHANGED installed
+
 FailedWrite ==
     /\ operation' = "failure"
     /\ UNCHANGED durable
@@ -49,6 +58,7 @@ Next ==
     \/ \E p \in People, v \in Versions : Apply(p, v)
     \/ \E p \in People, s \in Stages : SetStage(p, s)
     \/ \E p \in People, m \in Milestones, b \in BOOLEAN : SetMilestone(p, m, b)
+    \/ \E p \in People, v \in Versions : Remove(p, v)
     \/ FailedWrite
 
 Spec == Init /\ [][Next]_vars
@@ -67,12 +77,17 @@ PreserveExisting ==
     /\ \A v \in Versions : installed[v] # Empty => installed'[v] = installed[v]
     /\ \A p \in People :
           assignments[p] # Empty =>
-             /\ assignments'[p] = assignments[p]
-             /\ (operation' \in {"install", "apply", "failure"}) =>
+             /\ assignments'[p] = assignments[p] \/ (operation' = "remove" /\ assignments'[p] = Empty)
+             /\ (operation' \in {"install", "apply", "failure"} \/
+                  (operation' = "remove" /\ assignments'[p] # Empty)) =>
                    <<stage'[p], milestones'[p]>> = <<stage[p], milestones[p]>>
 
 SafeSteps == [][
     /\ PreserveExisting
+    /\ operation' = "remove" =>
+          /\ UNCHANGED installed
+          /\ Cardinality({p \in People : assignments'[p] # assignments[p]}) <= 1
+          /\ \A p \in People : assignments'[p] # assignments[p] => assignments'[p] = Empty
     /\ operation' = "failure" => UNCHANGED durable
     /\ operation' = "stage" => UNCHANGED milestones
     /\ operation' = "milestone" => UNCHANGED stage

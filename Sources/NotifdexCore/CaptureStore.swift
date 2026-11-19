@@ -844,6 +844,13 @@ public extension CaptureStore {
         }
     }
 
+    func removeTemplate(_ definition: RelationshipTemplate, from person: String) throws {
+        // The existing foreign key cascades the delete to this assignment's milestones.
+        try execute("""
+            DELETE FROM person_templates WHERE person_id = ? AND template_id = ? AND version = ?
+            """, strings: [person, definition.id, String(definition.version)])
+    }
+
     func setTemplateStage(_ stageID: String, for person: String) throws {
         try transaction {
             guard let assignment = try templateAssignment(for: person) else {

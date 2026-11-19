@@ -18,3 +18,11 @@ class PeopleNavigationContractTests(unittest.TestCase):
         source = WORKFLOW.read_text(encoding="utf-8")
         self.assertIn("personCard(id: card.id, name: card.name, showRecentActivity: false)", source)
         self.assertTrue(re.search(r'if showRecentActivity\s*\{\s*Text\("Recent activity"\)', source))
+
+    def test_person_card_has_workspace_menu_and_template_removal_confirmation(self):
+        source = WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn('LabeledContent("Workspaces")', source)
+        self.assertIn("Menu(summary)", source)
+        self.assertIn("model.personWorkspaceIDs.contains(workspace.id)", source)
+        self.assertIn('Button("Remove template…")', source)
+        self.assertIn('Button("Remove template", role: .destructive)', source)

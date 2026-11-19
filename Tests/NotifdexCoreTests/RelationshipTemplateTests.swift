@@ -40,6 +40,34 @@ final class RelationshipTemplateTests: XCTestCase {
         XCTAssertEqual(try store.applyTemplate(v2, to: anotherPerson).definition, v2)
     }
 
+    func testRemovingTemplateClearsOnlyThatPersonsProgress() throws {
+        let store = try CaptureStore(path: ":memory:")
+        let alex = try store.createPerson(name: "Alex")
+        let sam = try store.createPerson(name: "Sam")
+        let workspace = try store.createWorkspace(name: "Startup")
+        try store.setWorkspaceMembership(person: alex, workspace: workspace, isMember: true)
+        try store.addPersonNote(person: alex, body: "Keep this context", at: 1)
+        let definition = try store.installTemplate(RelationshipTemplate.bundledFounderOutreach())
+        let newer = try store.installTemplate(template(version: 2, name: "Outreach v2"))
+        try store.applyTemplate(definition, to: alex)
+        try store.applyTemplate(definition, to: sam)
+        try store.setTemplateStage("evaluating", for: alex)
+        try store.setTemplateMilestone("joined-slack", completed: true, for: alex)
+        try store.setTemplateMilestone("tried-product", completed: true, for: sam)
+
+        try store.removeTemplate(newer, from: alex)
+        XCTAssertEqual(try store.templateAssignment(for: alex)?.stageID, "evaluating")
+        for _ in 1...2 { try store.removeTemplate(definition, from: alex) }
+        XCTAssertNil(try store.templateAssignment(for: alex))
+        XCTAssertEqual(try store.personNotes(for: alex).map(\.body), ["Keep this context"])
+        XCTAssertEqual(try store.workspaceIDs(for: alex), [workspace])
+        XCTAssertEqual(try store.templateAssignment(for: sam)?.completedMilestones, ["tried-product"])
+
+        let reapplied = try store.applyTemplate(definition, to: alex)
+        XCTAssertEqual(reapplied.stageID, "contacted")
+        XCTAssertTrue(reapplied.completedMilestones.isEmpty)
+    }
+
     func testDefinitionValidation() throws {
         XCTAssertThrowsError(try RelationshipTemplate.decode(Data("""
             {"id":"outreach","version":1,"name":"Outreach",

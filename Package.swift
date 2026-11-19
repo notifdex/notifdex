@@ -37,7 +37,7 @@ let package = Package(
                 .copy("Sources/NotifdexCore/filters.sql"), .copy("Sources/NotifdexCore/person-matches.sql"),
                 .copy("Sources/NotifdexCore/person-notes.sql"), .copy("Sources/NotifdexCore/flags.sql"),
                 .copy("Sources/NotifdexCore/hide-rules.sql"), .copy("Sources/NotifdexCore/relationship-templates.sql"),
-                .copy("templates")
+                .copy("Sources/NotifdexCore/workspaces.sql"), .copy("templates")
             ]
         ),
         .target(name: "NotifdexMac", dependencies: ["NotifdexCore"]),

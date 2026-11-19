@@ -200,3 +200,23 @@ database with captured evidence, links, notes, hide rules and follow-up state.
 It also round-trips the separate capture settings file. The SQL atomicity test
 failed on the missing schema before implementation. The standalone model ran
 before the Swift store change and checked 7,378 reachable states.
+
+### People workspaces
+
+`PeopleWorkspaces.tla` models two workspaces, two people, and two alerts
+linked to one person. It checks referential integrity, independent changes
+to membership and routes, and that a scoped timeline only contains alerts
+routed to that workspace for a member of the workspace. Explicit set and
+remove operations are idempotent. A write failure leaves durable state
+unchanged. Links and captured evidence are fixed inputs in this model.
+The model omits workspace labels, search, and UI state.
+
+The v9 migration adds three tables in the existing transaction. Each
+membership is one person/workspace pair. An observation route is one
+workspace per alert and is stored separately from the observation and link.
+The SQL contract failed on the missing migration before implementation.
+The Swift fixture opens a v8 database, exercises routing and membership
+independently, and verifies after reopen that preexisting people, alerts,
+identities, notes, and template progress survived. It also checks workspace
+scoping before search and that a failed attempt to create a person in an
+unknown workspace rolls back the person record.

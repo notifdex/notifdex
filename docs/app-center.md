@@ -101,6 +101,13 @@ recipient when the foreground account changes.
 The first launch migrates the existing local capture database to version 2.
 Use the rebuilt app and CLI with that database. Older builds reject version 2.
 
+### Switch between a person and their alerts
+
+In **People**, select a person. Their linked notifications are in the left
+pane. The right pane shows their handles, matching rules, and notes.
+Click a notification to open it on the right. Click **Back to person**
+to return to the overview with the same person selected.
+
 ### Hide alerts by title or body
 
 Use **Hide** on an Inbox or Flagged row. **Hide this alert** affects just

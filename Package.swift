@@ -18,7 +18,21 @@ let package = Package(
     ],
     targets: [
         .systemLibrary(name: "CSQLite", pkgConfig: sqlitePkgConfig),
-        .target(name: "NotifdexCore", dependencies: ["CSQLite"], resources: [.copy("schema.sql"), .copy("inbox-work.sql"), .copy("filters.sql"), .copy("person-matches.sql"), .copy("person-notes.sql"), .copy("flags.sql"), .copy("hide-rules.sql")]),
+        .target(
+            name: "NotifdexCore",
+            dependencies: ["CSQLite"],
+            path: ".",
+            exclude: ["AGENTS.md", "README.md", "Sources/CSQLite", "Sources/NotifdexMac",
+                      "Sources/NotifdexCapture", "Sources/NotifdexApp", "Tests", "tests", "spec", "tools", "docs"],
+            sources: ["Sources/NotifdexCore"],
+            resources: [
+                .copy("Sources/NotifdexCore/schema.sql"), .copy("Sources/NotifdexCore/inbox-work.sql"),
+                .copy("Sources/NotifdexCore/filters.sql"), .copy("Sources/NotifdexCore/person-matches.sql"),
+                .copy("Sources/NotifdexCore/person-notes.sql"), .copy("Sources/NotifdexCore/flags.sql"),
+                .copy("Sources/NotifdexCore/hide-rules.sql"), .copy("Sources/NotifdexCore/relationship-templates.sql"),
+                .copy("templates")
+            ]
+        ),
         .target(name: "NotifdexMac", dependencies: ["NotifdexCore"]),
         .executableTarget(name: "NotifdexCapture", dependencies: ["NotifdexCore", "NotifdexMac"]),
         .executableTarget(name: "NotifdexApp", dependencies: ["NotifdexCore", "NotifdexMac"]),

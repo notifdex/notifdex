@@ -78,6 +78,7 @@ private final class WorkflowModel: ObservableObject {
     @Published var noteBody = ""
     @Published var confirmingNoteDeletion = false
     @Published private(set) var notes: [PersonNote] = []
+    @Published private(set) var templateAssignment: RelationshipTemplateAssignment?
     @Published private(set) var matchRules: [PersonMatchRule] = []
     @Published private(set) var limit = 50
     @Published private(set) var entries: [InboxEntry] = []
@@ -147,7 +148,9 @@ private final class WorkflowModel: ObservableObject {
             let identities = try card.map { try store.identities(for: $0) } ?? []
             let matches = try card.map { try store.personMatchRules(for: $0) } ?? []
             let notes = try card.map { try store.personNotes(for: $0) } ?? []
-            return (entries, try store.people(), card, identities, timeline, try store.inboxFilters(), matches, notes, alert)
+            let assignment = try (isPeople ? card : nil).flatMap { try store.templateAssignment(for: $0) }
+            return (entries, try store.people(), card, identities, timeline, try store.inboxFilters(),
+                    matches, notes, alert, assignment)
         }, completion: { [weak self] result in
             guard let self, self.generation == request, self.query == query,
                   self.selected == selected else { return }
@@ -163,6 +166,7 @@ private final class WorkflowModel: ObservableObject {
                 self.matchRules = value.6
                 self.notes = value.7
                 self.loadedAlert = value.8
+                self.templateAssignment = value.9
                 if keepsOpenDetail, selected != nil, value.8 == nil { self.selected = nil }
             case .failure(let error): self.error = String(describing: error)
             }
@@ -195,6 +199,16 @@ private final class WorkflowModel: ObservableObject {
             case .failure(let error): self.error = String(describing: error)
             }
         }
+    }
+
+    func applyFounderOutreach(to person: String) {
+        edit({ store in
+            let definition = try store.installTemplate(RelationshipTemplate.bundledFounderOutreach())
+            try store.applyTemplate(definition, to: person)
+        }, then: { [weak self] in
+            guard let self, self.mode == .people, self.person == person else { return }
+            self.selected = nil
+        })
     }
 
     func openNote(personID: String, name: String, note: PersonNote? = nil) {
@@ -444,6 +458,13 @@ struct WorkflowView: View {
                     model.selected = nil
                     model.identifier = ""
                 }
+                Menu("Templates") {
+                    Button("Apply Founder Outreach") {
+                        if let person = model.person { model.applyFounderOutreach(to: person) }
+                    }
+                }
+                .fixedSize()
+                .disabled(!ready || model.busy || model.person == nil || model.cardID != model.person)
             }
             TextField("Search captured alerts", text: $model.search)
                 .textFieldStyle(.roundedBorder)
@@ -746,6 +767,31 @@ struct WorkflowView: View {
         }
     }
 
+    private func templateProgress(_ assignment: RelationshipTemplateAssignment, for person: String) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text(assignment.definition.name).font(.headline)
+                Text("v\(assignment.definition.version)").font(.caption).foregroundStyle(.secondary)
+            }
+            Picker("Stage", selection: Binding(
+                get: { assignment.stageID },
+                set: { stage in model.edit { try $0.setTemplateStage(stage, for: person) } }
+            )) {
+                ForEach(assignment.definition.stages) { stage in Text(stage.name).tag(stage.id) }
+            }
+            ForEach(assignment.definition.milestones) { milestone in
+                Toggle(milestone.name, isOn: Binding(
+                    get: { assignment.completedMilestones.contains(milestone.id) },
+                    set: { completed in
+                        model.edit { try $0.setTemplateMilestone(milestone.id, completed: completed, for: person) }
+                    }
+                ))
+                .toggleStyle(.checkbox)
+            }
+        }
+        .disabled(!ready || model.busy)
+    }
+
     private func personCard(id: String, name: String, showRecentActivity: Bool) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             Label(name, systemImage: "person.crop.circle").font(.title3)
@@ -782,6 +828,9 @@ struct WorkflowView: View {
                             .help("Remove links made by this rule. Manual links stay.")
                     }
                 }
+            }
+            if model.mode == .people, model.cardID == id, let assignment = model.templateAssignment {
+                templateProgress(assignment, for: id)
             }
             HStack {
                 Text("Notes").font(.headline)

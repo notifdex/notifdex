@@ -55,8 +55,13 @@ Timeline(p, w) ==
 ScopedTimeline ==
     \A w \in Workspaces, p \in People : \A a \in Timeline(p, w) :
         /\ <<p,w>> \in members
-        /\ routes[a] = w
+        /\ routes[a] \in {w, Empty}
         /\ a \in Timeline(p, Empty)
+
+TimelineComplete ==
+    \A w \in Workspaces, p \in People, a \in Alerts :
+        (<<p,w>> \in members /\ Linked[a] = p /\ routes[a] \in {w, Empty}) =>
+            a \in Timeline(p, w)
 
 IndependentChanges == [][
     /\ available \subseteq available'

@@ -316,6 +316,7 @@ struct MenuContent: View {
 @MainActor
 struct AppCenter: View {
     @ObservedObject var model: AppModel
+    @AppStorage("appAppearance") private var appearance: AppAppearance = .glass
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -351,6 +352,12 @@ struct AppCenter: View {
             HStack {
                 Text("\(model.state.total) saved observations").font(.caption).foregroundStyle(.secondary)
                 Spacer()
+                Picker("Appearance", selection: $appearance) {
+                    ForEach(AppAppearance.allCases) { option in
+                        Text(option.title).tag(option)
+                    }
+                }
+                .fixedSize()
                 Button("Show data folder") {
                     NSWorkspace.shared.open(model.worker.directory)
                 }
@@ -358,6 +365,8 @@ struct AppCenter: View {
         }
         .padding(20)
         .frame(minWidth: 660, minHeight: 520)
+        .notifdexSurface(.window)
+        .environment(\.notifdexAppearance, appearance)
     }
 
     private var appsView: some View {
@@ -389,6 +398,7 @@ struct AppCenter: View {
                 }
                 .padding(.vertical, 6)
             }
+            .notifdexSurface(.list)
             HStack {
                 TextField("Custom app notification label", text: $model.customLabel)
                     .textFieldStyle(.roundedBorder)
@@ -439,6 +449,7 @@ struct AppCenter: View {
                 .font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
         }
         .padding(16)
+        .notifdexSurface(.detail)
         .onAppear { model.refreshLoginState() }
     }
 }

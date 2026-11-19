@@ -419,6 +419,7 @@ struct WorkflowView: View {
                         .id(model.mode == .people ? model.selected : nil)
                 }
                 .frame(minWidth: 280)
+                .notifdexSurface(.detail)
             }
         }
         .padding(.top, 10)
@@ -580,6 +581,7 @@ struct WorkflowView: View {
                 }
             }
         }
+        .notifdexSurface(.list)
         .overlay {
             if rows.isEmpty {
                 Text(ready ? "No matching alerts" : "Opening inbox…").foregroundStyle(.secondary)

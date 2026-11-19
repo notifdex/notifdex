@@ -213,8 +213,9 @@ failed before the workspace menu and removal confirmation were added.
 
 `PeopleWorkspaces.tla` models two workspaces, two people, and two alerts
 linked to one person. It checks referential integrity, independent changes
-to membership and routes, and that a scoped timeline only contains alerts
-routed to that workspace for a member of the workspace. Explicit set and
+to membership and routes, and both isolation and completeness of the scoped
+People timeline. A linked alert appears for a workspace member if its route
+is unassigned or matches the workspace. Explicit set and
 remove operations are idempotent. A write failure leaves durable state
 unchanged. Links and captured evidence are fixed inputs in this model.
 The model omits workspace labels, search, and UI state.
@@ -228,3 +229,13 @@ independently, and verifies after reopen that preexisting people, alerts,
 identities, notes, and template progress survived. It also checks workspace
 scoping before search and that a failed attempt to create a person in an
 unknown workspace rolls back the person record.
+
+The People timeline regression (#42) arose because it applied an exact
+alert-route filter even to linked alerts with no route. The existing
+workspace fixture encoded this empty result. Adding the `TimelineComplete`
+invariant before changing the model produced a counterexample immediately
+after adding a person to a workspace. The corrected model and Swift store
+include unassigned alerts through the person's membership without writing
+any routes. Swift tests cover migrated links, a new rule-linked capture,
+search, explicit routing and clearing, and selected alert lookup. An
+ordinary workspace-filtered inbox continues to require an explicit route.

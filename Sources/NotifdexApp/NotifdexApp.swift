@@ -229,6 +229,12 @@ struct NotifdexApp: App {
         guard try store.personNotes(for: person).first?.id == note else {
             throw StoreError(description: "Packaged person notes check failed")
         }
+        let folder = try store.saveNoteFolder(name: "Synthetic folder")
+        let personalNote = try store.savePersonalNote(folderID: folder, title: "Test", body: "Synthetic personal note", at: 3)
+        try store.deleteNoteFolder(folder)
+        guard let unfiled = try store.personalNotes().first, unfiled.id == personalNote, unfiled.folderID == nil else {
+            throw StoreError(description: "Packaged notebook check failed")
+        }
         try store.setFlag(alert.id, flagged: true)
         guard try store.inbox(InboxQuery(scope: .flagged(app: nil))).first?.id == alert.id else {
             throw StoreError(description: "Packaged Flagged check failed")

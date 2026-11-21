@@ -6,9 +6,40 @@ import NotifdexMac
 
 private struct NoteDraft: Identifiable {
     let id = UUID()
-    let personID: String
-    let personName: String
+    let personID: String?
+    let personName: String?
     let noteID: String?
+}
+
+private struct FolderDraft: Identifiable {
+    let id = UUID()
+    let folderID: String?
+}
+
+private enum NoteCollection: String, CaseIterable, Identifiable {
+    case mine = "My Notes"
+    case people = "People Notes"
+
+    var id: Self { self }
+}
+
+private enum NoteFolderFilter: Hashable {
+    case all
+    case unfiled
+    case folder(String)
+
+    func includes(_ folderID: String?) -> Bool {
+        switch self {
+        case .all: true
+        case .unfiled: folderID == nil
+        case .folder(let id): folderID == id
+        }
+    }
+
+    var folderID: String? {
+        if case .folder(let id) = self { return id }
+        return nil
+    }
 }
 
 private struct TemplateRemoval {
@@ -20,6 +51,7 @@ private enum WorkflowMode: String, CaseIterable, Hashable, Identifiable {
     case inbox = "Inbox"
     case today = "Today"
     case people = "People"
+    case notes = "Notes"
     case flagged = "Flagged"
     case saved = "Saved"
     case hidden = "Hidden"
@@ -32,6 +64,7 @@ private enum WorkflowMode: String, CaseIterable, Hashable, Identifiable {
         case .inbox: "tray"
         case .today: "calendar"
         case .people: "person.2"
+        case .notes: "note.text"
         case .flagged: "flag"
         case .saved: "bookmark"
         case .hidden: "eye.slash"
@@ -94,7 +127,19 @@ private final class WorkflowModel: ObservableObject {
     @Published var matchPreview: PersonMatchPreview?
     @Published var hideRulePreview: HideRulePreview?
     @Published var noteDraft: NoteDraft?
+    @Published var noteTitle = ""
     @Published var noteBody = ""
+    @Published var noteFolderID: String?
+    @Published var noteCollection: NoteCollection = .mine
+    @Published var notebookFolder: NoteFolderFilter = .all
+    @Published var notebookPersonID: String?
+    @Published var folderDraft: FolderDraft?
+    @Published var folderName = ""
+    @Published var confirmingFolderDeletion = false
+    @Published private(set) var noteFolders: [NoteFolder] = []
+    @Published private(set) var personalNotes: [PersonalNote] = []
+    @Published private(set) var notebookPeopleNotes: [PersonNote] = []
+    @Published private var loadedNotebookPersonID: String?
     @Published var confirmingNoteDeletion = false
     @Published var templateRemoval: TemplateRemoval?
     @Published private(set) var notes: [PersonNote] = []
@@ -128,6 +173,7 @@ private final class WorkflowModel: ObservableObject {
         case .hidden: return .hidden(app: app)
         case .people: return .person(person ?? "")
         case .today: return .followUps
+        case .notes: return .person("")
         }
     }
 
@@ -160,6 +206,11 @@ private final class WorkflowModel: ObservableObject {
         guard self.query == query else { return }
         generation += 1
         let request = generation
+        if mode == .notes {
+            loadNotebook(request: request)
+            return
+        }
+        let mode = self.mode
         let selected = selected
         let person = person
         let isPeople = mode == .people
@@ -186,7 +237,7 @@ private final class WorkflowModel: ObservableObject {
             return (entries, allPeople, card, identities, timeline, try store.inboxFilters(),
                     matches, notes, alert, assignment, workspaceState)
         }, completion: { [weak self] result in
-            guard let self, self.generation == request, self.query == query,
+            guard let self, self.generation == request, self.mode == mode, self.query == query,
                   self.selected == selected else { return }
             switch result {
             case .success(let value):
@@ -254,29 +305,111 @@ private final class WorkflowModel: ObservableObject {
         edit { try $0.removeTemplate(removal.definition, from: removal.personID) }
     }
 
+    var displayedNotebookPeopleNotes: [PersonNote] {
+        loadedNotebookPersonID == notebookPersonID ? notebookPeopleNotes : []
+    }
+
+    private func loadNotebook(request: Int) {
+        let personID = notebookPersonID
+        worker.withStore({ store in
+            let notes = try personID.map { try store.personNotes(for: $0) } ?? []
+            return (try store.noteFolders(), try store.personalNotes(), try store.people(), notes)
+        }, completion: { [weak self] result in
+            guard let self, self.generation == request, self.mode == .notes,
+                  self.notebookPersonID == personID else { return }
+            switch result {
+            case .success(let snapshot):
+                self.noteFolders = snapshot.0
+                self.personalNotes = snapshot.1
+                self.people = snapshot.2
+                self.notebookPeopleNotes = snapshot.3.sorted {
+                    if $0.updatedAt == $1.updatedAt { return $0.id < $1.id }
+                    return $0.updatedAt > $1.updatedAt
+                }
+                self.loadedNotebookPersonID = personID
+                if let folderID = self.notebookFolder.folderID,
+                   !snapshot.0.contains(where: { $0.id == folderID }) {
+                    self.notebookFolder = .unfiled
+                }
+            case .failure(let error):
+                self.error = String(describing: error)
+            }
+        })
+    }
+
     func openNote(personID: String, name: String, note: PersonNote? = nil) {
+        openNoteEditor(
+            NoteDraft(personID: personID, personName: name, noteID: note?.id),
+            title: note?.title ?? "", body: note?.body ?? "", folderID: nil
+        )
+    }
+
+    func openPersonalNote(_ note: PersonalNote? = nil) {
+        openNoteEditor(
+            NoteDraft(personID: nil, personName: nil, noteID: note?.id),
+            title: note?.title ?? "", body: note?.body ?? "",
+            folderID: note == nil ? notebookFolder.folderID : note?.folderID
+        )
+    }
+
+    private func openNoteEditor(_ draft: NoteDraft, title: String, body: String, folderID: String?) {
         error = nil
-        noteBody = note?.body ?? ""
+        noteTitle = title
+        noteBody = body
+        noteFolderID = folderID
         confirmingNoteDeletion = false
-        noteDraft = NoteDraft(personID: personID, personName: name, noteID: note?.id)
+        noteDraft = draft
     }
 
     func saveNote(_ draft: NoteDraft) {
+        let title = noteTitle
         let body = noteBody
+        let folderID = noteFolderID
         let time = Date().timeIntervalSince1970
         edit({ store in
-            if let id = draft.noteID {
-                try store.updatePersonNote(id, person: draft.personID, body: body, at: time)
+            if let personID = draft.personID {
+                if let id = draft.noteID {
+                    try store.updatePersonNote(id, person: personID, title: title, body: body, at: time)
+                } else {
+                    try store.addPersonNote(person: personID, title: title, body: body, at: time)
+                }
             } else {
-                try store.addPersonNote(person: draft.personID, body: body, at: time)
+                try store.savePersonalNote(draft.noteID, folderID: folderID, title: title, body: body, at: time)
             }
         }, then: { [weak self] in self?.noteDraft = nil })
     }
 
     func deleteNote(_ draft: NoteDraft) {
         guard let id = draft.noteID else { return }
-        edit({ try $0.deletePersonNote(id, person: draft.personID) },
-             then: { [weak self] in self?.noteDraft = nil })
+        edit({ store in
+            if let personID = draft.personID {
+                try store.deletePersonNote(id, person: personID)
+            } else {
+                try store.deletePersonalNote(id)
+            }
+        }, then: { [weak self] in self?.noteDraft = nil })
+    }
+
+    func openFolderEditor(_ folder: NoteFolder? = nil) {
+        error = nil
+        folderName = folder?.name ?? ""
+        confirmingFolderDeletion = false
+        folderDraft = FolderDraft(folderID: folder?.id)
+    }
+
+    func saveFolder(_ draft: FolderDraft) {
+        let folderName = folderName
+        edit({ store in
+            try store.saveNoteFolder(draft.folderID, name: folderName)
+        }, then: { [weak self] in self?.folderDraft = nil })
+    }
+
+    func deleteFolder(_ draft: FolderDraft) {
+        guard let id = draft.folderID else { return }
+        edit({ try $0.deleteNoteFolder(id) }, then: { [weak self] in
+            self?.notebookFolder = .unfiled
+            self?.folderDraft = nil
+        })
     }
 
     func markOpened(_ alert: InboxEntry) {
@@ -396,7 +529,9 @@ struct WorkflowView: View {
                 }
                 VStack(alignment: .leading, spacing: 10) {
                     workflowHeader(compact: compact)
-                    if compact {
+                    if model.mode == .notes {
+                        notebook
+                    } else if compact {
                         compactContent
                     } else {
                         HSplitView {
@@ -419,7 +554,10 @@ struct WorkflowView: View {
             hideRuleReview(preview)
         }
         .sheet(item: $model.noteDraft) { draft in
-            PersonNoteEditor(model: model, draft: draft)
+            NoteEditor(model: model, draft: draft)
+        }
+        .sheet(item: $model.folderDraft) { draft in
+            FolderEditor(model: model, draft: draft)
         }
         .sheet(isPresented: $model.showingNewWorkspace) {
             workspaceEditor
@@ -457,11 +595,15 @@ struct WorkflowView: View {
         .onChange(of: model.inboxPresentation.order) { _, _ in
             model.clearSelectionIfCollapsed()
         }
-        .onChange(of: model.mode) { _, _ in
+        .onChange(of: model.notebookPersonID) { _, _ in
+            if ready, model.mode == .notes { model.load(query: model.query) }
+        }
+        .onChange(of: model.mode) { previous, next in
             model.selected = nil
             model.search = ""
             model.identifier = ""
             model.name = ""
+            if ready, previous == .notes || next == .notes { model.load(query: model.query) }
         }
     }
 
@@ -517,11 +659,13 @@ struct WorkflowView: View {
                     Text(model.mode.rawValue).font(.title2.weight(.semibold))
                 }
                 Spacer(minLength: 12)
-                TextField("Search captured alerts", text: $model.search)
-                    .textFieldStyle(.roundedBorder)
-                    .frame(maxWidth: 270)
+                if model.mode != .notes {
+                    TextField("Search captured alerts", text: $model.search)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(maxWidth: 270)
+                }
             }
-            filterBar
+            if model.mode != .notes { filterBar }
             if let action = model.lastHide {
                 HStack {
                     Text(action.message).foregroundStyle(.secondary)
@@ -554,6 +698,94 @@ struct WorkflowView: View {
                 }
             }
         }
+    }
+
+    private var notebook: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Picker("Notebook", selection: $model.noteCollection) {
+                ForEach(NoteCollection.allCases) { collection in
+                    Text(collection.rawValue).tag(collection)
+                }
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .fixedSize()
+
+            if model.noteCollection == .mine {
+                HStack {
+                    Picker("Folder", selection: $model.notebookFolder) {
+                        Text("All Notes").tag(NoteFolderFilter.all)
+                        Text("Unfiled").tag(NoteFolderFilter.unfiled)
+                        ForEach(model.noteFolders) { folder in
+                            Text(folder.name).tag(NoteFolderFilter.folder(folder.id))
+                        }
+                    }
+                    .frame(maxWidth: 220)
+                    Button("New folder…") { model.openFolderEditor() }
+                    if let folder = model.noteFolders.first(where: { $0.id == model.notebookFolder.folderID }) {
+                        Button("Edit folder…") { model.openFolderEditor(folder) }
+                    }
+                    Spacer()
+                    Button("New note…") { model.openPersonalNote() }
+                }
+                let notes = model.personalNotes.filter { model.notebookFolder.includes($0.folderID) }
+                List(notes) { note in
+                    notebookRow(title: note.title, body: note.body, updatedAt: note.updatedAt) {
+                        model.openPersonalNote(note)
+                    }
+                }
+                .notifdexSurface(.inboxList)
+                .overlay {
+                    if notes.isEmpty { Text("No notes here yet.").foregroundStyle(.secondary).allowsHitTesting(false) }
+                }
+            } else {
+                HStack {
+                    Picker("Person", selection: $model.notebookPersonID) {
+                        Text("Choose a person").tag(nil as String?)
+                        ForEach(model.people) { person in Text(person.name).tag(Optional(person.id)) }
+                    }
+                    .frame(maxWidth: 280)
+                    Spacer()
+                    if let person = model.people.first(where: { $0.id == model.notebookPersonID }) {
+                        Button("New note…") { model.openNote(personID: person.id, name: person.name) }
+                    }
+                }
+                let notes = model.displayedNotebookPeopleNotes
+                List(notes) { note in
+                    notebookRow(title: note.title, body: note.body, updatedAt: note.updatedAt) {
+                        if let person = model.people.first(where: { $0.id == model.notebookPersonID }) {
+                            model.openNote(personID: person.id, name: person.name, note: note)
+                        }
+                    }
+                }
+                .notifdexSurface(.inboxList)
+                .overlay {
+                    if notes.isEmpty {
+                        Text(model.notebookPersonID == nil ? "Choose a person to see their notes." : "No notes for this person yet.")
+                            .foregroundStyle(.secondary)
+                            .allowsHitTesting(false)
+                    }
+                }
+            }
+        }
+        .disabled(!ready || model.busy)
+    }
+
+    private func notebookRow(title: String, body: String, updatedAt: Double, open: @escaping () -> Void) -> some View {
+        Button(action: open) {
+            HStack {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(title.isEmpty ? "Untitled" : title).font(.headline).lineLimit(1)
+                    Text(body).foregroundStyle(.secondary).lineLimit(1)
+                }
+                Spacer()
+                Text(Date(timeIntervalSince1970: updatedAt), style: .date)
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            .padding(.vertical, 4)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 
     private var feed: some View {
@@ -665,7 +897,7 @@ struct WorkflowView: View {
         let presentation = switch model.mode {
         case .inbox, .flagged: model.inboxPresentation
         case .saved, .hidden: InboxPresentation(order: .byApp)
-        case .people, .today: InboxPresentation()
+        case .people, .today, .notes: InboxPresentation()
         }
         // SwiftUI may clear a selection when its row leaves the list. Keep the
         // detail open in Inbox and Flagged until the user chooses another item.
@@ -1105,6 +1337,7 @@ struct WorkflowView: View {
                     VStack(alignment: .leading, spacing: 4) {
                         Text(Date(timeIntervalSince1970: note.createdAt).formatted(date: .abbreviated, time: .shortened))
                             .font(.caption).foregroundStyle(.secondary)
+                        if !note.title.isEmpty { Text(note.title).font(.headline) }
                         Text(note.body).textSelection(.enabled)
                             .fixedSize(horizontal: false, vertical: true)
                     }
@@ -1128,14 +1361,21 @@ struct WorkflowView: View {
 }
 
 @MainActor
-private struct PersonNoteEditor: View {
+private struct NoteEditor: View {
     @ObservedObject var model: WorkflowModel
     let draft: NoteDraft
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text(draft.noteID == nil ? "Add note for \(draft.personName)" : "Edit note for \(draft.personName)")
+            Text(draft.personName.map { "Note for \($0)" } ?? "My Note")
                 .font(.headline)
+            TextField("Title", text: $model.noteTitle)
+            if draft.personID == nil {
+                Picker("Folder", selection: $model.noteFolderID) {
+                    Text("Unfiled").tag(nil as String?)
+                    ForEach(model.noteFolders) { folder in Text(folder.name).tag(Optional(folder.id)) }
+                }
+            }
             TextEditor(text: $model.noteBody)
                 .font(.body)
                 .accessibilityLabel("Note")
@@ -1163,6 +1403,41 @@ private struct PersonNoteEditor: View {
         .alert("Delete this note?", isPresented: $model.confirmingNoteDeletion) {
             Button("Delete", role: .destructive) { model.deleteNote(draft) }
             Button("Cancel", role: .cancel) {}
+        }
+    }
+}
+@MainActor
+private struct FolderEditor: View {
+    @ObservedObject var model: WorkflowModel
+    let draft: FolderDraft
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(draft.folderID == nil ? "New folder" : "Edit folder").font(.headline)
+            TextField("Folder name", text: $model.folderName)
+            if let error = model.error {
+                Text(error).foregroundStyle(.red)
+            }
+            HStack {
+                if draft.folderID != nil {
+                    Button("Delete folder…", role: .destructive) { model.confirmingFolderDeletion = true }
+                }
+                Spacer()
+                Button("Cancel") { model.folderDraft = nil }.keyboardShortcut(.cancelAction)
+                Button("Save") { model.saveFolder(draft) }
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(model.folderName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
+        }
+        .padding()
+        .frame(minWidth: 380)
+        .disabled(model.busy)
+        .interactiveDismissDisabled(model.busy)
+        .alert("Delete this folder?", isPresented: $model.confirmingFolderDeletion) {
+            Button("Delete folder", role: .destructive) { model.deleteFolder(draft) }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Its notes will move to Unfiled.")
         }
     }
 }

@@ -61,6 +61,21 @@ public struct InboxEntry: Identifiable, Equatable {
 
 public struct PersonNote: Identifiable {
     public let id: String
+    public let title: String
+    public let body: String
+    public let createdAt: Double
+    public let updatedAt: Double
+}
+
+public struct NoteFolder: Identifiable {
+    public let id: String
+    public let name: String
+}
+
+public struct PersonalNote: Identifiable {
+    public let id: String
+    public let folderID: String?
+    public let title: String
     public let body: String
     public let createdAt: Double
     public let updatedAt: Double

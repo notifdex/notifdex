@@ -58,3 +58,18 @@ to a Person. Any automatic match needs an observed exact identifier or a separat
 verified mapping, with provenance. AI summaries should reference the observations
 used and describe the incomplete coverage. Reply obligations need user confirmation
 or an independently adequate conversation source.
+
+## Notes
+
+Schema version 10 adds independent personal notes and one level of personal folders.
+A missing folder reference means Unfiled. SQLite applies `ON DELETE SET NULL` in
+the folder deletion statement, preserving note IDs, content, and timestamps.
+The Notebook TLA+ model treats each committed SQL write as one step. It checks
+folder references and preservation of notes across folder changes. It abstracts
+away note text, title, time, and UI state.
+
+Version 10 also adds optional-in-the-editor titles to the existing `person_notes`
+records, using an empty title for older notes. Both People Notes and the person
+profile use the same person-scoped reads and writes. The migration preserves note
+ownership, body, and timestamps. The existing PersonNotes model checks ownership.
+SQL and Swift tests check migration, folder deletion, and shared People note IDs.

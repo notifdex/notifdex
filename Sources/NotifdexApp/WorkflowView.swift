@@ -419,7 +419,7 @@ struct WorkflowView: View {
                         .id(model.mode == .people ? model.selected : nil)
                 }
                 .frame(minWidth: 280)
-                .notifdexSurface(.detail)
+                .notifdexSurface(.inspector)
             }
         }
         .padding(.top, 10)
@@ -581,7 +581,7 @@ struct WorkflowView: View {
                 }
             }
         }
-        .notifdexSurface(.list)
+        .notifdexSurface(.inboxList)
         .overlay {
             if rows.isEmpty {
                 Text(ready ? "No matching alerts" : "Opening inbox…").foregroundStyle(.secondary)
@@ -592,7 +592,9 @@ struct WorkflowView: View {
 
     private func listedRows(_ rows: [InboxEntry]) -> some View {
         ForEach(rows) { row in
-            entryRow(row, showActions: model.mode.hasTriageControls).tag(row.id)
+            entryRow(row, showActions: model.mode.hasTriageControls)
+                .notifdexAlertSelection(model.selected == row.id)
+                .tag(row.id)
         }
     }
 

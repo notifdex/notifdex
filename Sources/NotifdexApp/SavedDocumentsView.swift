@@ -131,7 +131,7 @@ private final class DocsModel: ObservableObject {
 }
 
 @MainActor
-struct DocsView: View {
+struct SavedDocumentsView: View {
     @StateObject private var model: DocsModel
     let ready: Bool
 
@@ -170,7 +170,7 @@ struct DocsView: View {
             .notifdexSurface(.inboxList)
             .overlay {
                 if model.visibleDocuments.isEmpty {
-                    Text(ready ? "No documents here." : "Opening Docs…")
+                    Text(ready ? "No documents here." : "Opening saved documents…")
                         .foregroundStyle(.secondary)
                         .allowsHitTesting(false)
                 }

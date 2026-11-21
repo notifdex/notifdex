@@ -1,0 +1,33 @@
+import unittest
+from pathlib import Path
+
+
+APP_DIR = Path(__file__).resolve().parents[1] / "Sources" / "NotifdexApp"
+
+
+class AppCenterLayoutContractTests(unittest.TestCase):
+    def test_sidebar_and_compact_picker_share_the_workflow_mode(self):
+        source = (APP_DIR / "WorkflowView.swift").read_text()
+        self.assertIn("ForEach(WorkflowMode.allCases)", source)
+        self.assertIn("model.mode = mode", source)
+        self.assertIn('Picker("View", selection: $model.mode)', source)
+        self.assertIn('Menu("Sort & group")', source)
+
+    def test_inspector_uses_model_selection_and_keeps_people_overview(self):
+        source = (APP_DIR / "WorkflowView.swift").read_text()
+        self.assertIn("model.mode == .people || model.selected != nil", source)
+        self.assertIn("if showsInspector", source)
+        self.assertIn('Label("Back to alerts", systemImage: "chevron.left")', source)
+        self.assertIn('Label("Back to person", systemImage: "chevron.left")', source)
+        self.assertIn("keepsOpenDetail, let selected", source)
+
+    def test_top_level_tabs_and_global_controls_remain_reachable(self):
+        source = (APP_DIR / "NotifdexApp.swift").read_text()
+        for label in ("Inbox", "Apps", "Recovery"):
+            self.assertIn(f'.tabItem {{ Label("{label}"', source)
+        self.assertIn('Menu("Settings")', source)
+        self.assertIn('Button("Show data folder")', source)
+        self.assertIn('.popover(isPresented: $model.showingCollectionStatus', source)
+        self.assertIn('Toggle("Paused", isOn: model.pauseBinding)', source)
+        self.assertIn('Button("Retry starting capture")', source)
+        self.assertIn('Button("Open Accessibility Settings")', source)

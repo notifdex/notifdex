@@ -25,6 +25,7 @@ final class AppModel: ObservableObject {
     // Keep the form draft in the window's model. The standalone macOS
     // Command Line Tools may lack the SwiftUI State macro plugin.
     @Published var customLabel = ""
+    @Published var showingCollectionStatus = false
     private let loginQueue = DispatchQueue(label: "com.notifdex.login", qos: .utility)
     let worker: CaptureWorker
     private var sleepObservers: [NSObjectProtocol] = []
@@ -321,14 +322,37 @@ struct AppCenter: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(model.state.status).font(.headline)
-                    Text(model.state.lastScan).font(.caption).foregroundStyle(.secondary)
+                Button {
+                    model.showingCollectionStatus.toggle()
+                } label: {
+                    Label(model.state.status, systemImage: "info.circle")
+                }
+                .help("Collection status and pause controls")
+                .popover(isPresented: $model.showingCollectionStatus, arrowEdge: .bottom) {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text(model.state.status).font(.headline)
+                        Text(model.state.lastScan)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .textSelection(.enabled)
+                        Toggle("Paused", isOn: model.pauseBinding)
+                            .toggleStyle(.switch)
+                            .disabled(!model.state.ready || model.saving)
+                    }
+                    .padding(16)
                 }
                 Spacer()
-                Toggle("Paused", isOn: model.pauseBinding)
-                    .toggleStyle(.switch)
-                    .disabled(!model.state.ready || model.saving)
+                Menu("Settings") {
+                    Picker("Appearance", selection: $appearance) {
+                        ForEach(AppAppearance.allCases) { option in
+                            Text(option.title).tag(option)
+                        }
+                    }
+                    Button("Show data folder") {
+                        NSWorkspace.shared.open(model.worker.directory)
+                    }
+                }
+                .fixedSize()
             }
             if let message = model.uiError ?? model.state.error {
                 Text(message).foregroundStyle(.red).textSelection(.enabled)
@@ -349,19 +373,7 @@ struct AppCenter: View {
                 appsView.tabItem { Label("Apps", systemImage: "square.grid.2x2") }
                 recoveryView.tabItem { Label("Recovery", systemImage: "arrow.clockwise") }
             }
-            HStack {
-                Text("\(model.state.total) saved observations").font(.caption).foregroundStyle(.secondary)
-                Spacer()
-                Picker("Appearance", selection: $appearance) {
-                    ForEach(AppAppearance.allCases) { option in
-                        Text(option.title).tag(option)
-                    }
-                }
-                .fixedSize()
-                Button("Show data folder") {
-                    NSWorkspace.shared.open(model.worker.directory)
-                }
-            }
+            Text("\(model.state.total) saved observations").font(.caption).foregroundStyle(.secondary)
         }
         .padding(20)
         .frame(minWidth: 660, minHeight: 520)

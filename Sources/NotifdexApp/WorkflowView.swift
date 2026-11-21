@@ -18,14 +18,25 @@ private struct TemplateRemoval {
 
 private enum WorkflowMode: String, CaseIterable, Hashable, Identifiable {
     case inbox = "Inbox"
+    case today = "Today"
+    case people = "People"
     case flagged = "Flagged"
     case saved = "Saved"
-    case people = "People"
-    case today = "Today"
     case hidden = "Hidden"
 
     var id: String { rawValue }
     var hasTriageControls: Bool { self == .inbox || self == .flagged }
+
+    var symbol: String {
+        switch self {
+        case .inbox: "tray"
+        case .today: "calendar"
+        case .people: "person.2"
+        case .flagged: "flag"
+        case .saved: "bookmark"
+        case .hidden: "eye.slash"
+        }
+    }
 }
 
 private struct HideRulePreview: Identifiable {
@@ -377,49 +388,27 @@ struct WorkflowView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Picker("View", selection: $model.mode) {
-                ForEach(WorkflowMode.allCases) { mode in Text(mode.rawValue).tag(mode) }
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            filterBar
-            if let action = model.lastHide {
-                HStack {
-                    Text(action.message).foregroundStyle(.secondary)
-                    Button("Undo") { model.restore(action) }.disabled(!ready || model.busy)
-                    Spacer()
+        GeometryReader { geometry in
+            let compact = geometry.size.width < 860
+            HStack(alignment: .top, spacing: 14) {
+                if !compact {
+                    sidebar
                 }
-                .font(.callout)
-            }
-            if model.mode == .hidden && !model.rules.isEmpty { hideRules }
-            if let error = model.error { Text(error).foregroundStyle(.red).textSelection(.enabled) }
-            HSplitView {
-                VStack(spacing: 6) {
-                    if model.mode == .today {
-                        Text("Open follow-ups · earliest due first")
-                            .font(.caption).foregroundStyle(.secondary)
-                    }
-                    entryList
-                    if model.visibleEntries.count > model.limit {
-                        if model.limit < 1000 { Button("Show more") { model.loadMore() } }
-                        else { Text("Refine search to see more results.").font(.caption) }
-                    }
-                }
-                .frame(minWidth: 250)
-                VStack(alignment: .leading, spacing: 0) {
-                    if model.mode == .people, model.alert != nil {
-                        Button { model.selected = nil } label: {
-                            Label("Back to person", systemImage: "chevron.left")
+                VStack(alignment: .leading, spacing: 10) {
+                    workflowHeader(compact: compact)
+                    if compact {
+                        compactContent
+                    } else {
+                        HSplitView {
+                            feed.frame(minWidth: 250, idealWidth: 550)
+                            if showsInspector {
+                                inspector(compact: false)
+                                    .frame(minWidth: 280, idealWidth: 320, maxWidth: 430)
+                            }
                         }
-                        .padding(12)
-                        Divider()
                     }
-                    ScrollView { detail.padding(12).frame(maxWidth: .infinity, alignment: .leading) }
-                        .id(model.mode == .people ? model.selected : nil)
                 }
-                .frame(minWidth: 280)
-                .notifdexSurface(.inspector)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             }
         }
         .padding(.top, 10)
@@ -476,6 +465,132 @@ struct WorkflowView: View {
         }
     }
 
+    private var showsInspector: Bool {
+        // Selection can outlive its visible row when opening an unread alert
+        // or removing its flag. People also has a profile without an alert.
+        model.mode == .people || model.selected != nil
+    }
+
+    private var sidebar: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            ForEach(WorkflowMode.allCases) { mode in
+                if mode == .flagged {
+                    Divider().padding(.vertical, 5)
+                }
+                Button {
+                    model.mode = mode
+                } label: {
+                    Label(mode.rawValue, systemImage: mode.symbol)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 9)
+                        .padding(.vertical, 8)
+                        .background {
+                            if model.mode == mode {
+                                RoundedRectangle(cornerRadius: 8)
+                                    .fill(Color.accentColor.opacity(0.18))
+                            }
+                        }
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityAddTraits(model.mode == mode ? .isSelected : [])
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(8)
+        .frame(width: 148)
+        .notifdexSurface(.detail)
+    }
+
+    private func workflowHeader(compact: Bool) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                if compact {
+                    Picker("View", selection: $model.mode) {
+                        ForEach(WorkflowMode.allCases) { mode in
+                            Label(mode.rawValue, systemImage: mode.symbol).tag(mode)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                    .fixedSize()
+                } else {
+                    Text(model.mode.rawValue).font(.title2.weight(.semibold))
+                }
+                Spacer(minLength: 12)
+                TextField("Search captured alerts", text: $model.search)
+                    .textFieldStyle(.roundedBorder)
+                    .frame(maxWidth: 270)
+            }
+            filterBar
+            if let action = model.lastHide {
+                HStack {
+                    Text(action.message).foregroundStyle(.secondary)
+                    Button("Undo") { model.restore(action) }.disabled(!ready || model.busy)
+                    Spacer()
+                }
+                .font(.callout)
+            }
+            if model.mode == .hidden && !model.rules.isEmpty { hideRules }
+            if let error = model.error { Text(error).foregroundStyle(.red).textSelection(.enabled) }
+        }
+    }
+
+    @ViewBuilder private var compactContent: some View {
+        if model.mode == .people {
+            VSplitView {
+                feed.frame(minHeight: 85, idealHeight: 155)
+                inspector(compact: true).frame(minHeight: 100)
+            }
+        } else {
+            ZStack {
+                // Keep the List alive while showing the inspector so going
+                // back returns to the same list and scroll position.
+                feed
+                    .opacity(showsInspector ? 0 : 1)
+                    .allowsHitTesting(!showsInspector)
+                    .accessibilityHidden(showsInspector)
+                if showsInspector {
+                    inspector(compact: true)
+                }
+            }
+        }
+    }
+
+    private var feed: some View {
+        VStack(spacing: 6) {
+            if model.mode == .today {
+                Text("Open follow-ups · earliest due first")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            entryList
+            if model.visibleEntries.count > model.limit {
+                if model.limit < 1000 { Button("Show more") { model.loadMore() } }
+                else { Text("Refine search to see more results.").font(.caption) }
+            }
+        }
+    }
+
+    private func inspector(compact: Bool) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            if model.mode == .people, model.alert != nil {
+                Button { model.selected = nil } label: {
+                    Label("Back to person", systemImage: "chevron.left")
+                }
+                .padding(12)
+                Divider()
+            } else if compact, model.mode != .people {
+                Button { model.selected = nil } label: {
+                    Label("Back to alerts", systemImage: "chevron.left")
+                }
+                .padding(12)
+                Divider()
+            }
+            ScrollView { detail.padding(12).frame(maxWidth: .infinity, alignment: .leading) }
+                .id(model.mode == .people ? model.selected : nil)
+        }
+        .notifdexSurface(.inspector)
+    }
+
     private var filterBar: some View {
         HStack {
             if model.mode.hasTriageControls {
@@ -488,7 +603,7 @@ struct WorkflowView: View {
                 .labelsHidden()
                 .fixedSize()
 
-                Menu("View") {
+                Menu("Sort & group") {
                     Picker("Group by", selection: $model.inboxPresentation.order) {
                         Text("None").tag(InboxPresentation.Order.recent)
                         Text("App").tag(InboxPresentation.Order.byApp)
@@ -516,7 +631,7 @@ struct WorkflowView: View {
                     }
                 }
                 .labelsHidden()
-                .fixedSize()
+                .frame(maxWidth: 170)
                 .onChange(of: model.workspaceID) { _, _ in model.selected = nil }
                 Button { model.openWorkspaceEditor() } label: {
                     Label("New workspace", systemImage: "plus")
@@ -528,6 +643,7 @@ struct WorkflowView: View {
                     Text("Choose a person").tag(nil as String?)
                     ForEach(model.visiblePeople) { person in Text(person.name).tag(Optional(person.id)) }
                 }
+                .frame(maxWidth: 220)
                 .onChange(of: model.person) { _, _ in
                     model.selected = nil
                     model.identifier = ""
@@ -540,8 +656,7 @@ struct WorkflowView: View {
                 .fixedSize()
                 .disabled(!ready || model.busy || model.person == nil || model.cardID != model.person)
             }
-            TextField("Search captured alerts", text: $model.search)
-                .textFieldStyle(.roundedBorder)
+            Spacer(minLength: 0)
         }
     }
 
@@ -717,7 +832,18 @@ struct WorkflowView: View {
                 Button(alert.isRead ? "Mark unread" : "Mark read") {
                     model.edit { try $0.setRead(alert.id, read: !alert.isRead) }
                 }
+                Menu("More") {
+                    Button(alert.isFlagged ? "Remove flag" : "Flag alert") {
+                        model.edit { try $0.setFlag(alert.id, flagged: !alert.isFlagged) }
+                    }
+                    Button(alert.saved ? "Remove from Saved" : "Save for later") {
+                        model.edit { try $0.setSaved(alert.id, saved: !alert.saved) }
+                    }
+                }
+                .fixedSize()
             }
+            Divider()
+            Text("Context").font(.headline)
             if !model.workspaces.isEmpty {
                 Picker("Alert workspace", selection: Binding(
                     get: { alert.workspaceID },
@@ -742,12 +868,6 @@ struct WorkflowView: View {
                         model.restore(.rule(InboxRuleMatch(app: alert.app, field: .body, text: alert.body)))
                     }
                 }
-            }
-            Button(alert.isFlagged ? "Remove flag" : "Flag alert") {
-                model.edit { try $0.setFlag(alert.id, flagged: !alert.isFlagged) }
-            }
-            Button(alert.saved ? "Remove from Saved" : "Save for later") {
-                model.edit { try $0.setSaved(alert.id, saved: !alert.saved) }
             }
             Menu(alert.personID == nil ? "Link to person" : "Change linked person") {
                 ForEach(model.people) { person in

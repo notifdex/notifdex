@@ -40,6 +40,20 @@ final class CaptureFixturesTests: XCTestCase {
         XCTAssertTrue(enabled.issues.isEmpty)
     }
 
+    func testWhatsAppBannerWithLeadingDirectionMarkMatchesEnabledApp() {
+        let app = "\u{200E}WhatsApp"
+        let title = "+1\u{00A0}(555)\u{00A0}010\u{2011}1234"
+        let body = "Synthetic WhatsApp message"
+        let banner = FixtureNode.banner("whatsapp", app: app, title: title, body: body)
+        let scan = FixtureNode.scan([banner], apps: ["WhatsApp"])
+
+        XCTAssertEqual(scan.observations.count, 1)
+        XCTAssertEqual(scan.observations.first?.appLabel, "WhatsApp")
+        XCTAssertEqual(scan.observations.first?.title, title)
+        XCTAssertEqual(scan.observations.first?.accessibilityDescription, "\(app), \(title), \(body), from iPhone")
+        XCTAssertTrue(scan.issues.isEmpty)
+    }
+
     func testStaleSiblingDoesNotDiscardGmailAndX() {
         let gmail = FixtureNode.banner("gmail", app: "Gmail", title: "Example", body: "Synthetic Gmail")
         let x = FixtureNode.banner("x", app: "X", title: "Example", body: "Synthetic X", subrole: "AXNotificationCenterAlert")

@@ -73,3 +73,17 @@ records, using an empty title for older notes. Both People Notes and the person
 profile use the same person-scoped reads and writes. The migration preserves note
 ownership, body, and timestamps. The existing PersonNotes model checks ownership.
 SQL and Swift tests check migration, folder deletion, and shared People note IDs.
+
+## Docs
+
+Schema version 11 adds a local `documents` table beside the existing Notes tables.
+Document IDs are stable across edits. Every save or delete is a single SQLite
+statement. The editor holds an in-memory draft until Save. Import reads UTF-8
+text or Markdown into that same draft, with a 2 MiB text limit. The original file
+path is neither stored nor used to reopen the document.
+
+The Documents model abstracts each save as an atomic change to one document ID.
+It checks that an open or canceled draft leaves persisted records alone and
+that a committed draft changes only its target. It abstracts away UI, file
+decoding, and SQLite error handling. The SQL and Swift tests exercise migration,
+rejected writes, reopening, and deletion without altering either Notes table.

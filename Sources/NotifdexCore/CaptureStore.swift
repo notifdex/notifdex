@@ -45,14 +45,14 @@ public final class CaptureStore {
             try execute("PRAGMA journal_mode = WAL")
             try execute("PRAGMA synchronous = FULL")
             let version = try scalar("PRAGMA user_version")
-            guard (0...9).contains(version) else {
+            guard (0...10).contains(version) else {
                 throw StoreError(description: "Unsupported database version \(version)")
             }
-            if version < 9 {
+            if version < 10 {
                 try transaction {
                     // Recheck under the write lock if another process opened concurrently.
                     let current = try scalar("PRAGMA user_version")
-                    guard (0...9).contains(current) else {
+                    guard (0...10).contains(current) else {
                         throw StoreError(description: "Unsupported database version \(current)")
                     }
                     if current == 0 {
@@ -84,7 +84,10 @@ public final class CaptureStore {
                     }
                     if current < 9 {
                         try execute(Self.schema(named: "workspaces"))
-                        try execute("PRAGMA user_version = 9")
+                    }
+                    if current < 10 {
+                        try execute(Self.schema(named: "notebook"))
+                        try execute("PRAGMA user_version = 10")
                     }
                 }
             }
@@ -333,35 +336,99 @@ public extension CaptureStore {
 
     func personNotes(for person: String) throws -> [PersonNote] {
         try readRows("""
-            SELECT id, body, created_at, updated_at FROM person_notes
+            SELECT id, title, body, created_at, updated_at FROM person_notes
             WHERE person_id = ? ORDER BY created_at DESC, id
             """, strings: [person]) { row in
-                PersonNote(id: columnString(row, 0), body: columnString(row, 1),
-                           createdAt: sqlite3_column_double(row, 2), updatedAt: sqlite3_column_double(row, 3))
+                PersonNote(id: columnString(row, 0), title: columnString(row, 1), body: columnString(row, 2),
+                           createdAt: sqlite3_column_double(row, 3), updatedAt: sqlite3_column_double(row, 4))
             }
     }
 
     @discardableResult
-    func addPersonNote(person: String, body: String, at time: Double) throws -> String {
+    func addPersonNote(person: String, title: String = "", body: String, at time: Double) throws -> String {
         try Self.validateNote(body, at: time)
         let id = UUID().uuidString
         try execute("""
-            INSERT INTO person_notes (id, person_id, body, created_at, updated_at) VALUES (?, ?, ?, ?, ?)
-            """, strings: [id, person, body], numbers: [time, time])
+            INSERT INTO person_notes (id, person_id, title, body, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)
+            """, strings: [id, person, title.trimmingCharacters(in: .whitespacesAndNewlines), body], numbers: [time, time])
         return id
     }
 
-    func updatePersonNote(_ id: String, person: String, body: String, at time: Double) throws {
+    func updatePersonNote(_ id: String, person: String, title: String? = nil, body: String, at time: Double) throws {
         try Self.validateNote(body, at: time)
         try execute("""
-            UPDATE person_notes SET updated_at = max(updated_at, ?), body = ? WHERE id = ? AND person_id = ?
-            """, numbersFirst: [time], strings: [body, id, person])
+            UPDATE person_notes SET updated_at = max(updated_at, ?), title = coalesce(?, title), body = ?
+            WHERE id = ? AND person_id = ?
+            """, numbersFirst: [time], strings: [title?.trimmingCharacters(in: .whitespacesAndNewlines), body, id, person])
         guard sqlite3_changes(database) == 1 else { throw StoreError(description: "This note no longer exists for this person.") }
     }
 
     func deletePersonNote(_ id: String, person: String) throws {
         try execute("DELETE FROM person_notes WHERE id = ? AND person_id = ?", strings: [id, person])
         guard sqlite3_changes(database) == 1 else { throw StoreError(description: "This note no longer exists for this person.") }
+    }
+
+    func noteFolders() throws -> [NoteFolder] {
+        try readRows("SELECT id, name FROM note_folders ORDER BY name COLLATE NOCASE, id") { row in
+            NoteFolder(id: columnString(row, 0), name: columnString(row, 1))
+        }
+    }
+
+    @discardableResult
+    func saveNoteFolder(_ id: String? = nil, name: String) throws -> String {
+        let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else { throw StoreError(description: "Enter a folder name.") }
+        if let id {
+            try execute("UPDATE note_folders SET name = ? WHERE id = ?", strings: [name, id])
+            guard sqlite3_changes(database) == 1 else { throw StoreError(description: "This folder no longer exists.") }
+            return id
+        }
+        let newID = UUID().uuidString
+        try execute("INSERT INTO note_folders (id, name) VALUES (?, ?)", strings: [newID, name])
+        return newID
+    }
+
+    func deleteNoteFolder(_ id: String) throws {
+        // SQLite clears the folder reference on each note in the same write.
+        try execute("DELETE FROM note_folders WHERE id = ?", strings: [id])
+        guard sqlite3_changes(database) == 1 else { throw StoreError(description: "This folder no longer exists.") }
+    }
+
+    func personalNotes() throws -> [PersonalNote] {
+        try readRows("""
+            SELECT id, folder_id, title, body, created_at, updated_at FROM personal_notes
+            ORDER BY updated_at DESC, id
+            """) { row in
+                PersonalNote(id: columnString(row, 0),
+                             folderID: sqlite3_column_type(row, 1) == SQLITE_NULL ? nil : columnString(row, 1),
+                             title: columnString(row, 2), body: columnString(row, 3),
+                             createdAt: sqlite3_column_double(row, 4), updatedAt: sqlite3_column_double(row, 5))
+            }
+    }
+
+    @discardableResult
+    func savePersonalNote(_ id: String? = nil, folderID: String?, title: String, body: String, at time: Double) throws -> String {
+        try Self.validateNote(body, at: time)
+        let title = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let id {
+            try execute("""
+                UPDATE personal_notes SET updated_at = max(updated_at, ?), folder_id = ?, title = ?, body = ?
+                WHERE id = ?
+                """, numbersFirst: [time], strings: [folderID, title, body, id])
+            guard sqlite3_changes(database) == 1 else { throw StoreError(description: "This note no longer exists.") }
+            return id
+        }
+        let newID = UUID().uuidString
+        try execute("""
+            INSERT INTO personal_notes (id, folder_id, title, body, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """, strings: [newID, folderID, title, body], numbers: [time, time])
+        return newID
+    }
+
+    func deletePersonalNote(_ id: String) throws {
+        try execute("DELETE FROM personal_notes WHERE id = ?", strings: [id])
+        guard sqlite3_changes(database) == 1 else { throw StoreError(description: "This note no longer exists.") }
     }
 
     private static func validateNote(_ body: String, at time: Double) throws {

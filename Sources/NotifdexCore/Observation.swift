@@ -6,6 +6,8 @@ public enum NotificationOrigin: String, Codable {
 
 /// Evidence from a rendered alert. App labels and display names are unverified text.
 public struct Observation: Codable {
+    private static let appLabelDirectionMarks = CharacterSet(charactersIn: "\u{061C}\u{200E}\u{200F}")
+
     public var sourceID: String
     public var sourceEventID: String
     public var capturedAt: Double
@@ -36,6 +38,9 @@ public struct Observation: Codable {
         guard !title.isEmpty,
               let boundary = accessibilityDescription.range(of: ", " + title + ", "),
               boundary.lowerBound > accessibilityDescription.startIndex else { return nil }
-        return String(accessibilityDescription[..<boundary.lowerBound])
+        // Notification Center can surround the app label with directional marks.
+        let label = String(accessibilityDescription[..<boundary.lowerBound])
+            .trimmingCharacters(in: Self.appLabelDirectionMarks)
+        return label.isEmpty ? nil : label
     }
 }

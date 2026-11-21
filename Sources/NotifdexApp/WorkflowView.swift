@@ -52,12 +52,14 @@ private enum WorkflowMode: String, CaseIterable, Hashable, Identifiable {
     case today = "Today"
     case people = "People"
     case notes = "Notes"
+    case docs = "Docs"
     case flagged = "Flagged"
     case saved = "Saved"
     case hidden = "Hidden"
 
     var id: String { rawValue }
     var hasTriageControls: Bool { self == .inbox || self == .flagged }
+    var isLibrary: Bool { self == .notes || self == .docs }
 
     var symbol: String {
         switch self {
@@ -65,6 +67,7 @@ private enum WorkflowMode: String, CaseIterable, Hashable, Identifiable {
         case .today: "calendar"
         case .people: "person.2"
         case .notes: "note.text"
+        case .docs: "doc.text"
         case .flagged: "flag"
         case .saved: "bookmark"
         case .hidden: "eye.slash"
@@ -173,7 +176,7 @@ private final class WorkflowModel: ObservableObject {
         case .hidden: return .hidden(app: app)
         case .people: return .person(person ?? "")
         case .today: return .followUps
-        case .notes: return .person("")
+        case .notes, .docs: return .person("")
         }
     }
 
@@ -206,6 +209,7 @@ private final class WorkflowModel: ObservableObject {
         guard self.query == query else { return }
         generation += 1
         let request = generation
+        guard mode != .docs else { return }
         if mode == .notes {
             loadNotebook(request: request)
             return
@@ -509,12 +513,14 @@ private final class WorkflowModel: ObservableObject {
 @MainActor
 struct WorkflowView: View {
     @StateObject private var model: WorkflowModel
+    let worker: CaptureWorker
     let ready: Bool
     let total: Int
     let apps: [String]
 
     init(worker: CaptureWorker, ready: Bool, total: Int, apps: [String]) {
         _model = StateObject(wrappedValue: WorkflowModel(worker: worker))
+        self.worker = worker
         self.ready = ready
         self.total = total
         self.apps = apps
@@ -531,6 +537,8 @@ struct WorkflowView: View {
                     workflowHeader(compact: compact)
                     if model.mode == .notes {
                         notebook
+                    } else if model.mode == .docs {
+                        DocsView(worker: worker, ready: ready)
                     } else if compact {
                         compactContent
                     } else {
@@ -603,7 +611,7 @@ struct WorkflowView: View {
             model.search = ""
             model.identifier = ""
             model.name = ""
-            if ready, previous == .notes || next == .notes { model.load(query: model.query) }
+            if ready, previous.isLibrary || next.isLibrary { model.load(query: model.query) }
         }
     }
 
@@ -659,13 +667,13 @@ struct WorkflowView: View {
                     Text(model.mode.rawValue).font(.title2.weight(.semibold))
                 }
                 Spacer(minLength: 12)
-                if model.mode != .notes {
+                if !model.mode.isLibrary {
                     TextField("Search captured alerts", text: $model.search)
                         .textFieldStyle(.roundedBorder)
                         .frame(maxWidth: 270)
                 }
             }
-            if model.mode != .notes { filterBar }
+            if !model.mode.isLibrary { filterBar }
             if let action = model.lastHide {
                 HStack {
                     Text(action.message).foregroundStyle(.secondary)
@@ -897,7 +905,7 @@ struct WorkflowView: View {
         let presentation = switch model.mode {
         case .inbox, .flagged: model.inboxPresentation
         case .saved, .hidden: InboxPresentation(order: .byApp)
-        case .people, .today, .notes: InboxPresentation()
+        case .people, .today, .notes, .docs: InboxPresentation()
         }
         // SwiftUI may clear a selection when its row leaves the list. Keep the
         // detail open in Inbox and Flagged until the user chooses another item.

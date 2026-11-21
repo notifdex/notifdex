@@ -45,14 +45,14 @@ public final class CaptureStore {
             try execute("PRAGMA journal_mode = WAL")
             try execute("PRAGMA synchronous = FULL")
             let version = try scalar("PRAGMA user_version")
-            guard (0...10).contains(version) else {
+            guard (0...11).contains(version) else {
                 throw StoreError(description: "Unsupported database version \(version)")
             }
-            if version < 10 {
+            if version < 11 {
                 try transaction {
                     // Recheck under the write lock if another process opened concurrently.
                     let current = try scalar("PRAGMA user_version")
-                    guard (0...10).contains(current) else {
+                    guard (0...11).contains(current) else {
                         throw StoreError(description: "Unsupported database version \(current)")
                     }
                     if current == 0 {
@@ -87,7 +87,10 @@ public final class CaptureStore {
                     }
                     if current < 10 {
                         try execute(Self.schema(named: "notebook"))
-                        try execute("PRAGMA user_version = 10")
+                    }
+                    if current < 11 {
+                        try execute(Self.schema(named: "documents"))
+                        try execute("PRAGMA user_version = 11")
                     }
                 }
             }
@@ -957,5 +960,52 @@ public extension CaptureStore {
         let existing = try RelationshipTemplate.decode(Data(json.utf8))
         guard existing == definition else { throw RelationshipTemplateError.versionConflict }
         return existing
+    }
+}
+
+
+public extension CaptureStore {
+    func documents() throws -> [DocumentSummary] {
+        try readRows("SELECT id, title, updated_at FROM documents ORDER BY updated_at DESC, id") { row in
+            DocumentSummary(id: columnString(row, 0), title: columnString(row, 1),
+                            updatedAt: sqlite3_column_double(row, 2))
+        }
+    }
+
+    func document(_ id: String) throws -> LocalDocument {
+        let matches = try readRows("SELECT title, body FROM documents WHERE id = ?", strings: [id]) { row in
+            LocalDocument(title: columnString(row, 0), body: columnString(row, 1))
+        }
+        guard let document = matches.first else { throw StoreError(description: "This document no longer exists.") }
+        return document
+    }
+
+    @discardableResult
+    func saveDocument(_ id: String? = nil, title: String, body: String, at time: Double) throws -> String {
+        let title = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !title.isEmpty else { throw StoreError(description: "Enter a document title.") }
+        guard body.utf8.count <= LocalDocument.maximumBodyBytes else {
+            throw StoreError(description: "Documents can contain up to 2 MiB of text.")
+        }
+        guard !body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw StoreError(description: "Enter document text before saving.")
+        }
+        guard time.isFinite else { throw StoreError(description: "Invalid document timestamp.") }
+        if let id {
+            try execute("""
+                UPDATE documents SET updated_at = max(updated_at, ?), title = ?, body = ? WHERE id = ?
+                """, numbersFirst: [time], strings: [title, body, id])
+            guard sqlite3_changes(database) == 1 else { throw StoreError(description: "This document no longer exists.") }
+            return id
+        }
+        let newID = UUID().uuidString
+        try execute("INSERT INTO documents VALUES (?, ?, ?, ?, ?)",
+                    strings: [newID, title, body], numbers: [time, time])
+        return newID
+    }
+
+    func deleteDocument(_ id: String) throws {
+        try execute("DELETE FROM documents WHERE id = ?", strings: [id])
+        guard sqlite3_changes(database) == 1 else { throw StoreError(description: "This document no longer exists.") }
     }
 }

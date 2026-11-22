@@ -124,6 +124,7 @@ private final class WorkflowModel: ObservableObject {
     @Published var showingNewWorkspace = false
     @Published var workspaceName = ""
     @Published var selected: Int64?
+    @Published var inboxDetailWidth: CGFloat?
     @Published var name = ""
     @Published var identityApp = "X"
     @Published var identifier = ""
@@ -513,9 +514,8 @@ private final class WorkflowModel: ObservableObject {
 
 @MainActor
 struct WorkflowView: View {
-    private let minimumFeedWidth: CGFloat = 250
-    private let maximumInspectorWidth: CGFloat = 640
     @StateObject private var model: WorkflowModel
+    @GestureState private var detailDragOffset: CGFloat = 0
     let worker: CaptureWorker
     let ready: Bool
     let total: Int
@@ -542,17 +542,20 @@ struct WorkflowView: View {
                         notebook
                     } else if model.mode == .docs {
                         UserGuideView()
-                    } else if compact {
-                        compactContent
-                    } else {
-                        HSplitView {
-                            feed.frame(minWidth: minimumFeedWidth,
-                                       idealWidth: showsInspector ? minimumFeedWidth : 425)
-                            if showsInspector {
+                    } else if model.mode == .people {
+                        if compact {
+                            compactContent
+                        } else {
+                            HSplitView {
+                                feed.frame(minWidth: 250, idealWidth: 550)
                                 inspector(compact: false)
-                                    .frame(minWidth: 300, idealWidth: maximumInspectorWidth, maxWidth: maximumInspectorWidth)
+                                    .frame(minWidth: 280, idealWidth: 320, maxWidth: 430)
                             }
                         }
+                    } else if geometry.size.width < 700 {
+                        compactContent
+                    } else {
+                        inboxSplit
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -603,6 +606,9 @@ struct WorkflowView: View {
                 if let alert = model.alert, !alert.isRead { model.markOpened(alert) }
                 else { model.load(query: model.query) }
             }
+        }
+        .onChange(of: showsInspector) { _, visible in
+            if !visible { model.inboxDetailWidth = nil }
         }
         .onChange(of: model.inboxPresentation.order) { _, _ in
             model.clearSelectionIfCollapsed()
@@ -688,6 +694,49 @@ struct WorkflowView: View {
             }
             if model.mode == .hidden && !model.rules.isEmpty { hideRules }
             if let error = model.error { Text(error).foregroundStyle(.red).textSelection(.enabled) }
+        }
+    }
+
+    private var inboxSplit: some View {
+        GeometryReader { geometry in
+            let minimumFeedWidth: CGFloat = 250
+            let dividerWidth: CGFloat = 9
+            let maximumWidth = min(640, geometry.size.width - minimumFeedWidth - dividerWidth)
+            let clamped = { (width: CGFloat) in min(maximumWidth, max(300, width)) }
+            let startWidth = clamped(model.inboxDetailWidth ?? maximumWidth)
+            let width = clamped(startWidth - detailDragOffset)
+
+            HStack(spacing: 0) {
+                feed.frame(minWidth: minimumFeedWidth, maxWidth: .infinity)
+                if showsInspector {
+                    Divider()
+                        .frame(width: dividerWidth)
+                        .frame(maxHeight: .infinity)
+                        .contentShape(Rectangle())
+                        .onHover { inside in
+                            (inside ? NSCursor.resizeLeftRight : NSCursor.arrow).set()
+                        }
+                        .gesture(DragGesture(minimumDistance: 0, coordinateSpace: .global)
+                            .updating($detailDragOffset) { value, offset, _ in
+                                offset = value.translation.width
+                            }
+                            .onEnded { value in
+                                model.inboxDetailWidth = clamped(startWidth - value.translation.width)
+                            })
+                        .accessibilityElement(children: .ignore)
+                        .accessibilityLabel("Notification detail width")
+                        .accessibilityValue(Text("\(Int(width)) points"))
+                        .accessibilityAdjustableAction { direction in
+                            switch direction {
+                            case .increment: model.inboxDetailWidth = clamped(width + 24)
+                            case .decrement: model.inboxDetailWidth = clamped(width - 24)
+                            @unknown default: break
+                            }
+                        }
+                    inspector(compact: false).frame(width: width)
+                }
+            }
+            .frame(maxHeight: .infinity, alignment: .top)
         }
     }
 

@@ -151,8 +151,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 }
 
-private let appCenterDefaultSize = CGSize(width: 1060, height: 660)
-
 @MainActor
 struct NotifdexApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
@@ -171,7 +169,7 @@ struct NotifdexApp: App {
             AppCenter(model: model)
                 .background { AppCenterPresence().allowsHitTesting(false) }
         }
-        .defaultSize(width: appCenterDefaultSize.width, height: appCenterDefaultSize.height)
+        .defaultSize(width: 780, height: 620)
     }
 
     fileprivate static func checkPackage() throws {
@@ -354,17 +352,16 @@ struct AppCenter: View {
                     .padding(16)
                 }
                 Spacer()
-                Menu("Window Size") {
-                    Button("Standard") { resizeWindow(to: appCenterDefaultSize) }
-                    Button("Wide") { resizeWindow(to: CGSize(width: 1280, height: 740)) }
-                    Divider()
-                    Button("Toggle Full Screen") { NSApp.mainWindow?.toggleFullScreen(nil) }
-                }
-                .fixedSize()
                 Menu("Settings") {
-                    Picker("Appearance", selection: $appearance) {
+                    Section("Appearance") {
                         ForEach(AppAppearance.allCases) { option in
-                            Text(option.title).tag(option)
+                            Button { appearance = option } label: {
+                                if appearance == option {
+                                    Label(option.title, systemImage: "checkmark")
+                                } else {
+                                    Text(option.title)
+                                }
+                            }
                         }
                     }
                     Button("Show data folder") {
@@ -398,19 +395,6 @@ struct AppCenter: View {
         .frame(minWidth: 660, minHeight: 520)
         .notifdexSurface(.window)
         .environment(\.notifdexAppearance, appearance)
-    }
-
-    private func resizeWindow(to contentSize: CGSize) {
-        guard let window = NSApp.mainWindow, let screen = window.screen,
-              !window.styleMask.contains(.fullScreen) else { return }
-
-        let visible = screen.visibleFrame
-        let requested = window.frameRect(forContentRect: CGRect(origin: .zero, size: contentSize))
-        let width = min(requested.width, visible.width)
-        let height = min(requested.height, visible.height)
-        let x = min(max(window.frame.minX, visible.minX), visible.maxX - width)
-        let y = min(max(window.frame.maxY - height, visible.minY), visible.maxY - height)
-        window.setFrame(CGRect(x: x, y: y, width: width, height: height), display: true, animate: true)
     }
 
     private var appsView: some View {

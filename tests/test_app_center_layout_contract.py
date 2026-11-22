@@ -21,22 +21,23 @@ class AppCenterLayoutContractTests(unittest.TestCase):
         self.assertIn('Label("Back to person", systemImage: "chevron.left")', source)
         self.assertIn("keepsOpenDetail, let selected", source)
 
-    def test_window_sizing_actions_are_reachable_from_app_center(self):
+    def test_app_center_uses_native_window_sizing(self):
         source = (APP_DIR / "NotifdexApp.swift").read_text()
-        self.assertIn('Menu("Window Size")', source)
-        for label in ("Standard", "Wide", "Toggle Full Screen"):
-            self.assertIn(f'Button("{label}")', source)
-        self.assertIn("screen.visibleFrame", source)
+        self.assertNotIn('Menu("Window Size")', source)
+        self.assertIn(".defaultSize(width: 780, height: 620)", source)
 
-    def test_default_window_opens_with_room_for_a_wider_inspector(self):
-        app = (APP_DIR / "NotifdexApp.swift").read_text()
+    def test_inbox_detail_defaults_to_the_available_maximum_and_can_resize(self):
         workflow = (APP_DIR / "WorkflowView.swift").read_text()
-        self.assertIn("appCenterDefaultSize = CGSize(width: 1060, height: 660)", app)
-        self.assertIn(".defaultSize(width: appCenterDefaultSize.width", app)
-        self.assertIn("minimumFeedWidth: CGFloat = 250", workflow)
-        self.assertIn("maximumInspectorWidth: CGFloat = 640", workflow)
-        self.assertIn("idealWidth: showsInspector ? minimumFeedWidth : 425", workflow)
-        self.assertIn(".frame(minWidth: 300, idealWidth: maximumInspectorWidth, maxWidth: maximumInspectorWidth)", workflow)
+        self.assertIn("min(640, geometry.size.width - minimumFeedWidth - dividerWidth)", workflow)
+        self.assertIn("inboxDetailWidth ?? maximumWidth", workflow)
+        self.assertIn("inboxDetailWidth = clamped(startWidth - value.translation.width)", workflow)
+        self.assertIn("if !visible { model.inboxDetailWidth = nil }", workflow)
+
+    def test_appearance_options_are_direct_settings_actions(self):
+        source = (APP_DIR / "NotifdexApp.swift").read_text()
+        self.assertIn('Section("Appearance")', source)
+        self.assertIn("Button { appearance = option }", source)
+        self.assertNotIn('Picker("Appearance", selection: $appearance)', source)
 
     def test_top_level_tabs_and_global_controls_remain_reachable(self):
         source = (APP_DIR / "NotifdexApp.swift").read_text()

@@ -544,10 +544,10 @@ struct WorkflowView: View {
                         compactContent
                     } else {
                         HSplitView {
-                            feed.frame(minWidth: 250, idealWidth: 550)
+                            feed.frame(minWidth: 250, idealWidth: 425)
                             if showsInspector {
                                 inspector(compact: false)
-                                    .frame(minWidth: 280, idealWidth: 320, maxWidth: 430)
+                                    .frame(minWidth: 300, idealWidth: 400, maxWidth: 640)
                             }
                         }
                     }

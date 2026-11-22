@@ -513,6 +513,8 @@ private final class WorkflowModel: ObservableObject {
 
 @MainActor
 struct WorkflowView: View {
+    private let minimumFeedWidth: CGFloat = 250
+    private let maximumInspectorWidth: CGFloat = 640
     @StateObject private var model: WorkflowModel
     let worker: CaptureWorker
     let ready: Bool
@@ -544,10 +546,11 @@ struct WorkflowView: View {
                         compactContent
                     } else {
                         HSplitView {
-                            feed.frame(minWidth: 250, idealWidth: 425)
+                            feed.frame(minWidth: minimumFeedWidth,
+                                       idealWidth: showsInspector ? minimumFeedWidth : 425)
                             if showsInspector {
                                 inspector(compact: false)
-                                    .frame(minWidth: 300, idealWidth: 400, maxWidth: 640)
+                                    .frame(minWidth: 300, idealWidth: maximumInspectorWidth, maxWidth: maximumInspectorWidth)
                             }
                         }
                     }

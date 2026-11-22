@@ -33,8 +33,10 @@ class AppCenterLayoutContractTests(unittest.TestCase):
         workflow = (APP_DIR / "WorkflowView.swift").read_text()
         self.assertIn("appCenterDefaultSize = CGSize(width: 1060, height: 660)", app)
         self.assertIn(".defaultSize(width: appCenterDefaultSize.width", app)
-        self.assertIn(".frame(minWidth: 250, idealWidth: 425)", workflow)
-        self.assertIn(".frame(minWidth: 300, idealWidth: 400, maxWidth: 640)", workflow)
+        self.assertIn("minimumFeedWidth: CGFloat = 250", workflow)
+        self.assertIn("maximumInspectorWidth: CGFloat = 640", workflow)
+        self.assertIn("idealWidth: showsInspector ? minimumFeedWidth : 425", workflow)
+        self.assertIn(".frame(minWidth: 300, idealWidth: maximumInspectorWidth, maxWidth: maximumInspectorWidth)", workflow)
 
     def test_top_level_tabs_and_global_controls_remain_reachable(self):
         source = (APP_DIR / "NotifdexApp.swift").read_text()

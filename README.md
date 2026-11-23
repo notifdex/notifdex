@@ -207,7 +207,7 @@ See [the data model](docs/data-model.md), [failure matrix](docs/reliability.md),
 
 ```bash
 swift test
-python3 -m unittest discover -s tests -v
+python3 -m unittest discover -s contract-tests -v
 TLA_JAR=/absolute/path/to/tla2tools.jar bash tools/check-model.sh
 ```
 

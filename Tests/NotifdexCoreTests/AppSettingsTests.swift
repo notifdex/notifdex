@@ -84,4 +84,22 @@ final class AppSettingsTests: XCTestCase {
         for value in ["a", "b", "c"] { changing.record(fingerprint: value, expandedStack: true) }
         XCTAssertFalse(changing.canContinue)
     }
+
+    func testCustomAppValidationAndSettingsFilePermissions() throws {
+        var settings = CaptureSettings(sourceID: "device")
+        XCTAssertThrowsError(try settings.addCustomApp(label: "   "))
+        XCTAssertThrowsError(try settings.addCustomApp(label: "X"))
+        try settings.addCustomApp(label: "  Telegram ")
+        XCTAssertTrue(settings.allowedLabels.contains("Telegram"))
+        XCTAssertThrowsError(try settings.addCustomApp(label: "Telegram"))
+
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let file = directory.appendingPathComponent("settings.json")
+        try AppSettingsStore(url: file).save(settings)
+        let attributes = try FileManager.default.attributesOfItem(atPath: file.path)
+        let permissions = (attributes[.posixPermissions] as? NSNumber)?.intValue
+        XCTAssertEqual(permissions, 0o600)
+    }
 }

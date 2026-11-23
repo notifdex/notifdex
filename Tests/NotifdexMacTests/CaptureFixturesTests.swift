@@ -85,6 +85,21 @@ final class CaptureFixturesTests: XCTestCase {
         let enabledScan = FixtureNode.scan([enabledMalformed], apps: ["X"])
         XCTAssertEqual(enabledScan.issues.count, 1)
     }
+
+    func testMissingBannerIDAndTraversalDepthLimitAreReportedAsScanIssues() {
+        let missingID = FixtureNode.banner("", app: "X", title: "Alex", body: "No ID")
+        let missingScan = FixtureNode.scan([missingID], apps: ["X"])
+        XCTAssertTrue(missingScan.observations.isEmpty)
+        XCTAssertEqual(missingScan.issues.count, 1)
+
+        var deep = FixtureNode.banner("deep", app: "X", title: "Alex", body: "Too deep")
+        for _ in 0..<35 {
+            deep = FixtureNode(children: [deep])
+        }
+        let deepScan = FixtureNode.scan([deep], apps: ["X"])
+        XCTAssertTrue(deepScan.observations.isEmpty)
+        XCTAssertTrue(deepScan.issues.contains { $0.contains("depth") })
+    }
 }
 
 #if os(macOS)
@@ -262,6 +277,76 @@ extension CaptureFixturesTests {
         let secondStopped = expectation(description: "second stopped")
         second.stop { secondStopped.fulfill() }
         wait(for: [secondStopped], timeout: 3)
+    }
+
+    func testSleepAndPauseStopActiveRecoveryAndOpenCoverageGaps() throws {
+        final class HangingRecovery: RecoverySession {
+            var finishTimeouts: [TimeInterval] = []
+            func begin() throws {}
+            func advance(allowedApps: Set<String>) throws -> String? { nil }
+            func finish(timeout: TimeInterval) throws { finishTimeouts.append(timeout) }
+        }
+
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        var settings = CaptureSettings(sourceID: "fixture")
+        settings.automaticRecovery = true
+        settings.apps = [CaptureApp(id: "x", name: "X", labels: ["X"], enabled: true)]
+        try AppSettingsStore(url: directory.appendingPathComponent("settings.json")).save(settings)
+
+        let session = HangingRecovery()
+        let worker = CaptureWorker(
+            directory: directory,
+            isTrusted: { true },
+            readSnapshot: { _, _ in Snapshot() },
+            makeRecovery: { session }
+        )
+
+        let recovering = expectation(description: "recovery active")
+        let sleeping = expectation(description: "sleep stops recovery")
+        let paused = expectation(description: "pause opens paused gap")
+        var phase = 0
+        worker.start { state in
+            if phase == 0, state.recovering {
+                phase = 1
+                recovering.fulfill()
+            } else if phase == 1, state.sleeping, !state.recovering {
+                phase = 2
+                sleeping.fulfill()
+            } else if phase == 3, state.status == "Paused" {
+                phase = 4
+                paused.fulfill()
+            }
+        }
+        wait(for: [recovering], timeout: 5)
+
+        worker.setSleeping(true)
+        wait(for: [sleeping], timeout: 5)
+        XCTAssertEqual(session.finishTimeouts, [0.5])
+
+        worker.setSleeping(false)
+        phase = 3
+        let saved = expectation(description: "paused setting persisted")
+        worker.updateSettings({ $0.paused = true }) { saved.fulfill() }
+        wait(for: [saved, paused], timeout: 5)
+
+        let inspected = expectation(description: "sleep and paused gaps recorded")
+        worker.withStore({ store in
+            (try store.gapCount(reason: "sleep"), try store.gapCount(reason: "paused"))
+        }) { result in
+            defer { inspected.fulfill() }
+            do {
+                let (sleepGaps, pausedGaps) = try result.get()
+                XCTAssertGreaterThanOrEqual(sleepGaps, 1)
+                XCTAssertGreaterThanOrEqual(pausedGaps, 1)
+            } catch { XCTFail("Gap inspection failed: \(error)") }
+        }
+        wait(for: [inspected], timeout: 3)
+
+        let stopped = expectation(description: "worker stopped")
+        worker.stop { stopped.fulfill() }
+        wait(for: [stopped], timeout: 3)
     }
 }
 #endif

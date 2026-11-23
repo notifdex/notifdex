@@ -45,7 +45,7 @@ cd ~/projects/notifdex && git pull --ff-only && bash tools/build-app.sh && open 
 - Run `swift test`, the Python contract suite, and all TLC configurations for foundation changes. Model stateful durability or recovery changes in TLA+ before implementation. Keep model assumptions, implementation mapping, tests, and limitations together. UI-only changes use the relevant layout contracts and a manual Mac check. CI also builds release binaries, packages native and universal apps, and smoke-tests menu bar startup and shutdown.
 
 ```bash
-python3 -m unittest discover -s tests
+python3 -m unittest discover -s contract-tests
 swift test
 TLA_JAR=/absolute/path/to/tla2tools.jar bash tools/check-model.sh
 ```

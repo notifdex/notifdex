@@ -211,14 +211,35 @@ failed before the workspace menu and removal confirmation were added.
 
 ### People workspaces
 
-`PeopleWorkspaces.tla` models two workspaces, two people, and two alerts
-linked to one person. It checks referential integrity, independent changes
-to membership and routes, and both isolation and completeness of the scoped
-People timeline. A linked alert appears for a workspace member if its route
-is unassigned or matches the workspace. Explicit set and
-remove operations are idempotent. A write failure leaves durable state
-unchanged. Links and captured evidence are fixed inputs in this model.
+`PeopleWorkspaces.tla` models two workspaces, two people (`alex` and `sam`), and two alerts
+with dynamic linking (`Link`), membership (`SetMember`), routing (`Route`), workspace creation (`Create`),
+and failed writes (`FailedWrite`). It checks referential integrity (`ValidReferences`), independent changes
+to membership, routes, and links (`IndependentChanges`), cross-person workspace isolation (`CrossPersonWorkspaceIsolation`),
+and both isolation and completeness of the scoped People timeline (`ScopedTimeline`, `TimelineComplete`).
+A linked alert appears for a workspace member if its route is unassigned or matches the workspace.
+Explicit set and remove operations are idempotent. A write failure leaves durable state unchanged.
 The model omits workspace labels, search, and UI state.
+
+### Collector lifecycle, flock exclusion, and recovery gaps
+
+`CollectorLifecycle.tla` unifies two competing collectors (`app` and `cli`), exclusive database lock ownership (`flock`),
+availability guards (`permission`, `paused`, `sleeping`, non-empty app selection), recovery panel cleanup (`panelOpen`),
+typed open gap classes (`collector_stopped`, `unavailable`, `partial_scan`, `recovery_navigation`), and `RecoveryBudget`
+step/unchanged limits. It checks:
+
+- `AtMostOneWriter` and `ExclusiveWriteActions`: no collector can mutate gaps or run recovery without holding the lock.
+- `FailedRecoveryNotMaskedByLiveScan`: a failed recovery session keeps `recovery_navigation` open even across subsequent clean live scans, until a later recovery completes (`CaptureStore.recover(..., excluding: ["recovery_navigation"])`).
+- `UnavailableStopsRecovery` and `NoLeakedPanel`: losing permission, pausing, sleeping, or disabling all apps terminates recovery and closes the Notification Center panel.
+- `BudgetBoundsRecovery`: active recovery stays strictly within `MaxSteps` and `MaxUnchanged`.
+
+### Inbox detail continuity and hide undo
+
+`InboxSelection.tla` models view switching (`inbox`, `unread`, `flagged`, `hidden`), detail selection,
+read/flag toggles, explicit per-alert hides, hide rules, and one-step hide undo (`lastHide`). It proves:
+
+- `SelectedNeverHiddenInVisibleViews` and `SelectedAlwaysHiddenInHiddenView`: visible views never keep a hidden alert open, and the Hidden view only keeps hidden alerts open.
+- `DetailContinuity`: marking the open alert read in `unread` or unflagging it in `flagged` keeps its detail pane open (`CaptureStore.selectedInboxEntry`), while hiding the open alert from any visible view clears selection immediately, and undoing the last explicit hide clears both the hide entry and the undo slot.
+- `LastHideIsHidden`: the undo slot never references a non-hidden alert.
 
 The v9 migration adds three tables in the existing transaction. Each
 membership is one person/workspace pair. An observation route is one

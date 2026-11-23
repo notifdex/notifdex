@@ -1,3 +1,4 @@
+import CSQLite
 import Foundation
 import XCTest
 @testable import NotifdexCore
@@ -211,5 +212,84 @@ final class StoreTests: XCTestCase {
         XCTAssertEqual(Observation.leadingAppToken(in: "\u{200E}WhatsApp, 3 notifications"), "WhatsApp")
         XCTAssertEqual(Observation.leadingAppToken(in: "Calendar, Standup"), "Calendar")
         XCTAssertNil(Observation.leadingAppToken(in: "NoCommaHere"))
+    }
+
+    func testMigrationFromVersionOnePreservesEvidenceRunsAndGaps() throws {
+        do {
+            var db: OpaquePointer?
+            XCTAssertEqual(sqlite3_open(path, &db), SQLITE_OK)
+            defer { sqlite3_close(db) }
+            XCTAssertEqual(sqlite3_exec(db, try CaptureStore.schema(named: "schema"), nil, nil, nil), SQLITE_OK)
+            let seed = """
+                PRAGMA user_version = 1;
+                INSERT INTO capture_runs(id, started_at, heartbeat_at, ended_at) VALUES ('r1', 10, 20, 25);
+                INSERT INTO observations(id, source_id, source_event_id, run_id, captured_at, origin, app_label, title, subtitle, body, accessibility_description, parser_version)
+                VALUES (7, 'dev:notificationcenter', 'evt-1', 'r1', 15, 'iphone', 'X', 'Alex', '', 'Hello v1', 'X, Alex, Hello v1, from iPhone', 1);
+                INSERT INTO coverage_gaps(run_id, reason, started_at, ended_at, recovery_scanned_at)
+                VALUES ('r1', 'startup_scan', 10, 12, 12);
+                """
+            XCTAssertEqual(sqlite3_exec(db, seed, nil, nil, nil), SQLITE_OK)
+        }
+
+        let store = try CaptureStore(path: path)
+        XCTAssertEqual(try store.observationCount(), 1)
+        XCTAssertEqual(try store.gapCount(reason: "startup_scan"), 1)
+        let entry = try XCTUnwrap(store.inbox(InboxQuery()).first)
+        XCTAssertEqual(entry.id, 7)
+        XCTAssertEqual(entry.body, "Hello v1")
+        XCTAssertFalse(entry.isFlagged)
+        XCTAssertFalse(entry.isRead)
+    }
+
+    func testUnsupportedDatabaseVersionsAndNonEmptyUnversionedDatabaseAreRejected() throws {
+        let futurePath = directory.appendingPathComponent("future.db").path
+        do {
+            var db: OpaquePointer?
+            XCTAssertEqual(sqlite3_open(futurePath, &db), SQLITE_OK)
+            defer { sqlite3_close(db) }
+            XCTAssertEqual(sqlite3_exec(db, "PRAGMA user_version = 99;", nil, nil, nil), SQLITE_OK)
+        }
+        XCTAssertThrowsError(try CaptureStore(path: futurePath))
+
+        let negativePath = directory.appendingPathComponent("negative.db").path
+        do {
+            var db: OpaquePointer?
+            XCTAssertEqual(sqlite3_open(negativePath, &db), SQLITE_OK)
+            defer { sqlite3_close(db) }
+            XCTAssertEqual(sqlite3_exec(db, "PRAGMA user_version = -1;", nil, nil, nil), SQLITE_OK)
+        }
+        XCTAssertThrowsError(try CaptureStore(path: negativePath))
+
+        let foreignPath = directory.appendingPathComponent("foreign.db").path
+        do {
+            var db: OpaquePointer?
+            XCTAssertEqual(sqlite3_open(foreignPath, &db), SQLITE_OK)
+            defer { sqlite3_close(db) }
+            XCTAssertEqual(sqlite3_exec(db, "CREATE TABLE unrelated (id INTEGER PRIMARY KEY);", nil, nil, nil), SQLITE_OK)
+        }
+        XCTAssertThrowsError(try CaptureStore(path: foreignPath))
+    }
+
+    func testWorkspaceNameValidationRejectsReservedBlankAndNULNames() throws {
+        let store = try CaptureStore(path: path)
+        XCTAssertThrowsError(try store.createWorkspace(name: "   "))
+        XCTAssertThrowsError(try store.createWorkspace(name: "All People"))
+        XCTAssertThrowsError(try store.createWorkspace(name: "all people"))
+        XCTAssertThrowsError(try store.createWorkspace(name: "Unassigned"))
+        XCTAssertThrowsError(try store.createWorkspace(name: "Bad\0Name"))
+        _ = try store.createWorkspace(name: "Founders")
+        XCTAssertThrowsError(try store.createWorkspace(name: "Founders"))
+    }
+
+    func testIdentityNormalizationAndCrossPersonConflictRejection() throws {
+        let store = try CaptureStore(path: path)
+        let alex = try store.createPerson(name: "Alex")
+        let sam = try store.createPerson(name: "Sam")
+        try store.addIdentity(person: alex, platform: "Gmail", identifier: "  Alex@Example.COM ")
+        try store.addIdentity(person: alex, platform: "X", identifier: "@AlexHandle")
+        let ids = try store.identities(for: alex)
+        XCTAssertEqual(Set(ids.map(\.identifier)), ["alex@example.com", "alexhandle"])
+        XCTAssertThrowsError(try store.addIdentity(person: sam, platform: "Gmail", identifier: "alex@example.com"))
+        XCTAssertThrowsError(try store.addIdentity(person: sam, platform: "X", identifier: "   "))
     }
 }

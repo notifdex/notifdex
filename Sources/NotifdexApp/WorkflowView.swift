@@ -562,41 +562,46 @@ struct WorkflowView<AppsContent: View, RecoveryContent: View>: View {
     var body: some View {
         GeometryReader { geometry in
             let compact = geometry.size.width < 860
-            HStack(alignment: .top, spacing: 0) {
-                if !compact {
-                    sidebar
-                }
-                VStack(alignment: .leading, spacing: 12) {
-                    globalBanners
-                    workflowHeader(compact: compact)
-                    if model.mode == .notes {
-                        notebook
-                    } else if model.mode == .docs {
-                        UserGuideView()
-                    } else if model.mode == .apps {
-                        appsView()
-                    } else if model.mode == .recovery {
-                        recoveryView()
-                    } else if model.mode == .people {
-                        if compact {
+            VStack(spacing: 0) {
+                Rectangle()
+                    .fill(themeTokens.hairline)
+                    .frame(height: 0.5)
+                HStack(alignment: .top, spacing: 0) {
+                    if !compact {
+                        sidebar
+                    }
+                    VStack(alignment: .leading, spacing: 12) {
+                        globalBanners
+                        workflowHeader(compact: compact)
+                        if model.mode == .notes {
+                            notebook
+                        } else if model.mode == .docs {
+                            UserGuideView()
+                        } else if model.mode == .apps {
+                            appsView()
+                        } else if model.mode == .recovery {
+                            recoveryView()
+                        } else if model.mode == .people {
+                            if compact {
+                                compactContent
+                            } else {
+                                HSplitView {
+                                    feed.frame(minWidth: 250, idealWidth: 550)
+                                    inspector(compact: false)
+                                        .frame(minWidth: 280, idealWidth: 320, maxWidth: 430)
+                                }
+                            }
+                        } else if geometry.size.width < 700 {
                             compactContent
                         } else {
-                            HSplitView {
-                                feed.frame(minWidth: 250, idealWidth: 550)
-                                inspector(compact: false)
-                                    .frame(minWidth: 280, idealWidth: 320, maxWidth: 430)
-                            }
+                            inboxSplit
                         }
-                    } else if geometry.size.width < 700 {
-                        compactContent
-                    } else {
-                        inboxSplit
                     }
+                    .padding(.top, 14)
+                    .padding(.horizontal, 22)
+                    .padding(.bottom, 16)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 }
-                .padding(.top, 10)
-                .padding(.horizontal, 22)
-                .padding(.bottom, 16)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             }
         }
         .sheet(item: $model.matchPreview) { preview in

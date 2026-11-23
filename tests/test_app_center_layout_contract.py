@@ -44,6 +44,9 @@ class AppCenterLayoutContractTests(unittest.TestCase):
         self.assertIn("inboxDetailWidth ?? maximumWidth", workflow)
         self.assertIn("inboxDetailWidth = clamped(startWidth - value.translation.width)", workflow)
         self.assertIn("if !visible { model.inboxDetailWidth = nil }", workflow)
+        self.assertIn("ResizeCursorArea", workflow)
+        self.assertIn("resetCursorRects", workflow)
+        self.assertIn(".highPriorityGesture(", workflow)
 
     def test_appearance_studio_exposes_see_through_glass_tiers_and_custom_background(self):
         appearance = (APP_DIR / "AppAppearance.swift").read_text()

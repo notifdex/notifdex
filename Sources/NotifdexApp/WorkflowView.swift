@@ -132,6 +132,7 @@ private final class WorkflowModel: ObservableObject {
     @Published var inboxDetailWidth: CGFloat?
     @Published var hoveredMode: WorkflowMode?
     @Published var hoveringDivider = false
+    @Published var draggingDivider = false
     @Published var name = ""
     @Published var identityApp = "X"
     @Published var identifier = ""
@@ -651,6 +652,10 @@ struct WorkflowView<AppsContent: View, RecoveryContent: View>: View {
         }
         .onChange(of: showsInspector) { _, visible in
             if !visible { model.inboxDetailWidth = nil }
+            if !visible {
+                model.hoveringDivider = false
+                model.draggingDivider = false
+            }
         }
         .onChange(of: model.inboxPresentation.order) { _, _ in
             model.clearSelectionIfCollapsed()
@@ -997,35 +1002,49 @@ struct WorkflowView<AppsContent: View, RecoveryContent: View>: View {
     private var inboxSplit: some View {
         GeometryReader { geometry in
             let minimumFeedWidth: CGFloat = 250
-            let dividerWidth: CGFloat = 9
+            let dividerWidth: CGFloat = 12
             let maximumWidth = min(640, geometry.size.width - minimumFeedWidth - dividerWidth)
             let clamped = { (width: CGFloat) in min(maximumWidth, max(300, width)) }
             let startWidth = clamped(model.inboxDetailWidth ?? maximumWidth)
             let width = clamped(startWidth - detailDragOffset)
+            let dividerActive = model.hoveringDivider || model.draggingDivider
 
             HStack(spacing: 0) {
                 feed.frame(minWidth: minimumFeedWidth, maxWidth: .infinity)
                 if showsInspector {
                     ZStack {
+                        Color.black.opacity(0.001)
                         Rectangle()
-                            .fill(model.hoveringDivider ? themeTokens.accent.opacity(0.75) : Color.clear)
-                            .frame(width: 1.5)
-                            .animation(.easeOut(duration: 0.14), value: model.hoveringDivider)
+                            .fill(dividerActive ? themeTokens.accent.opacity(0.85) : themeTokens.hairline)
+                            .frame(width: dividerActive ? 2 : 0.5)
+                        if dividerActive {
+                            Capsule(style: .continuous)
+                                .fill(themeTokens.accent)
+                                .frame(width: 4, height: 34)
+                        }
                     }
-                    .frame(width: dividerWidth)
+                    .animation(.easeOut(duration: 0.12), value: dividerActive)
+                    .frame(width: 18)
                     .frame(maxHeight: .infinity)
                     .contentShape(Rectangle())
-                    .onHover { inside in
-                        model.hoveringDivider = inside
-                        (inside ? NSCursor.resizeLeftRight : NSCursor.arrow).set()
+                    .background {
+                        ResizeCursorArea { inside in
+                            model.hoveringDivider = inside
+                        }
                     }
-                    .gesture(DragGesture(minimumDistance: 0, coordinateSpace: .global)
+                    .highPriorityGesture(DragGesture(minimumDistance: 0, coordinateSpace: .global)
                         .updating($detailDragOffset) { value, offset, _ in
                             offset = value.translation.width
                         }
+                        .onChanged { _ in
+                            if !model.draggingDivider { model.draggingDivider = true }
+                        }
                         .onEnded { value in
+                            model.draggingDivider = false
                             model.inboxDetailWidth = clamped(startWidth - value.translation.width)
                         })
+                    .frame(width: dividerWidth)
+                    .zIndex(10)
                     .accessibilityElement(children: .ignore)
                     .accessibilityLabel("Notification detail width")
                     .accessibilityValue(Text("\(Int(width)) points"))
@@ -1849,6 +1868,62 @@ private struct FolderEditor: View {
         } message: {
             Text("Its notes will move to Unfiled.")
         }
+    }
+}
+
+@MainActor
+private struct ResizeCursorArea: NSViewRepresentable {
+    let onHoverChange: (Bool) -> Void
+
+    func makeNSView(context: Context) -> ResizeCursorNSView {
+        let view = ResizeCursorNSView()
+        view.onHoverChange = onHoverChange
+        return view
+    }
+
+    func updateNSView(_ view: ResizeCursorNSView, context: Context) {
+        view.onHoverChange = onHoverChange
+        view.window?.invalidateCursorRects(for: view)
+    }
+}
+
+@MainActor
+private final class ResizeCursorNSView: NSView {
+    var onHoverChange: ((Bool) -> Void)?
+    private var trackingAreaRef: NSTrackingArea?
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        // Keep SwiftUI's high-priority DragGesture as the sole mouse-down receiver
+        // while AppKit cursor rects and tracking areas remain active across bounds.
+        nil
+    }
+
+    override func resetCursorRects() {
+        super.resetCursorRects()
+        addCursorRect(bounds, cursor: .resizeLeftRight)
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let existing = trackingAreaRef {
+            removeTrackingArea(existing)
+        }
+        let area = NSTrackingArea(
+            rect: .zero,
+            options: [.mouseEnteredAndExited, .activeInActiveApp, .inVisibleRect],
+            owner: self,
+            userInfo: nil
+        )
+        addTrackingArea(area)
+        trackingAreaRef = area
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        onHoverChange?(true)
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        onHoverChange?(false)
     }
 }
 #endif

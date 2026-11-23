@@ -71,18 +71,68 @@ struct RecoveryDriver {
             return nil
         }
 
+        func menuBarContainers(for app: AXUIElement) throws -> [AXUIElement] {
+            var containers: [AXUIElement] = []
+            for attribute in ["AXExtrasMenuBar", "AXMenuBar"] {
+                if let bar = axElement(try ax(app, attribute)) {
+                    containers.append(bar)
+                }
+            }
+            if containers.isEmpty, let children = try ax(app, "AXChildren") as? [AXUIElement] {
+                for child in children {
+                    if (try? string(child, "AXRole")) == "AXMenuBar" {
+                        containers.append(child)
+                    }
+                }
+            }
+            return containers
+        }
+
         func pressClockAction(timeout: TimeInterval) throws {
             let limit = Date().addingTimeInterval(timeout)
-            let app = try root(bundleID: "com.apple.controlcenter")
-            guard let menu = axElement(try ax(app, "AXExtrasMenuBar")) else {
-                throw CaptureError(description: "Menu bar clock controls were not exposed")
-            }
-            for node in try descendants(menu, deadline: limit) {
-                guard Date() < limit else { throw CaptureError(description: "Clock inspection deadline reached") }
-                if try string(node, "AXIdentifier") == "com.apple.menuextra.clock" {
-                    try perform("AXPress", on: node)
-                    return
+            var foundAnyContainer = false
+            var controlCenterRoot: AXUIElement?
+            for bundleID in ["com.apple.controlcenter", "com.apple.systemuiserver"] {
+                guard let app = try? root(bundleID: bundleID) else { continue }
+                if bundleID == "com.apple.controlcenter" { controlCenterRoot = app }
+                let containers = (try? menuBarContainers(for: app)) ?? []
+                if containers.isEmpty { continue }
+                foundAnyContainer = true
+                for menu in containers {
+                    for node in try descendants(menu, deadline: limit) {
+                        guard Date() < limit else { throw CaptureError(description: "Clock inspection deadline reached") }
+                        let identifier = (try? string(node, "AXIdentifier")) ?? ""
+                        let description = (try? string(node, "AXDescription")) ?? ""
+                        let title = (try? string(node, "AXTitle")) ?? ""
+                        let role = (try? string(node, "AXRole")) ?? ""
+                        let subrole = (try? string(node, "AXSubrole")) ?? ""
+                        if RecoveryAutomation.isClockControl(
+                            identifier: identifier,
+                            description: description,
+                            title: title,
+                            role: role,
+                            subrole: subrole
+                        ) {
+                            try perform("AXPress", on: node)
+                            return
+                        }
+                    }
                 }
+            }
+            if !foundAnyContainer {
+                if controlCenterRoot == nil {
+                    _ = try root(bundleID: "com.apple.controlcenter")
+                }
+                var attrsSummary = ""
+                if let app = controlCenterRoot {
+                    boundMessaging(app)
+                    var names: CFArray?
+                    if AXUIElementCopyAttributeNames(app, &names) == .success,
+                       let list = names as? [String], !list.isEmpty {
+                        attrsSummary = " (Control Center attributes: \(list.prefix(8).joined(separator: ", ")))"
+                    }
+                }
+                throw CaptureError(description: "Menu bar clock controls were not exposed\(attrsSummary)")
             }
             throw CaptureError(description: "Could not locate the menu bar clock")
         }
@@ -171,6 +221,21 @@ final class RecoveryAutomation: RecoverySession {
 
     init(driver: RecoveryDriver = .live()) {
         self.driver = driver
+    }
+
+    static func isClockControl(identifier: String, description: String, title: String,
+                               role: String, subrole: String) -> Bool {
+        if identifier == "com.apple.menuextra.clock" { return true }
+        let isMenuItem = role == "AXMenuBarItem" || subrole == "AXMenuExtra" || role == "AXButton"
+        guard isMenuItem else { return false }
+        let trimmedID = identifier.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if trimmedID == "clock" || trimmedID.contains("menuextra.clock") || trimmedID.hasSuffix(".clock") {
+            return true
+        }
+        let trimmedDescription = description.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmedDescription.caseInsensitiveCompare("Clock") == .orderedSame { return true }
+        let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmedTitle.caseInsensitiveCompare("Clock") == .orderedSame
     }
 
     static func matchingStackApp(description: String, allowedApps: Set<String>) -> String? {

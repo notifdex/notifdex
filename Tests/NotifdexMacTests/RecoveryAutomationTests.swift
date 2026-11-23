@@ -5,6 +5,24 @@ import NotifdexCore
 
 #if os(macOS)
 final class RecoveryAutomationTests: XCTestCase {
+    func testIsClockControlMatchesLegacyIdentifierAndModernMenuBarItems() {
+        XCTAssertTrue(RecoveryAutomation.isClockControl(
+            identifier: "com.apple.menuextra.clock", description: "", title: "", role: "", subrole: ""
+        ))
+        XCTAssertTrue(RecoveryAutomation.isClockControl(
+            identifier: "Clock", description: "Sun Nov 22 11:00 PM", title: "", role: "AXMenuBarItem", subrole: "AXMenuExtra"
+        ))
+        XCTAssertTrue(RecoveryAutomation.isClockControl(
+            identifier: "", description: "Clock", title: "", role: "AXMenuBarItem", subrole: ""
+        ))
+        XCTAssertFalse(RecoveryAutomation.isClockControl(
+            identifier: "com.apple.menuextra.wifi", description: "Wi-Fi", title: "Wi-Fi", role: "AXMenuBarItem", subrole: "AXMenuExtra"
+        ))
+        XCTAssertFalse(RecoveryAutomation.isClockControl(
+            identifier: "Clock", description: "Clock", title: "Clock", role: "AXStaticText", subrole: ""
+        ))
+    }
+
     func testMatchingStackAppStripsDirectionMarks() {
         let allowed: Set<String> = ["WhatsApp", "X"]
         XCTAssertEqual(

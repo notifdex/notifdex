@@ -209,7 +209,8 @@ extension CaptureFixturesTests {
         worker.start { state in
             if !fulfilled, state.recoveryStatus.contains("Menu bar clock unavailable"), state.lastScan.contains("Issues 0") {
                 fulfilled = true
-                XCTAssertEqual(state.error, "Menu bar clock unavailable")
+                XCTAssertEqual(state.recoveryError, "Menu bar clock unavailable")
+                XCTAssertNil(state.error, "recovery navigation failure must not mark healthy live capture as failed")
                 sawFailure.fulfill()
             }
         }

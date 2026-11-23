@@ -20,6 +20,7 @@ public struct AppCaptureState {
     public var summaries: [AppCaptureSummary] = []
     public var total = 0
     public var error: String?
+    public var recoveryError: String?
     public init() {}
 
     public var recoveryBlocker: String? {
@@ -108,6 +109,7 @@ public final class CaptureWorker {
                 self.runID = try store.startRun(at: Date().timeIntervalSince1970)
                 self.state.ready = true
                 self.state.error = nil
+                self.state.recoveryError = nil
                 try self.refreshRows()
                 let timer = DispatchSource.makeTimerSource(queue: self.queue)
                 timer.schedule(deadline: .now(), repeating: 1)
@@ -230,6 +232,7 @@ public final class CaptureWorker {
                     try recovery.begin()
                     automation = recovery
                     recoveryFailed = false
+                    state.recoveryError = nil
                     recoveryInserted = 0
                     recoveryDuplicateSightings = 0
                     recoveryPeakObserved = 0
@@ -242,7 +245,7 @@ public final class CaptureWorker {
                     recoveryFailed = true
                     let message = String(describing: error)
                     state.recoveryStatus = message
-                    state.error = message
+                    state.recoveryError = message
                     try store.openGap(runID: run, reason: "recovery_navigation", at: now)
                 }
             }
@@ -258,7 +261,7 @@ public final class CaptureWorker {
             state.lastScan = "Observed \(result.observed) · New \(result.inserted) · Duplicates \(result.duplicates) · Issues \(scan.issues.count)"
             state.status = automation == nil ? "Collecting accessible alerts" : "Recovering retained alerts"
             if scan.issues.isEmpty {
-                if !recoveryFailed { state.error = nil }
+                state.error = nil
                 try store.recover(runID: run, at: Date().timeIntervalSince1970,
                                   excluding: recoveryFailed ? ["recovery_navigation"] : [])
             } else {
@@ -274,6 +277,7 @@ public final class CaptureWorker {
                     if let reason = try recovery.advance(allowedApps: settings.allowedLabels) {
                         endRecovery(reason: reason)
                         recoveryFailed = false
+                        state.recoveryError = nil
                         if scan.issues.isEmpty {
                             state.error = nil
                             try store.recover(runID: run, at: Date().timeIntervalSince1970)
@@ -281,8 +285,9 @@ public final class CaptureWorker {
                     }
                 } catch {
                     recoveryFailed = true
-                    endRecovery(reason: "Recovery navigation stopped: \(error)")
-                    state.error = String(describing: error)
+                    let message = String(describing: error)
+                    endRecovery(reason: "Recovery navigation stopped: \(message)")
+                    state.recoveryError = message
                     try store.openGap(runID: run, reason: "recovery_navigation", at: now)
                 }
             }

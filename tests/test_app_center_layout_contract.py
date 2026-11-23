@@ -13,6 +13,15 @@ class AppCenterLayoutContractTests(unittest.TestCase):
         self.assertIn('Picker("View", selection: $model.mode)', source)
         self.assertIn('Menu("Sort & group")', source)
 
+    def test_apps_and_recovery_are_folded_into_the_unified_sidebar(self):
+        app_source = (APP_DIR / "NotifdexApp.swift").read_text()
+        workflow = (APP_DIR / "WorkflowView.swift").read_text()
+        self.assertNotIn("TabView {", app_source)
+        self.assertIn('case apps = "Apps"', workflow)
+        self.assertIn('case recovery = "Recovery"', workflow)
+        self.assertIn("else if model.mode == .apps", workflow)
+        self.assertIn("else if model.mode == .recovery", workflow)
+
     def test_inspector_uses_model_selection_and_keeps_people_overview(self):
         source = (APP_DIR / "WorkflowView.swift").read_text()
         self.assertIn("model.mode == .people || model.selected != nil", source)
@@ -33,19 +42,35 @@ class AppCenterLayoutContractTests(unittest.TestCase):
         self.assertIn("inboxDetailWidth = clamped(startWidth - value.translation.width)", workflow)
         self.assertIn("if !visible { model.inboxDetailWidth = nil }", workflow)
 
-    def test_appearance_options_are_direct_settings_actions(self):
-        source = (APP_DIR / "NotifdexApp.swift").read_text()
-        self.assertIn('Section("Appearance")', source)
-        self.assertIn("Button { appearance = option }", source)
-        self.assertNotIn('Picker("Appearance", selection: $appearance)', source)
+    def test_appearance_studio_exposes_see_through_glass_tiers_and_custom_background(self):
+        appearance = (APP_DIR / "AppAppearance.swift").read_text()
+        studio = (APP_DIR / "AppearanceStudioView.swift").read_text()
+        app_source = (APP_DIR / "NotifdexApp.swift").read_text()
+        self.assertIn("self.surfaceMode = .clearGlass", appearance)
+        self.assertIn("NSVisualEffectView", appearance)
+        self.assertIn("blendingMode: .behindWindow", appearance)
+        self.assertIn("enum AppThemeTier", appearance)
+        self.assertIn("ForEach(AppSurfaceMode.allCases)", studio)
+        self.assertIn("ForEach(AppColorTheme.coreThemes)", studio)
+        self.assertIn("ForEach(AppColorTheme.studioThemes)", studio)
+        self.assertIn('Label("Show data folder"', studio)
+        self.assertIn("appearance.importBackdrop(result)", app_source)
+        self.assertIn("appearance.removeCustomBackdrop()", studio)
 
-    def test_top_level_tabs_and_global_controls_remain_reachable(self):
-        source = (APP_DIR / "NotifdexApp.swift").read_text()
-        for label in ("Inbox", "Apps", "Recovery"):
-            self.assertIn(f'.tabItem {{ Label("{label}"', source)
-        self.assertIn('Menu("Settings")', source)
-        self.assertIn('Button("Show data folder")', source)
-        self.assertIn('.popover(isPresented: $model.showingCollectionStatus', source)
-        self.assertIn('Toggle("Paused", isOn: model.pauseBinding)', source)
-        self.assertIn('Button("Retry starting capture")', source)
-        self.assertIn('Button("Open Accessibility Settings")', source)
+    def test_global_controls_and_banners_remain_reachable(self):
+        workflow = (APP_DIR / "WorkflowView.swift").read_text()
+        studio = (APP_DIR / "AppearanceStudioView.swift").read_text()
+        self.assertIn('Label("Show data folder"', studio)
+        self.assertIn(".popover(isPresented: $appModel.showingCollectionStatus", workflow)
+        self.assertIn(".popover(isPresented: $appearance.showingStudio", workflow)
+        self.assertIn('Toggle("Paused", isOn: appModel.pauseBinding)', workflow)
+        self.assertIn('Button("Retry starting capture")', workflow)
+        self.assertIn('Button("Open Accessibility Settings")', workflow)
+
+    def test_bundled_app_icon_and_sidebar_brand_mark_are_wired(self):
+        icons_dir = Path(__file__).resolve().parents[1] / "Resources" / "Icons"
+        self.assertTrue((icons_dir / "AppIcon.png").is_file(), "Missing bundled AppIcon.png")
+        studio = (APP_DIR / "AppearanceStudioView.swift").read_text()
+        workflow = (APP_DIR / "WorkflowView.swift").read_text()
+        self.assertIn("ForEach(MenuBarIconStyle.allCases)", studio)
+        self.assertIn("AppIconCatalog.appIconImage", workflow)

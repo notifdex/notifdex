@@ -57,10 +57,13 @@ private enum WorkflowMode: String, CaseIterable, Hashable, Identifiable {
     case flagged = "Flagged"
     case saved = "Saved"
     case hidden = "Hidden"
+    case apps = "Apps"
+    case recovery = "Recovery"
 
     var id: String { rawValue }
     var hasTriageControls: Bool { self == .inbox || self == .flagged }
-    var isLibrary: Bool { self == .notes || self == .docs }
+    var isUtility: Bool { self == .apps || self == .recovery }
+    var isLibrary: Bool { self == .notes || self == .docs || isUtility }
 
     var symbol: String {
         switch self {
@@ -72,6 +75,8 @@ private enum WorkflowMode: String, CaseIterable, Hashable, Identifiable {
         case .flagged: "flag"
         case .saved: "bookmark"
         case .hidden: "eye.slash"
+        case .apps: "square.grid.2x2"
+        case .recovery: "arrow.clockwise"
         }
     }
 }
@@ -125,6 +130,8 @@ private final class WorkflowModel: ObservableObject {
     @Published var workspaceName = ""
     @Published var selected: Int64?
     @Published var inboxDetailWidth: CGFloat?
+    @Published var hoveredMode: WorkflowMode?
+    @Published var hoveringDivider = false
     @Published var name = ""
     @Published var identityApp = "X"
     @Published var identifier = ""
@@ -178,7 +185,7 @@ private final class WorkflowModel: ObservableObject {
         case .hidden: return .hidden(app: app)
         case .people: return .person(person ?? "")
         case .today: return .followUps
-        case .notes, .docs: return .person("")
+        case .notes, .docs, .apps, .recovery: return .person("")
         }
     }
 
@@ -211,7 +218,7 @@ private final class WorkflowModel: ObservableObject {
         guard self.query == query else { return }
         generation += 1
         let request = generation
-        guard mode != .docs else { return }
+        guard mode != .docs && !mode.isUtility else { return }
         if mode == .notes {
             loadNotebook(request: request)
             return
@@ -513,35 +520,63 @@ private final class WorkflowModel: ObservableObject {
 }
 
 @MainActor
-struct WorkflowView: View {
+struct WorkflowView<AppsContent: View, RecoveryContent: View>: View {
+    @ObservedObject var appModel: AppModel
+    @ObservedObject var appearance: AppearanceSettings
     @StateObject private var model: WorkflowModel
     @GestureState private var detailDragOffset: CGFloat = 0
+    @Environment(\.notifdexAppearanceConfig) private var appearanceConfig
+    @Environment(\.colorScheme) private var colorScheme
     let worker: CaptureWorker
     let ready: Bool
     let total: Int
     let apps: [String]
+    let appsView: () -> AppsContent
+    let recoveryView: () -> RecoveryContent
 
-    init(worker: CaptureWorker, ready: Bool, total: Int, apps: [String]) {
+    init(
+        appModel: AppModel,
+        appearance: AppearanceSettings,
+        worker: CaptureWorker,
+        ready: Bool,
+        total: Int,
+        apps: [String],
+        @ViewBuilder appsView: @escaping () -> AppsContent,
+        @ViewBuilder recoveryView: @escaping () -> RecoveryContent
+    ) {
+        self.appModel = appModel
+        self.appearance = appearance
         _model = StateObject(wrappedValue: WorkflowModel(worker: worker))
         self.worker = worker
         self.ready = ready
         self.total = total
         self.apps = apps
+        self.appsView = appsView
+        self.recoveryView = recoveryView
+    }
+
+    private var themeTokens: ThemeTokens {
+        ThemeTokens(theme: appearanceConfig.colorTheme, dark: colorScheme == .dark)
     }
 
     var body: some View {
         GeometryReader { geometry in
             let compact = geometry.size.width < 860
-            HStack(alignment: .top, spacing: 14) {
+            HStack(alignment: .top, spacing: 0) {
                 if !compact {
                     sidebar
                 }
-                VStack(alignment: .leading, spacing: 10) {
+                VStack(alignment: .leading, spacing: 12) {
+                    globalBanners
                     workflowHeader(compact: compact)
                     if model.mode == .notes {
                         notebook
                     } else if model.mode == .docs {
                         UserGuideView()
+                    } else if model.mode == .apps {
+                        appsView()
+                    } else if model.mode == .recovery {
+                        recoveryView()
                     } else if model.mode == .people {
                         if compact {
                             compactContent
@@ -558,10 +593,12 @@ struct WorkflowView: View {
                         inboxSplit
                     }
                 }
+                .padding(.top, 10)
+                .padding(.horizontal, 22)
+                .padding(.bottom, 16)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             }
         }
-        .padding(.top, 10)
         .sheet(item: $model.matchPreview) { preview in
             matchReview(preview)
         }
@@ -631,40 +668,232 @@ struct WorkflowView: View {
         model.mode == .people || model.selected != nil
     }
 
+    @ViewBuilder private var globalBanners: some View {
+        if let message = appModel.uiError ?? appModel.state.error {
+            HStack(spacing: 10) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundStyle(.red)
+                Text(message)
+                    .font(.callout)
+                    .foregroundStyle(.primary)
+                    .textSelection(.enabled)
+                Spacer()
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 9)
+            .notifdexSurface(.card)
+        }
+        if !appModel.state.ready {
+            HStack(spacing: 10) {
+                Image(systemName: "bolt.slash")
+                    .foregroundStyle(.orange)
+                Text("Capture worker is not running.")
+                    .font(.callout)
+                Spacer()
+                Button("Retry starting capture") { appModel.start() }
+                    .buttonStyle(NotifdexGlassButtonStyle(emphasis: .prominent))
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 9)
+            .notifdexSurface(.card)
+        } else if !appModel.state.permissionGranted {
+            HStack(spacing: 10) {
+                Image(systemName: "lock.shield")
+                    .foregroundStyle(themeTokens.accent)
+                Text("Allow Notifdex in Privacy & Security → Accessibility.")
+                    .font(.callout)
+                Spacer()
+                Button("Open Accessibility Settings") { appModel.permission() }
+                    .buttonStyle(NotifdexGlassButtonStyle(emphasis: .prominent))
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 9)
+            .notifdexSurface(.card)
+        }
+    }
+
+    private var collectionIndicatorColor: Color {
+        if !appModel.state.ready || !appModel.state.permissionGranted || appModel.state.error != nil {
+            return Color(red: 0.84, green: 0.28, blue: 0.24)
+        }
+        if appModel.state.settings?.paused == true {
+            return Color(red: 0.82, green: 0.56, blue: 0.24)
+        }
+        return Color(red: 0.34, green: 0.68, blue: 0.54)
+    }
+
+    private var compactCollectionTitle: String {
+        if !appModel.state.ready { return "Offline" }
+        if !appModel.state.permissionGranted { return "Needs access" }
+        if appModel.state.settings?.paused == true { return "Paused" }
+        if appModel.state.recovering { return "Recovering…" }
+        return "Live"
+    }
+
+    private var collectionStatusPopover: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Circle()
+                    .fill(collectionIndicatorColor)
+                    .frame(width: 7, height: 7)
+                Text(appModel.state.status).font(.headline)
+            }
+            Text(appModel.state.lastScan)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .textSelection(.enabled)
+            Text("\(appModel.state.total) saved observations")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Divider()
+            Toggle("Paused", isOn: appModel.pauseBinding)
+                .toggleStyle(.switch)
+                .disabled(!appModel.state.ready || appModel.saving)
+        }
+        .padding(16)
+        .frame(width: 280)
+    }
+
     private var sidebar: some View {
-        VStack(alignment: .leading, spacing: 4) {
+        let tokens = themeTokens
+        return VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: 8) {
+                if let icon = AppIconCatalog.appIconImage {
+                    Image(nsImage: icon)
+                        .resizable()
+                        .interpolation(.high)
+                        .scaledToFit()
+                        .frame(width: 24, height: 24)
+                }
+                Text("Notifdex")
+                    .font(.system(size: 16, weight: .regular, design: .serif))
+                    .tracking(-0.2)
+            }
+            .padding(.horizontal, 12)
+            .padding(.top, 10)
+            .padding(.bottom, 18)
+
             ForEach(WorkflowMode.allCases) { mode in
                 if mode == .flagged {
-                    Divider().padding(.vertical, 5)
+                    Spacer().frame(height: 16)
                 }
+                if mode == .apps {
+                    Spacer(minLength: 16)
+                    Rectangle()
+                        .fill(tokens.hairline)
+                        .frame(height: 0.5)
+                        .padding(.horizontal, 12)
+                        .padding(.bottom, 10)
+                }
+                sidebarNavButton(mode, tokens: tokens)
+            }
+
+            Rectangle()
+                .fill(tokens.hairline)
+                .frame(height: 0.5)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 10)
+
+            HStack(spacing: 8) {
                 Button {
-                    model.mode = mode
+                    appModel.showingCollectionStatus.toggle()
                 } label: {
-                    Label(mode.rawValue, systemImage: mode.symbol)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal, 9)
-                        .padding(.vertical, 8)
-                        .background {
-                            if model.mode == mode {
-                                RoundedRectangle(cornerRadius: 8)
-                                    .fill(Color.accentColor.opacity(0.18))
-                            }
-                        }
+                    HStack(spacing: 6) {
+                        Circle()
+                            .fill(collectionIndicatorColor)
+                            .frame(width: 5.5, height: 5.5)
+                        Text("\(compactCollectionTitle) · \(total)")
+                            .font(.system(size: 11.5).monospacedDigit())
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                    .padding(.vertical, 4)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help("Collection status and pause controls")
+                .popover(isPresented: $appModel.showingCollectionStatus, arrowEdge: .trailing) {
+                    collectionStatusPopover
+                }
+
+                Spacer(minLength: 0)
+
+                Button {
+                    appearance.showingStudio.toggle()
+                } label: {
+                    Image(systemName: "slider.horizontal.3")
+                        .font(.system(size: 12, weight: .light))
+                        .foregroundStyle(.secondary)
+                        .padding(5)
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .accessibilityAddTraits(model.mode == mode ? .isSelected : [])
+                .accessibilityLabel("Appearance & Settings")
+                .help("Appearance, custom background & data folder")
+                .popover(isPresented: $appearance.showingStudio, arrowEdge: .trailing) {
+                    AppearanceStudioView(appearance: appearance, dataDirectory: worker.directory)
+                }
             }
-            Spacer(minLength: 0)
+            .padding(.horizontal, 14)
+            .padding(.bottom, 14)
         }
-        .padding(8)
-        .frame(width: 148)
-        .notifdexSurface(.detail)
+        .frame(width: 184)
+        .frame(maxHeight: .infinity)
+        .notifdexSurface(.sidebar)
+    }
+
+    private func sidebarNavButton(_ mode: WorkflowMode, tokens: ThemeTokens) -> some View {
+        let selected = model.mode == mode
+        let hovered = model.hoveredMode == mode
+        return Button {
+            model.mode = mode
+        } label: {
+            HStack(spacing: 10) {
+                Rectangle()
+                    .fill(selected ? tokens.accent : Color.clear)
+                    .frame(width: 1.5, height: 14)
+                Image(systemName: mode.symbol)
+                    .font(.system(size: 12.5, weight: selected ? .regular : .light))
+                    .foregroundStyle(selected ? Color.primary : Color.secondary)
+                    .frame(width: 15)
+                Text(mode.rawValue)
+                    .font(.system(size: 13, weight: selected ? .medium : .regular))
+                    .foregroundStyle(selected ? Color.primary : Color.secondary)
+                Spacer(minLength: 4)
+                if mode == .apps && appModel.enabledAppCount > 0 {
+                    Text("\(appModel.enabledAppCount)")
+                        .font(.system(size: 11).monospacedDigit())
+                        .foregroundStyle(.tertiary)
+                } else if mode == .recovery && appModel.state.recovering {
+                    Circle()
+                        .fill(tokens.accent)
+                        .frame(width: 5, height: 5)
+                }
+            }
+            .padding(.leading, 10)
+            .padding(.trailing, 14)
+            .padding(.vertical, 6)
+            .background {
+                if selected {
+                    Rectangle().fill(tokens.selectionFill)
+                } else if hovered {
+                    Rectangle().fill(tokens.hoverFill)
+                }
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { inside in
+            if inside { model.hoveredMode = mode }
+            else if model.hoveredMode == mode { model.hoveredMode = nil }
+        }
+        .accessibilityAddTraits(selected ? .isSelected : [])
     }
 
     private func workflowHeader(compact: Bool) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
+        let tokens = themeTokens
+        return VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .firstTextBaseline, spacing: 12) {
                 if compact {
                     Picker("View", selection: $model.mode) {
                         ForEach(WorkflowMode.allCases) { mode in
@@ -674,23 +903,86 @@ struct WorkflowView: View {
                     .pickerStyle(.menu)
                     .fixedSize()
                 } else {
-                    Text(model.mode.rawValue).font(.title2.weight(.semibold))
+                    Text(model.mode.rawValue)
+                        .font(.system(size: 24, weight: .regular, design: .serif))
+                        .tracking(-0.3)
                 }
                 Spacer(minLength: 12)
                 if !model.mode.isLibrary {
-                    TextField("Search captured alerts", text: $model.search)
-                        .textFieldStyle(.roundedBorder)
-                        .frame(maxWidth: 270)
+                    HStack(spacing: 7) {
+                        Image(systemName: "magnifyingglass")
+                            .font(.system(size: 11.5, weight: .light))
+                            .foregroundStyle(.secondary)
+                        TextField("Search captured alerts", text: $model.search)
+                            .textFieldStyle(.plain)
+                            .font(.system(size: 12.5))
+                        if !model.search.isEmpty {
+                            Button {
+                                model.search = ""
+                            } label: {
+                                Image(systemName: "xmark")
+                                    .font(.system(size: 10, weight: .medium))
+                                    .foregroundStyle(.secondary)
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel("Clear search")
+                        }
+                    }
+                    .padding(.vertical, 5)
+                    .frame(maxWidth: 230)
+                    .overlay(alignment: .bottom) {
+                        Rectangle()
+                            .fill(model.search.isEmpty ? tokens.hairline : tokens.hairlineStrong)
+                            .frame(height: 0.5)
+                    }
+                }
+                if compact {
+                    Button {
+                        appModel.showingCollectionStatus.toggle()
+                    } label: {
+                        HStack(spacing: 5) {
+                            Circle()
+                                .fill(collectionIndicatorColor)
+                                .frame(width: 5.5, height: 5.5)
+                            Text(compactCollectionTitle)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        .padding(.vertical, 4)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Collection status and pause controls")
+                    .popover(isPresented: $appModel.showingCollectionStatus, arrowEdge: .bottom) {
+                        collectionStatusPopover
+                    }
+
+                    Button {
+                        appearance.showingStudio.toggle()
+                    } label: {
+                        Image(systemName: "slider.horizontal.3")
+                            .font(.system(size: 12, weight: .light))
+                            .foregroundStyle(.secondary)
+                            .padding(5)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Appearance & Settings")
+                    .help("Appearance, custom background & data folder")
+                    .popover(isPresented: $appearance.showingStudio, arrowEdge: .bottom) {
+                        AppearanceStudioView(appearance: appearance, dataDirectory: worker.directory)
+                    }
                 }
             }
             if !model.mode.isLibrary { filterBar }
             if let action = model.lastHide {
                 HStack {
                     Text(action.message).foregroundStyle(.secondary)
-                    Button("Undo") { model.restore(action) }.disabled(!ready || model.busy)
+                    Button("Undo") { model.restore(action) }
+                        .buttonStyle(NotifdexGlassButtonStyle(emphasis: .subtle))
+                        .disabled(!ready || model.busy)
                     Spacer()
                 }
                 .font(.callout)
+                .padding(.vertical, 4)
             }
             if model.mode == .hidden && !model.rules.isEmpty { hideRules }
             if let error = model.error { Text(error).foregroundStyle(.red).textSelection(.enabled) }
@@ -709,30 +1001,36 @@ struct WorkflowView: View {
             HStack(spacing: 0) {
                 feed.frame(minWidth: minimumFeedWidth, maxWidth: .infinity)
                 if showsInspector {
-                    Divider()
-                        .frame(width: dividerWidth)
-                        .frame(maxHeight: .infinity)
-                        .contentShape(Rectangle())
-                        .onHover { inside in
-                            (inside ? NSCursor.resizeLeftRight : NSCursor.arrow).set()
+                    ZStack {
+                        Rectangle()
+                            .fill(model.hoveringDivider ? themeTokens.accent.opacity(0.75) : Color.clear)
+                            .frame(width: 1.5)
+                            .animation(.easeOut(duration: 0.14), value: model.hoveringDivider)
+                    }
+                    .frame(width: dividerWidth)
+                    .frame(maxHeight: .infinity)
+                    .contentShape(Rectangle())
+                    .onHover { inside in
+                        model.hoveringDivider = inside
+                        (inside ? NSCursor.resizeLeftRight : NSCursor.arrow).set()
+                    }
+                    .gesture(DragGesture(minimumDistance: 0, coordinateSpace: .global)
+                        .updating($detailDragOffset) { value, offset, _ in
+                            offset = value.translation.width
                         }
-                        .gesture(DragGesture(minimumDistance: 0, coordinateSpace: .global)
-                            .updating($detailDragOffset) { value, offset, _ in
-                                offset = value.translation.width
-                            }
-                            .onEnded { value in
-                                model.inboxDetailWidth = clamped(startWidth - value.translation.width)
-                            })
-                        .accessibilityElement(children: .ignore)
-                        .accessibilityLabel("Notification detail width")
-                        .accessibilityValue(Text("\(Int(width)) points"))
-                        .accessibilityAdjustableAction { direction in
-                            switch direction {
-                            case .increment: model.inboxDetailWidth = clamped(width + 24)
-                            case .decrement: model.inboxDetailWidth = clamped(width - 24)
-                            @unknown default: break
-                            }
+                        .onEnded { value in
+                            model.inboxDetailWidth = clamped(startWidth - value.translation.width)
+                        })
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel("Notification detail width")
+                    .accessibilityValue(Text("\(Int(width)) points"))
+                    .accessibilityAdjustableAction { direction in
+                        switch direction {
+                        case .increment: model.inboxDetailWidth = clamped(width + 24)
+                        case .decrement: model.inboxDetailWidth = clamped(width - 24)
+                        @unknown default: break
                         }
+                    }
                     inspector(compact: false).frame(width: width)
                 }
             }
@@ -850,6 +1148,7 @@ struct WorkflowView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .listRowBackground(Color.clear)
     }
 
     private var feed: some View {
@@ -888,16 +1187,14 @@ struct WorkflowView: View {
     }
 
     private var filterBar: some View {
-        HStack {
+        let tokens = themeTokens
+        return HStack(spacing: 14) {
             if model.mode.hasTriageControls {
-                Picker("Read status", selection: $model.readFilter) {
-                    Text("All").tag(InboxQuery.ReadFilter.all)
-                    Text("Unread").tag(InboxQuery.ReadFilter.unread)
-                    Text("Read").tag(InboxQuery.ReadFilter.read)
+                HStack(spacing: 16) {
+                    readFilterTab("All", filter: .all, tokens: tokens)
+                    readFilterTab("Unread", filter: .unread, tokens: tokens)
+                    readFilterTab("Read", filter: .read, tokens: tokens)
                 }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                .fixedSize()
 
                 Menu("Sort & group") {
                     Picker("Group by", selection: $model.inboxPresentation.order) {
@@ -954,6 +1251,10 @@ struct WorkflowView: View {
             }
             Spacer(minLength: 0)
         }
+        .padding(.bottom, 6)
+        .overlay(alignment: .bottom) {
+            Rectangle().fill(tokens.hairline).frame(height: 0.5)
+        }
     }
 
     private var entryList: some View {
@@ -961,7 +1262,7 @@ struct WorkflowView: View {
         let presentation = switch model.mode {
         case .inbox, .flagged: model.inboxPresentation
         case .saved, .hidden: InboxPresentation(order: .byApp)
-        case .people, .today, .notes, .docs: InboxPresentation()
+        case .people, .today, .notes, .docs, .apps, .recovery: InboxPresentation()
         }
         // SwiftUI may clear a selection when its row leaves the list. Keep the
         // detail open in Inbox and Flagged until the user chooses another item.
@@ -1005,30 +1306,79 @@ struct WorkflowView: View {
         ForEach(rows) { row in
             entryRow(row, showActions: model.mode.hasTriageControls)
                 .notifdexAlertSelection(model.selected == row.id)
+                .listRowBackground(Color.clear)
                 .tag(row.id)
         }
     }
 
+    private func readFilterTab(_ title: String, filter: InboxQuery.ReadFilter, tokens: ThemeTokens) -> some View {
+        let active = model.readFilter == filter
+        return Button {
+            model.readFilter = filter
+        } label: {
+            VStack(spacing: 5) {
+                Text(title)
+                    .font(.system(size: 12.5, weight: active ? .medium : .regular))
+                    .foregroundStyle(active ? Color.primary : Color.secondary)
+                Rectangle()
+                    .fill(active ? tokens.accent : Color.clear)
+                    .frame(height: 1.5)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(active ? .isSelected : [])
+    }
+
     private func entryRow(_ entry: InboxEntry, showActions: Bool = false) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack {
+        VStack(alignment: .leading, spacing: 5) {
+            HStack(alignment: .firstTextBaseline, spacing: 7) {
                 if !entry.isRead {
-                    Image(systemName: "circle.fill")
-                        .font(.system(size: 6))
-                        .foregroundStyle(Color.accentColor)
+                    Circle()
+                        .fill(themeTokens.accent)
+                        .frame(width: 5, height: 5)
                         .accessibilityLabel("Unread")
                 }
                 Text(entry.title.isEmpty ? "Notification" : entry.title)
-                    .font(.headline)
-                    .fontWeight(entry.isRead ? .regular : .semibold)
+                    .font(.system(size: 13.5, weight: entry.isRead ? .regular : .medium))
                     .foregroundStyle(entry.isRead ? Color.secondary : Color.primary)
+                    .lineLimit(1)
+                Spacer(minLength: 8)
+                Group {
+                    if model.mode == .today, let due = entry.dueAt {
+                        Text(Date(timeIntervalSince1970: due).formatted(date: .abbreviated, time: .shortened))
+                    } else {
+                        Text(Date(timeIntervalSince1970: entry.capturedAt).formatted(date: .abbreviated, time: .shortened))
+                    }
+                }
+                .font(.system(size: 11).monospacedDigit())
+                .foregroundStyle(.tertiary)
+            }
+            if !entry.body.isEmpty {
+                Text(entry.body)
+                    .font(.system(size: 12.5))
+                    .lineSpacing(2)
+                    .lineLimit(2)
+                    .foregroundStyle(entry.isRead ? Color.secondary.opacity(0.68) : Color.primary.opacity(0.76))
+            }
+            HStack(spacing: 10) {
+                Text(entry.app)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
                 Spacer()
-                if entry.saved { Image(systemName: "bookmark.fill").accessibilityLabel("Saved") }
+                if entry.saved {
+                    Image(systemName: "bookmark.fill")
+                        .font(.system(size: 10.5))
+                        .foregroundStyle(themeTokens.accent)
+                        .accessibilityLabel("Saved")
+                }
                 if showActions {
                     Button {
                         model.edit { try $0.setFlag(entry.id, flagged: !entry.isFlagged) }
                     } label: {
                         Image(systemName: entry.isFlagged ? "flag.fill" : "flag")
+                            .font(.system(size: 10.5))
+                            .foregroundStyle(entry.isFlagged ? themeTokens.accent : Color.secondary.opacity(0.7))
                     }
                     .buttonStyle(.borderless)
                     .accessibilityLabel(entry.isFlagged ? "Remove flag" : "Flag alert")
@@ -1036,24 +1386,14 @@ struct WorkflowView: View {
                     .disabled(!ready || model.busy)
                     hideMenu(entry)
                 } else if entry.isFlagged {
-                    Image(systemName: "flag.fill").accessibilityLabel("Flagged")
+                    Image(systemName: "flag.fill")
+                        .font(.system(size: 10.5))
+                        .foregroundStyle(themeTokens.accent)
+                        .accessibilityLabel("Flagged")
                 }
             }
-            if !entry.body.isEmpty {
-                Text(entry.body).lineLimit(2)
-                    .foregroundStyle(entry.isRead ? Color.secondary : Color.primary)
-            }
-            HStack(spacing: 8) {
-                Text(entry.app)
-                if model.mode == .today, let due = entry.dueAt {
-                    Text(Date(timeIntervalSince1970: due).formatted(date: .abbreviated, time: .shortened))
-                } else {
-                    Text(Date(timeIntervalSince1970: entry.capturedAt).formatted(date: .abbreviated, time: .shortened))
-                }
-            }
-            .font(.caption).foregroundStyle(.secondary)
         }
-        .padding(.vertical, 3)
+        .padding(.vertical, 8)
     }
 
     private func hideMenu(_ entry: InboxEntry) -> some View {
@@ -1114,8 +1454,9 @@ struct WorkflowView: View {
     }
 
     private func alertDetail(_ alert: InboxEntry) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text(alert.title.isEmpty ? "Notification" : alert.title).font(.title2)
+        VStack(alignment: .leading, spacing: 12) {
+            Text(alert.title.isEmpty ? "Notification" : alert.title)
+                .font(.system(size: 20, weight: .regular, design: .serif))
             Text(alert.app).font(.caption).foregroundStyle(.secondary)
             if !alert.subtitle.isEmpty { Text(alert.subtitle).textSelection(.enabled) }
             Text(alert.body.isEmpty ? "No preview was captured." : alert.body)

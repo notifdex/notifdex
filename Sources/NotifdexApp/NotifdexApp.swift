@@ -5,6 +5,7 @@ import AppKit
 import SwiftUI
 import ServiceManagement
 import ApplicationServices
+import UniformTypeIdentifiers
 import NotifdexMac
 
 private func smokeTrace(_ message: String) {
@@ -28,6 +29,7 @@ final class AppModel: ObservableObject {
     @Published var showingCollectionStatus = false
     private let loginQueue = DispatchQueue(label: "com.notifdex.login", qos: .utility)
     let worker: CaptureWorker
+    let appearance: AppearanceSettings
     private var sleepObservers: [NSObjectProtocol] = []
 
     init() {
@@ -36,6 +38,7 @@ final class AppModel: ObservableObject {
             ? FileManager.default.temporaryDirectory.appendingPathComponent("notifdex-smoke-" + UUID().uuidString)
             : FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/Notifdex")
         worker = CaptureWorker(directory: directory)
+        appearance = AppearanceSettings(directory: directory)
         if smoke {
             // Exercise real startup/storage without touching user data or navigating UI.
             do {
@@ -115,14 +118,20 @@ final class AppModel: ObservableObject {
     var recoveryEnabled: Bool {
         state.recoveryBlocker == nil
     }
+
+    var enabledAppCount: Int {
+        state.settings?.apps.filter(\.enabled).count ?? 0
+    }
 }
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         smokeTrace("application did finish launching")
+        AppIconCatalog.applyDockIcon()
         if CommandLine.arguments.contains("--smoke-test") {
             DispatchQueue.main.async {
+                NSApp.setActivationPolicy(.accessory)
                 let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 240, height: 120),
                                       styleMask: [.titled, .closable], backing: .buffered, defer: false)
                 window.isReleasedWhenClosed = false
@@ -133,10 +142,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 if NSApp.activationPolicy() == .accessory { smokeTrace("closed window returned to menu bar") }
             }
             DispatchQueue.main.asyncAfter(deadline: .now() + 2) { NSApp.terminate(nil) }
+        } else {
+            DispatchQueue.main.async {
+                NSApp.activate(ignoringOtherApps: true)
+            }
         }
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
+
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        guard !CommandLine.arguments.contains("--smoke-test") else { return false }
+        if let window = AppCenterPresenceView.appCenterWindow {
+            NSApp.setActivationPolicy(.regular)
+            window.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+            return false
+        }
+        return true
+    }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         smokeTrace("application requested shutdown")
@@ -155,21 +179,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 struct NotifdexApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
     @StateObject private var model: AppModel
+    @StateObject private var appearance: AppearanceSettings
 
     init() {
         smokeTrace("constructing SwiftUI app")
         _model = StateObject(wrappedValue: AppModel.shared)
+        _appearance = StateObject(wrappedValue: AppModel.shared.appearance)
     }
 
     var body: some Scene {
-        MenuBarExtra("Notifdex", systemImage: "tray.full") {
-            MenuContent(model: model)
-        }
         Window("Notifdex · App Center", id: "app-center") {
-            AppCenter(model: model)
-                .background { AppCenterPresence().allowsHitTesting(false) }
+            AppCenter(model: model, appearance: appearance)
         }
+        .windowStyle(.hiddenTitleBar)
         .defaultSize(width: 780, height: 620)
+        MenuBarExtra {
+            MenuContent(model: model)
+        } label: {
+            Image(nsImage: AppIconCatalog.menuBarImage(style: appearance.menuBarIconStyle))
+                .renderingMode(appearance.menuBarIconStyle == .monochrome ? .template : .original)
+        }
     }
 
     fileprivate static func checkPackage() throws {
@@ -327,80 +356,68 @@ struct MenuContent: View {
 @MainActor
 struct AppCenter: View {
     @ObservedObject var model: AppModel
-    @AppStorage("appAppearance") private var appearance: AppAppearance = .glass
+    @ObservedObject var appearance: AppearanceSettings
+
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    @Environment(\.colorSchemeContrast) private var contrast
+
+    private var config: AppearanceConfiguration {
+        appearance.activeConfiguration
+    }
+
+    private var wantsTransparentWindow: Bool {
+        config.requestsTransparentWindow && !reduceTransparency && contrast != .increased
+    }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack {
-                Button {
-                    model.showingCollectionStatus.toggle()
-                } label: {
-                    Label(model.state.status, systemImage: "info.circle")
-                }
-                .help("Collection status and pause controls")
-                .popover(isPresented: $model.showingCollectionStatus, arrowEdge: .bottom) {
-                    VStack(alignment: .leading, spacing: 10) {
-                        Text(model.state.status).font(.headline)
-                        Text(model.state.lastScan)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .textSelection(.enabled)
-                        Toggle("Paused", isOn: model.pauseBinding)
-                            .toggleStyle(.switch)
-                            .disabled(!model.state.ready || model.saving)
-                    }
-                    .padding(16)
-                }
-                Spacer()
-                Menu("Settings") {
-                    Section("Appearance") {
-                        ForEach(AppAppearance.allCases) { option in
-                            Button { appearance = option } label: {
-                                if appearance == option {
-                                    Label(option.title, systemImage: "checkmark")
-                                } else {
-                                    Text(option.title)
-                                }
-                            }
-                        }
-                    }
-                    Button("Show data folder") {
-                        NSWorkspace.shared.open(model.worker.directory)
-                    }
-                }
-                .fixedSize()
-            }
-            if let message = model.uiError ?? model.state.error {
-                Text(message).foregroundStyle(.red).textSelection(.enabled)
-            }
-            if !model.state.ready {
-                Button("Retry starting capture") { model.start() }
-            } else if !model.state.permissionGranted {
-                HStack {
-                    Text("Allow Notifdex in Privacy & Security → Accessibility.")
-                    Spacer()
-                    Button("Open Accessibility Settings") { model.permission() }
-                }
-            }
-            TabView {
-                WorkflowView(worker: model.worker, ready: model.state.ready,
-                             total: model.state.total, apps: model.state.summaries.map(\.appLabel))
-                    .tabItem { Label("Inbox", systemImage: "tray") }
-                appsView.tabItem { Label("Apps", systemImage: "square.grid.2x2") }
-                recoveryView.tabItem { Label("Recovery", systemImage: "arrow.clockwise") }
-            }
-            Text("\(model.state.total) saved observations").font(.caption).foregroundStyle(.secondary)
-        }
-        .padding(20)
+        WorkflowView(
+            appModel: model,
+            appearance: appearance,
+            worker: model.worker,
+            ready: model.state.ready,
+            total: model.state.total,
+            apps: model.state.summaries.map(\.appLabel),
+            appsView: { appsView },
+            recoveryView: { recoveryView }
+        )
         .frame(minWidth: 660, minHeight: 520)
         .notifdexSurface(.window)
-        .environment(\.notifdexAppearance, appearance)
+        .background {
+            if !CommandLine.arguments.contains("--smoke-test") {
+                AppCenterPresence(transparentWindow: wantsTransparentWindow)
+                    .allowsHitTesting(false)
+            }
+        }
+        .environment(\.notifdexAppearanceConfig, config)
+        .fileImporter(isPresented: $appearance.showingBackdropImporter, allowedContentTypes: [.image]) { result in
+            appearance.importBackdrop(result)
+        }
     }
 
     private var appsView: some View {
-        VStack(spacing: 10) {
+        VStack(alignment: .leading, spacing: 14) {
             List(model.state.settings?.apps ?? []) { app in
-                HStack {
+                HStack(spacing: 12) {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(app.name)
+                            .font(.system(size: 13.5, weight: .medium))
+                        let summaries = model.state.summaries.filter { app.labels.contains($0.appLabel) }
+                        let count = summaries.reduce(0) { $0 + $1.count }
+                        HStack(spacing: 6) {
+                            Text(count == 0 ? "Awaiting first alert" : "\(count) saved")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            if let last = summaries.map(\.lastCapturedAt).max() {
+                                Text("·")
+                                    .font(.caption)
+                                    .foregroundStyle(.tertiary)
+                                Text(Date(timeIntervalSince1970: last), style: .relative)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                    Spacer()
                     Toggle(app.name, isOn: Binding(
                         get: { app.enabled },
                         set: { enabled in
@@ -411,73 +428,136 @@ struct AppCenter: View {
                             }
                         }
                     ))
+                    .labelsHidden()
                     .toggleStyle(.switch)
                     .disabled(!model.state.ready || model.saving)
-                    Spacer()
-                    let summaries = model.state.summaries.filter { app.labels.contains($0.appLabel) }
-                    let count = summaries.reduce(0) { $0 + $1.count }
-                    VStack(alignment: .trailing, spacing: 3) {
-                        Text(count == 0 ? "Awaiting first alert" : "\(count) saved")
-                        if let last = summaries.map(\.lastCapturedAt).max() {
-                            Text(Date(timeIntervalSince1970: last), style: .relative)
-                                .font(.caption).foregroundStyle(.secondary)
-                        }
-                    }
                 }
-                .padding(.vertical, 6)
+                .padding(.vertical, 8)
+                .listRowBackground(Color.clear)
             }
             .notifdexSurface(.list)
-            HStack {
-                TextField("Custom app notification label", text: $model.customLabel)
-                    .textFieldStyle(.roundedBorder)
-                Button("Add app") {
-                    let label = model.customLabel
-                    model.change { try $0.addCustomApp(label: label) }
-                    model.customLabel = ""
+
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 12) {
+                    TextField("Custom app notification label", text: $model.customLabel)
+                        .textFieldStyle(.plain)
+                        .font(.callout)
+                        .padding(.vertical, 6)
+                        .overlay(alignment: .bottom) {
+                            Rectangle()
+                                .fill(Color.primary.opacity(0.14))
+                                .frame(height: 0.5)
+                        }
+
+                    Button("Add app") {
+                        let label = model.customLabel
+                        model.change { try $0.addCustomApp(label: label) }
+                        model.customLabel = ""
+                    }
+                    .buttonStyle(NotifdexGlassButtonStyle(emphasis: .prominent))
+                    .disabled(model.customLabel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !model.state.ready)
                 }
-                .disabled(model.customLabel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !model.state.ready)
+                Text("App labels must match notifications as shown by macOS. Enable each app you want to collect.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
-            Text("App labels must match notifications as shown by macOS. Enable each app you want to collect.")
-                .font(.caption).foregroundStyle(.secondary)
+            .padding(.top, 4)
         }
-        .padding(.top, 10)
     }
 
     private var recoveryView: some View {
-        Form {
-            Toggle("Recover on launch, wake, and app selection changes", isOn: Binding(
-                get: { model.state.settings?.automaticRecovery ?? false },
-                set: { enabled in model.change { $0.automaticRecovery = enabled } }
-            ))
-            .disabled(!model.state.ready || model.saving)
-            Text("Recovery opens Notification Center, expands selected app stacks, and attempts to scroll retained alerts. It can briefly interrupt your current screen.")
-                .foregroundStyle(.secondary)
-            HStack {
-                Button(model.state.recovering ? "Recovering…" : "Recover now") { model.worker.recoverNow() }
-                    .disabled(!model.recoveryEnabled)
-                Text(model.state.recoveryStatus).textSelection(.enabled)
-            }
-            if let blocker = model.state.recoveryBlocker {
-                Text(blocker).font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
-            }
-            if let saved = model.state.lastSavedAt {
-                LabeledContent("Last new capture this session") {
-                    Text(saved.formatted(date: .abbreviated, time: .standard))
+        ScrollView {
+            VStack(alignment: .leading, spacing: 22) {
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack(alignment: .top) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Retained notifications")
+                                .font(.system(size: 16, weight: .regular, design: .serif))
+                            Text("Opens Notification Center, expands selected app stacks, and scrolls retained alerts. May briefly interrupt your screen.")
+                                .font(.callout)
+                                .foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        Spacer(minLength: 16)
+                        Button(model.state.recovering ? "Recovering…" : "Recover now") {
+                            model.worker.recoverNow()
+                        }
+                        .buttonStyle(NotifdexGlassButtonStyle(emphasis: .prominent))
+                        .disabled(!model.recoveryEnabled)
+                    }
+
+                    Toggle("Recover on launch, wake, and app selection changes", isOn: Binding(
+                        get: { model.state.settings?.automaticRecovery ?? false },
+                        set: { enabled in model.change { $0.automaticRecovery = enabled } }
+                    ))
+                    .toggleStyle(.switch)
+                    .disabled(!model.state.ready || model.saving)
+                }
+
+                Rectangle().fill(Color.primary.opacity(0.09)).frame(height: 0.5)
+
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("Diagnostics")
+                        .font(.system(size: 16, weight: .regular, design: .serif))
+                    LabeledContent("Recovery status") {
+                        Text(model.state.recoveryStatus)
+                            .foregroundStyle(.secondary)
+                            .textSelection(.enabled)
+                    }
+                    if let blocker = model.state.recoveryBlocker {
+                        LabeledContent("Blocker") {
+                            Text(blocker)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .textSelection(.enabled)
+                        }
+                    }
+                    if let saved = model.state.lastSavedAt {
+                        LabeledContent("Last new capture this session") {
+                            Text(saved.formatted(date: .abbreviated, time: .standard))
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    if let issue = model.state.lastCaptureIssue {
+                        LabeledContent("Last scan issue") {
+                            Text(issue)
+                                .foregroundStyle(.secondary)
+                                .textSelection(.enabled)
+                        }
+                    }
+                    Text("Cleared, hidden, or undelivered alerts may be unavailable. A completed scan leaves delivery coverage unknown.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                Rectangle().fill(Color.primary.opacity(0.09)).frame(height: 0.5)
+
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("System")
+                        .font(.system(size: 16, weight: .regular, design: .serif))
+                    Toggle("Launch at login", isOn: Binding(
+                        get: { model.loginEnabled },
+                        set: { enabled in model.setLogin(enabled) }
+                    ))
+                    .toggleStyle(.switch)
+                    .disabled(model.loginPending)
+                    if model.loginPending {
+                        Text("Updating login item…")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    LabeledContent("Saved source identity") {
+                        Text(model.state.settings?.sourceID ?? "pending")
+                            .font(.caption.monospaced())
+                            .foregroundStyle(.secondary)
+                            .textSelection(.enabled)
+                    }
                 }
             }
-            if let issue = model.state.lastCaptureIssue {
-                LabeledContent("Last scan issue") { Text(issue).textSelection(.enabled) }
-            }
-            Text("Cleared, hidden, or undelivered alerts may be unavailable. A completed scan leaves delivery coverage unknown.")
-                .font(.caption).foregroundStyle(.secondary)
-            Toggle("Launch at login", isOn: Binding(get: { model.loginEnabled }, set: { enabled in model.setLogin(enabled) }))
-                .disabled(model.loginPending)
-            if model.loginPending { Text("Updating login item…").font(.caption) }
-            Text("Saved source identity: \(model.state.settings?.sourceID ?? "pending")")
-                .font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
+            .frame(maxWidth: 640, alignment: .leading)
+            .padding(.top, 4)
         }
-        .padding(16)
-        .notifdexSurface(.detail)
         .onAppear { model.refreshLoginState() }
     }
 }

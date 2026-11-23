@@ -166,6 +166,7 @@ struct SavedDocumentsView: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .listRowBackground(Color.clear)
             }
             .notifdexSurface(.inboxList)
             .overlay {

@@ -655,13 +655,16 @@ private struct AppSurfaceModifier: ViewModifier {
         case .inboxList, .list:
             // Open canvas: sits directly on the glass without a nested card frame.
             Color.clear
-        case .detail, .inspector:
-            // Quiet tonal plane with a razor-thin leading architectural hairline.
+        case .detail:
             Rectangle()
                 .fill(tokens.inspectorPlane)
                 .overlay(alignment: .leading) {
                     Rectangle().fill(tokens.hairline).frame(width: 0.5)
                 }
+        case .inspector:
+            // Quiet tonal plane; the split divider owns the centered vertical hairline.
+            Rectangle()
+                .fill(tokens.inspectorPlane)
         case .card:
             RoundedRectangle(cornerRadius: 8, style: .continuous)
                 .fill(tokens.subtleFill)
@@ -690,9 +693,11 @@ private struct AppSurfaceModifier: ViewModifier {
                 .overlay(alignment: .trailing) { Rectangle().fill(rule).frame(width: 0.5) }
         case .inboxList, .list:
             Color.clear
-        case .detail, .inspector:
+        case .detail:
             Color(nsColor: .controlBackgroundColor).opacity(0.35)
                 .overlay(alignment: .leading) { Rectangle().fill(rule).frame(width: 0.5) }
+        case .inspector:
+            Color(nsColor: .controlBackgroundColor).opacity(0.35)
         case .card:
             RoundedRectangle(cornerRadius: 8, style: .continuous)
                 .fill(Color(nsColor: .controlBackgroundColor))

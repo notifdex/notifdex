@@ -27,7 +27,7 @@ npm run preview    # serves website/dist/ on http://127.0.0.1:4173
 
 - All screenshots, inbox alerts, people profiles, and recovery logs shown on this site are **synthetic sample data**.
 - Never include real notifications, personal contacts, local SQLite paths with usernames, or credentials.
-- Public copy follows [issue #38](https://github.com/qzyu999/notifdex/issues/38): refer to the product as **Notifdex** and its views as **Inbox**, **People**, **Today**, **Notes**, and **Recovery**.
+- Public copy follows [issue #38](https://github.com/notifdex/notifdex/issues/38): refer to the product as **Notifdex** and its views as **Inbox**, **People**, **Today**, **Notes**, and **Recovery**.
 
 ## Preview indexing & rollbacks
 

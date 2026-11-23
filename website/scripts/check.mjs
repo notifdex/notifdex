@@ -52,9 +52,9 @@ if (failures.length === 0) {
   assert(privacyHtml.includes('rel="canonical" href="https://notifdex.com/privacy.html"'), "privacy.html missing canonical link");
   assert(indexHtml.includes("/app-icon.png"), "index.html should reference the bundled app icon (/app-icon.png)");
   assert(indexHtml.includes("/favicon.png"), "index.html should reference /favicon.png");
-  assert(indexHtml.includes("https://github.com/qzyu999/notifdex"), "index.html missing GitHub repository link");
-  assert(indexHtml.includes("https://github.com/qzyu999/notifdex#run-the-menu-bar-app"), "index.html missing install guide link");
-  assert(indexHtml.includes("https://github.com/qzyu999/notifdex/issues"), "index.html missing support link");
+  assert(indexHtml.includes("https://github.com/notifdex/notifdex"), "index.html missing GitHub repository link");
+  assert(indexHtml.includes("https://github.com/notifdex/notifdex#run-the-menu-bar-app"), "index.html missing install guide link");
+  assert(indexHtml.includes("https://github.com/notifdex/notifdex/issues"), "index.html missing support link");
   assert(indexHtml.includes('href="/privacy.html"'), "index.html missing link to /privacy.html");
 
   // Sticky header scroll offset protection

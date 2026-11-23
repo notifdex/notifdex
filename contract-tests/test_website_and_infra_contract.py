@@ -45,8 +45,8 @@ class WebsiteAndCloudflareInfraContractTests(unittest.TestCase):
         index_html = (src_dir / "index.html").read_text(encoding="utf-8")
         self.assertIn('rel="canonical" href="https://notifdex.com/"', index_html)
         self.assertIn("/app-icon.png", index_html)
-        self.assertIn("https://github.com/qzyu999/notifdex#run-the-menu-bar-app", index_html)
-        self.assertIn("https://github.com/qzyu999/notifdex/issues", index_html)
+        self.assertIn("https://github.com/notifdex/notifdex#run-the-menu-bar-app", index_html)
+        self.assertIn("https://github.com/notifdex/notifdex/issues", index_html)
         self.assertIn('href="/privacy.html"', index_html)
 
         styles_css = (src_dir / "styles.css").read_text(encoding="utf-8")

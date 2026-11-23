@@ -30,7 +30,7 @@ Each Cloudflare setting has **one owner** to prevent drift and duplicate managem
 | --- | --- | --- |
 | Domain registrar & Cloudflare zone creation | Manual (Cloudflare Dashboard) | Zone `notifdex.com` already exists and is delegated to Cloudflare. |
 | R2 state bucket (`notifdex-tfstate`) & R2 S3 credentials | Manual bootstrap (one-time) | Kept outside OpenTofu state so state does not manage itself. |
-| Cloudflare Pages GitHub App OAuth authorization | Manual bootstrap (one-time) | Required once in **Workers & Pages → Create → Pages → Connect to Git** (select `qzyu999/notifdex`, root `website`, build `npm run build`, output `dist`, watch path `website/**`). |
+| Cloudflare Pages GitHub App OAuth authorization | Manual bootstrap (one-time) | Required once in **Workers & Pages → Create → Pages → Connect to Git** (select `notifdex/notifdex`, root `website`, build `npm run build`, output `dist`, watch path `website/**`). |
 | Pages project build config (`cloudflare_pages_project.website`) | OpenTofu (after import) | Import the created Pages project before enabling `apply`. Flip `manage_pages_git_source = true` only after confirming a clean no-change import plan. |
 | Canonical apex custom domain (`cloudflare_pages_domain.apex`) | OpenTofu | Attaching via API/OpenTofu does **not** auto-create a DNS record. |
 | Apex `CNAME` (`notifdex.com` → `notifdex.pages.dev`) | OpenTofu (`cloudflare_dns_record.apex`) | **Single-owner rule:** If you attached `notifdex.com` in the dashboard UI first, Cloudflare created an apex CNAME automatically — import it into `cloudflare_dns_record.apex` before running `tofu apply` so it is never duplicated. |
@@ -86,7 +86,7 @@ Never use Global API Keys or Inference Exchange tokens. Create **two** scoped Cl
 Follow this order so existing live resources are adopted cleanly without recreation:
 
 1. Connect the repo once in **Workers & Pages → Create → Pages → Connect to Git**:
-   - Repository: `qzyu999/notifdex`, production branch: `main`
+   - Repository: `notifdex/notifdex`, production branch: `main`
    - Root directory: `website`, build command: `npm run build`, output directory: `dist`
    - Build watch paths: include `website/**` (so Swift-only PRs do not trigger Pages builds)
    - Project name: `notifdex`

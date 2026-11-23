@@ -49,7 +49,7 @@ variable "production_branch" {
 variable "github_owner" {
   description = "GitHub repository owner for Cloudflare Pages Git integration."
   type        = string
-  default     = "qzyu999"
+  default     = "notifdex"
 }
 
 variable "github_repo" {

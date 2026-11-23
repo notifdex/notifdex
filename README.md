@@ -6,7 +6,7 @@ follow-ups.
 
 The first milestone is durable notification collection. The repository starts
 fresh here. The earlier Python/web implementation is preserved on
-[`archive/notif-mgmt-2026-11-17`](https://github.com/qzyu999/notifdex/tree/archive/notif-mgmt-2026-11-17)
+[`archive/notif-mgmt-2026-11-17`](https://github.com/notifdex/notifdex/tree/archive/notif-mgmt-2026-11-17)
 at `fafd4ca47d42b54f9ac614841e5e63e8e4f3cfcc`. The new tree retains Git ancestry,
 so existing history remains accessible. Existing issues and other branches are
 still available as historical context.

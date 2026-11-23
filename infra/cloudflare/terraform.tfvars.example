@@ -1,0 +1,14 @@
+# Copy to terraform.tfvars (gitignored) or pass via TF_VAR_* environment variables.
+# Never commit real account/zone IDs if you prefer keeping them in CI secrets,
+# and never put API tokens in .tfvars files.
+
+cloudflare_account_id   = "00000000000000000000000000000000"
+zone_id                 = "00000000000000000000000000000000"
+canonical_domain        = "notifdex.com"
+pages_project_name      = "notifdex"
+production_branch       = "main"
+github_owner            = "qzyu999"
+github_repo             = "notifdex"
+manage_pages_git_source = false
+enable_www_redirect     = true
+enable_hsts             = false

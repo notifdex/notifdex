@@ -1,0 +1,421 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Notifdex — Your iPhone notifications, kept quietly on your Mac</title>
+  <meta
+    name="description"
+    content="Notifdex sits in your Mac menu bar and indexes the iPhone and Mac notifications macOS shows, saving them locally so you can search, connect people, and follow up."
+  />
+  <link rel="canonical" href="https://notifdex.com/" />
+  <link rel="icon" type="image/png" href="/favicon.png" />
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+  <meta property="og:type" content="website" />
+  <meta property="og:url" content="https://notifdex.com/" />
+  <meta property="og:title" content="Notifdex" />
+  <meta
+    property="og:description"
+    content="Your iPhone notifications, kept quietly on your Mac."
+  />
+  <meta property="og:image" content="https://notifdex.com/og-card.svg" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <link rel="stylesheet" href="/styles.css" />
+  <script defer src="/app.js"></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+
+  <header class="site-header">
+    <div class="container header-inner">
+      <a class="brand" href="/">
+        <img class="brand-icon" src="/app-icon.png" alt="" width="26" height="26" />
+        <span>Notifdex</span>
+      </a>
+      <nav class="nav-links" aria-label="Primary">
+        <a href="#preview">Preview</a>
+        <a href="#index">How it works</a>
+        <a href="#install">Install</a>
+        <a href="/privacy.html">Privacy</a>
+        <a href="https://github.com/qzyu999/notifdex" rel="noopener">GitHub</a>
+      </nav>
+    </div>
+  </header>
+
+  <main id="main">
+    <section class="hero">
+      <div class="container hero-grid">
+        <div class="hero-copy">
+          <p class="hero-kicker">iPhone &rarr; Mac &middot; Local SQLite</p>
+          <h1>Your iPhone notifications, kept quietly on your Mac.</h1>
+          <p class="hero-lead">
+            A message arrives on your phone, appears for a second, and is gone.
+            Notifdex lives in your Mac's menu bar, indexes the notifications macOS receives
+            from your iPhone and desktop, and keeps them in a single file on your disk.
+          </p>
+          <div class="hero-actions">
+            <a class="action-primary" href="#install">Install on macOS</a>
+            <a class="action-link" href="https://github.com/qzyu999/notifdex#run-the-menu-bar-app" rel="noopener">Read the install guide</a>
+          </div>
+          <p class="hero-colophon">Runs locally &middot; No account or cloud sync &middot; Open source</p>
+        </div>
+
+        <div id="hero-stage" class="hero-stage" aria-label="Interactive glass-leaf light study">
+          <img
+            class="hero-fallback"
+            src="/app-icon.png"
+            alt="Notifdex app icon showing translucent blue, coral, and champagne glass leaves"
+            width="256"
+            height="256"
+          />
+          <canvas id="glass-leaves" class="glass-canvas" hidden></canvas>
+        </div>
+      </div>
+    </section>
+
+    <section id="preview" class="plate-section" aria-label="Interactive App Center preview">
+      <div class="container">
+        <div class="plate-header">
+          <div>
+            <p class="plate-label">Plate 01 &middot; App Center</p>
+            <p class="plate-note">Sample data only. This page never reads your device or notifications.</p>
+          </div>
+
+          <div class="atelier-bar">
+            <span class="atelier-caption">Pigment</span>
+            <div class="swatch-group" role="group" aria-label="Window pigment">
+              <button type="button" class="swatch-btn" data-pigment-choice="mineral" aria-pressed="true">
+                <span class="swatch-dot swatch-mineral" aria-hidden="true"></span>
+                <span>Mineral</span>
+              </button>
+              <button type="button" class="swatch-btn" data-pigment-choice="vermilion" aria-pressed="false">
+                <span class="swatch-dot swatch-vermilion" aria-hidden="true"></span>
+                <span>Vermilion</span>
+              </button>
+              <button type="button" class="swatch-btn" data-pigment-choice="prussian" aria-pressed="false">
+                <span class="swatch-dot swatch-prussian" aria-hidden="true"></span>
+                <span>Prussian</span>
+              </button>
+              <button type="button" class="swatch-btn" data-pigment-choice="sienna" aria-pressed="false">
+                <span class="swatch-dot swatch-sienna" aria-hidden="true"></span>
+                <span>Sienna</span>
+              </button>
+              <button type="button" class="swatch-btn" data-pigment-choice="celadon" aria-pressed="false">
+                <span class="swatch-dot swatch-celadon" aria-hidden="true"></span>
+                <span>Celadon</span>
+              </button>
+              <button type="button" class="swatch-btn" data-pigment-choice="nocturne" aria-pressed="false">
+                <span class="swatch-dot swatch-nocturne" aria-hidden="true"></span>
+                <span>Nocturne</span>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div id="demo-app-window" class="app-window" data-pigment="mineral">
+          <div class="window-titlebar">
+            <div class="window-left">
+              <div class="traffic-lights" aria-hidden="true">
+                <span class="tl tl-close"></span>
+                <span class="tl tl-min"></span>
+                <span class="tl tl-max"></span>
+              </div>
+              <span class="window-name">
+                <img src="/app-icon.png" alt="" width="17" height="17" />
+                <span>Notifdex</span>
+              </span>
+            </div>
+            <div class="window-status">
+              <span class="status-dot" aria-hidden="true"></span>
+              <span>Collecting</span>
+            </div>
+          </div>
+
+          <div class="window-shell">
+            <aside class="window-sidebar" role="tablist" aria-label="App Center views">
+              <button type="button" class="sidebar-btn" role="tab" data-app-view="inbox" aria-selected="true">
+                <span>Inbox</span>
+                <span class="sidebar-count">4</span>
+              </button>
+              <button type="button" class="sidebar-btn" role="tab" data-app-view="today" aria-selected="false">
+                <span>Today</span>
+                <span class="sidebar-count">3</span>
+              </button>
+              <button type="button" class="sidebar-btn" role="tab" data-app-view="people" aria-selected="false">
+                <span>People</span>
+                <span class="sidebar-count">4</span>
+              </button>
+              <div class="sidebar-rule" aria-hidden="true"></div>
+              <button type="button" class="sidebar-btn" role="tab" data-app-view="recovery" aria-selected="false">
+                <span>Recovery</span>
+              </button>
+            </aside>
+
+            <div class="window-main">
+              <!-- Inbox -->
+              <div class="view-panel" data-view-panel="inbox" role="tabpanel">
+                <div class="inbox-split">
+                  <div class="inbox-list-col">
+                    <div class="list-toolbar" role="group" aria-label="Filter inbox">
+                      <button type="button" class="hairline-tab" data-inbox-filter="all" aria-pressed="true">All</button>
+                      <button type="button" class="hairline-tab" data-inbox-filter="unread" aria-pressed="false">Unread</button>
+                      <button type="button" class="hairline-tab" data-inbox-filter="flagged" aria-pressed="false">Flagged</button>
+                    </div>
+                    <div id="demo-alert-list" class="alert-list">
+                      <button type="button" class="alert-row" aria-current="true">
+                        <div class="alert-row-meta">
+                          <span class="alert-source"><span class="unread-dot" aria-hidden="true"></span>Messages &middot; iPhone</span>
+                          <span class="alert-time">10:14</span>
+                        </div>
+                        <div class="alert-sender">Maya Chen</div>
+                        <div class="alert-excerpt">Just saw the new glass icon on my desk — Thursday at two still works to walk through the iPhone forwarding tests.</div>
+                      </button>
+                    </div>
+                  </div>
+
+                  <div class="inspector-col" aria-live="polite">
+                    <div>
+                      <div id="detail-meta" class="inspector-meta">Messages &middot; Today, 10:14 AM &middot; Forwarded from iPhone</div>
+                      <h2 id="detail-title" class="inspector-title">Maya Chen</h2>
+                      <p id="detail-body" class="inspector-body">
+                        Just saw the new glass icon on my desk — Thursday at two still works to walk through the iPhone forwarding tests.
+                      </p>
+                      <div class="inspector-actions">
+                        <span id="detail-action" class="mini-btn mini-btn-accent">Open in Messages</span>
+                        <span class="mini-btn">Flag</span>
+                        <span class="mini-btn">Hide similar</span>
+                      </div>
+                    </div>
+
+                    <div class="inspector-fields">
+                      <div>
+                        <div class="field-label">Person</div>
+                        <div id="detail-person" class="field-value">Maya Chen</div>
+                      </div>
+                      <div>
+                        <div class="field-label">Workspace</div>
+                        <div id="detail-workspace" class="field-value">Advisory</div>
+                      </div>
+                      <div>
+                        <div class="field-label">Follow-up</div>
+                        <div id="detail-followup" class="field-value">Thursday, 2:00 PM</div>
+                      </div>
+                      <div>
+                        <div class="field-label">Origin</div>
+                        <div id="detail-device" class="field-value">iPhone &rarr; Mac</div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Today -->
+              <div class="view-panel" data-view-panel="today" role="tabpanel" hidden>
+                <div class="single-pane">
+                  <h3>Today</h3>
+                  <p class="pane-sub">Dated follow-ups attached to captured notifications.</p>
+                  <ul class="hairline-list">
+                    <li class="followup-row">
+                      <div>
+                        <div class="followup-title alert-sender">Reply to Maya Chen with the iPhone test checklist</div>
+                        <div class="field-label">Thursday, 2:00 PM &middot; Messages &middot; Advisory</div>
+                      </div>
+                      <button type="button" class="followup-toggle" data-toggle-followup aria-pressed="false">Done</button>
+                    </li>
+                    <li class="followup-row">
+                      <div>
+                        <div class="followup-title alert-sender">Confirm coffee with David Park</div>
+                        <div class="field-label">Today, 3:15 PM &middot; WhatsApp &middot; Personal</div>
+                      </div>
+                      <button type="button" class="followup-toggle" data-toggle-followup aria-pressed="false">Done</button>
+                    </li>
+                    <li class="followup-row">
+                      <div>
+                        <div class="followup-title alert-sender">Review Elena Morales contrast notes</div>
+                        <div class="field-label">Friday, 10:00 AM &middot; Gmail &middot; Design</div>
+                      </div>
+                      <button type="button" class="followup-toggle" data-toggle-followup aria-pressed="false">Done</button>
+                    </li>
+                  </ul>
+                </div>
+              </div>
+
+              <!-- People -->
+              <div class="view-panel" data-view-panel="people" role="tabpanel" hidden>
+                <div class="single-pane">
+                  <div class="people-grid">
+                    <div>
+                      <h3>Maya Chen</h3>
+                      <p class="pane-sub">Advisory, Founders &middot; Linked explicitly across Messages, WhatsApp, and Gmail.</p>
+                      <div class="field-label">Shared note</div>
+                      <p class="note-excerpt">
+                        Testing forwarded iPhone alerts across Messages and Gmail. Prefers light Mineral glass; next check-in Thursday at two.
+                      </p>
+                    </div>
+                    <div>
+                      <div class="field-label">Recent timeline</div>
+                      <ul class="hairline-list">
+                        <li>
+                          <div class="alert-row-meta">
+                            <span class="alert-source">Messages &middot; iPhone</span>
+                            <span class="alert-time">10:14</span>
+                          </div>
+                          <div class="alert-excerpt">Just saw the new glass icon on my desk — Thursday at two still works.</div>
+                        </li>
+                        <li>
+                          <div class="alert-row-meta">
+                            <span class="alert-source">WhatsApp &middot; iPhone</span>
+                            <span class="alert-time">Tue</span>
+                          </div>
+                          <div class="alert-excerpt">Sending two synthetic messages to test Notification Center recovery.</div>
+                        </li>
+                        <li>
+                          <div class="alert-row-meta">
+                            <span class="alert-source">Gmail &middot; iPhone</span>
+                            <span class="alert-time">Mon</span>
+                          </div>
+                          <div class="alert-excerpt">Shared the notes from our walkthrough.</div>
+                        </li>
+                      </ul>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Recovery -->
+              <div class="view-panel" data-view-panel="recovery" role="tabpanel" hidden>
+                <div class="single-pane">
+                  <h3>Recovery</h3>
+                  <p class="pane-sub">
+                    Scans notifications still held in Notification Center and records gaps when your Mac was asleep.
+                  </p>
+                  <ul class="hairline-list">
+                    <li>
+                      <div class="alert-row-meta">
+                        <span class="alert-source">Wake scan completed</span>
+                        <span class="alert-time">08:02</span>
+                      </div>
+                      <div class="alert-excerpt">3 retained notifications saved to local SQLite.</div>
+                    </li>
+                    <li>
+                      <div class="alert-row-meta">
+                        <span class="alert-source">Coverage gap</span>
+                        <span class="alert-time">00:15 – 08:01</span>
+                      </div>
+                      <div class="alert-excerpt">Mac asleep. Alerts cleared on iPhone during this window remain unknown.</div>
+                    </li>
+                  </ul>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="index" class="editorial-section">
+      <div class="container">
+        <div class="section-intro">
+          <h2>A quiet index for fleeting alerts.</h2>
+          <p>
+            Most important pings start on your iPhone. With iPhone notifications forwarded to your Mac,
+            Notifdex records what macOS shows—nothing more, nothing hidden.
+          </p>
+        </div>
+
+        <div class="index-rows">
+          <article class="index-row">
+            <span class="index-num">01</span>
+            <h3>iPhone &amp; Mac, one inbox</h3>
+            <p>
+              Search alerts across Messages, WhatsApp, Gmail, X, Slack, Discord, and LinkedIn.
+              Flag what needs a reply, or hide recurring noise with a rule you can undo.
+            </p>
+          </article>
+
+          <article class="index-row">
+            <span class="index-num">02</span>
+            <h3>People, not just threads</h3>
+            <p>
+              Link alerts from different apps to one person, across as many workspaces as you keep.
+              Notifdex never merges people automatically by display name.
+            </p>
+          </article>
+
+          <article class="index-row">
+            <span class="index-num">03</span>
+            <h3>Follow-ups and notes</h3>
+            <p>
+              Attach a due date to any notification and work through it in Today.
+              Notes on a person's card stay in sync with your personal notebook.
+            </p>
+          </article>
+
+          <article class="index-row">
+            <span class="index-num">04</span>
+            <h3>Local, and honest about gaps</h3>
+            <p>
+              Everything lives in a single SQLite file on your Mac. No sign-in, no sync server.
+              When your Mac sleeps or macOS hides a preview, Notifdex logs the gap rather than guessing.
+            </p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section id="install" class="editorial-section">
+      <div class="container install-grid">
+        <div class="install-notes">
+          <h2>Build on macOS</h2>
+          <p>
+            Notifdex is built from source while signed public releases
+            (<a href="https://github.com/qzyu999/notifdex/issues/20" rel="noopener">#20</a>,
+            <a href="https://github.com/qzyu999/notifdex/issues/22" rel="noopener">#22</a>) are underway.
+            Requires Apple Command Line Tools.
+          </p>
+          <ol class="install-steps">
+            <li>Turn on <strong>Allow notifications from iPhone</strong> in macOS Settings if you want iPhone alerts indexed.</li>
+            <li>Open <strong>App Center</strong> from the menu bar and grant Accessibility access.</li>
+            <li>Choose the apps to watch under <strong>Apps</strong>.</li>
+          </ol>
+          <p class="mt-24 inline-links">
+            <a href="https://github.com/qzyu999/notifdex#run-the-menu-bar-app" rel="noopener">Full install guide</a>
+            &middot;
+            <a href="https://github.com/qzyu999/notifdex/blob/main/docs/reliability.md" rel="noopener">Reliability notes</a>
+            &middot;
+            <a href="https://github.com/qzyu999/notifdex/issues" rel="noopener">Support &amp; issues</a>
+          </p>
+        </div>
+
+        <div class="code-frame">
+          <div class="code-bar">
+            <span>Terminal</span>
+            <button type="button" id="copy-install-btn" class="action-subtle">Copy</button>
+          </div>
+          <pre><code id="install-command">git clone https://github.com/qzyu999/notifdex.git
+cd notifdex
+bash tools/build-app.sh
+mkdir -p "$HOME/Applications"
+ditto dist/Notifdex.app "$HOME/Applications/Notifdex.app"
+open "$HOME/Applications/Notifdex.app"</code></pre>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer id="support" class="site-footer">
+    <div class="container footer-inner">
+      <div class="footer-brand">
+        <img src="/app-icon.png" alt="" width="18" height="18" />
+        <span>Notifdex &middot; Local notification index for iPhone &amp; Mac</span>
+      </div>
+      <div class="footer-links">
+        <a href="/privacy.html">Privacy</a>
+        <a href="https://github.com/qzyu999/notifdex#run-the-menu-bar-app" rel="noopener">Install guide</a>
+        <a href="https://github.com/qzyu999/notifdex" rel="noopener">GitHub</a>
+        <a href="https://github.com/qzyu999/notifdex/issues" rel="noopener">Support</a>
+      </div>
+    </div>
+  </footer>
+</body>
+</html>

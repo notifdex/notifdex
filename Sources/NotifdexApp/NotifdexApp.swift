@@ -497,6 +497,27 @@ struct AppCenter: View {
                     ))
                     .toggleStyle(.switch)
                     .disabled(!model.state.ready || model.saving)
+
+                    if let recoveryError = model.state.recoveryError {
+                        HStack(alignment: .top, spacing: 10) {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .foregroundStyle(.orange)
+                                .padding(.top, 2)
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(recoveryError)
+                                    .font(.callout)
+                                    .foregroundStyle(.primary)
+                                    .textSelection(.enabled)
+                                Text("Live capture is still running. Open Notification Center manually or click Recover now to retry.")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            Spacer(minLength: 8)
+                        }
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 9)
+                        .notifdexSurface(.card)
+                    }
                 }
 
                 Rectangle().fill(Color.primary.opacity(0.09)).frame(height: 0.5)

@@ -19,8 +19,10 @@ private func smokeTrace(_ message: String) {
 final class AppModel: ObservableObject {
     static let shared = AppModel()
     @Published var state = AppCaptureState()
-    @Published var saving = false
+    @Published private var savingCount = 0
     @Published var uiError: String?
+
+    var saving: Bool { savingCount > 0 }
     @Published var loginEnabled = false
     @Published var loginPending = false
     // Keep the form draft in the window's model. The standalone macOS
@@ -69,9 +71,13 @@ final class AppModel: ObservableObject {
         }
     }
 
-    func change(_ update: @escaping (inout CaptureSettings) throws -> Void) {
-        saving = true
-        worker.updateSettings(update) { [weak self] in self?.saving = false }
+    func change(_ update: @escaping (inout CaptureSettings) throws -> Void, onSuccess: @escaping () -> Void = {}) {
+        savingCount += 1
+        worker.updateSettings(update) { [weak self] in
+            guard let self else { return }
+            self.savingCount = max(0, self.savingCount - 1)
+            if self.state.error == nil { onSuccess() }
+        }
     }
 
     func permission() {
@@ -449,11 +455,12 @@ struct AppCenter: View {
 
                     Button("Add app") {
                         let label = model.customLabel
-                        model.change { try $0.addCustomApp(label: label) }
-                        model.customLabel = ""
+                        model.change({ try $0.addCustomApp(label: label) }) {
+                            model.customLabel = ""
+                        }
                     }
                     .buttonStyle(NotifdexGlassButtonStyle(emphasis: .prominent))
-                    .disabled(model.customLabel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !model.state.ready)
+                    .disabled(model.customLabel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !model.state.ready || model.saving)
                 }
                 Text("App labels must match notifications as shown by macOS. Enable each app you want to collect.")
                     .font(.caption)

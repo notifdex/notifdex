@@ -61,8 +61,10 @@ public final class CaptureWorker {
     private var notify: ((AppCaptureState) -> Void)?
     private let isTrusted: () -> Bool
     private let readSnapshot: (String, Set<String>) throws -> Snapshot
+    private let makeRecovery: () -> RecoverySession
     private var needsRecovery = true
-    private var automation: RecoveryAutomation?
+    private var recoveryFailed = false
+    private var automation: RecoverySession?
     private var recoveryInserted = 0
     private var recoveryDuplicateSightings = 0
     private var recoveryPeakObserved = 0
@@ -73,14 +75,18 @@ public final class CaptureWorker {
         self.init(directory: directory, isTrusted: AXIsProcessTrusted, readSnapshot: snapshot(source:allowedApps:))
     }
 
-    init(directory: URL, isTrusted: @escaping () -> Bool, readSnapshot: @escaping (String, Set<String>) throws -> Snapshot) {
+    init(directory: URL, isTrusted: @escaping () -> Bool,
+         readSnapshot: @escaping (String, Set<String>) throws -> Snapshot,
+         makeRecovery: @escaping () -> RecoverySession = { RecoveryAutomation() }) {
         self.directory = directory
         self.isTrusted = isTrusted
         self.readSnapshot = readSnapshot
+        self.makeRecovery = makeRecovery
     }
 
     public func start(onChange: @escaping (AppCaptureState) -> Void) {
-        queue.async {
+        queue.async { [weak self] in
+            guard let self else { return }
             self.notify = onChange
             guard self.timer == nil else { self.emit(); return }
             do {
@@ -96,6 +102,7 @@ public final class CaptureWorker {
                     ? String(sources[0].dropLast(suffix.count)) : "mac-" + UUID().uuidString
                 self.state.settings = try self.settingsStore.loadOrCreate(sourceID: source)
                 self.needsRecovery = self.state.settings?.automaticRecovery ?? false
+                self.recoveryFailed = false
                 self.lastPermission = false
                 self.lastPoll = Date().timeIntervalSince1970
                 self.runID = try store.startRun(at: Date().timeIntervalSince1970)
@@ -161,7 +168,7 @@ public final class CaptureWorker {
         queue.async {
             self.state.sleeping = value
             if value {
-                self.endRecovery(reason: "Recovery stopped for sleep")
+                self.endRecovery(reason: "Recovery stopped for sleep", finishTimeout: 0.5)
                 if let store = self.store, let run = self.runID {
                     do { try store.openGap(runID: run, reason: "sleep", at: Date().timeIntervalSince1970) }
                     catch { self.fail(error) }
@@ -175,11 +182,13 @@ public final class CaptureWorker {
         queue.async {
             self.timer?.cancel()
             self.timer = nil
-            self.endRecovery(reason: "Recovery stopped")
+            self.endRecovery(reason: "Recovery stopped", finishTimeout: 0.5)
             if let store = self.store, let run = self.runID {
                 do { try store.finishRun(runID: run, at: Date().timeIntervalSince1970) }
                 catch { self.state.error = String(describing: error) }
             }
+            self.state.ready = false
+            self.runID = nil
             self.store = nil
             self.owner = nil
             onAppMainLoop(completion)
@@ -189,13 +198,14 @@ public final class CaptureWorker {
     private func tick(manualRecovery: Bool = false) {
         guard state.ready, let store = store, let run = runID, let settings = state.settings else { return }
         let now = Date().timeIntervalSince1970
-        let interrupted = now - lastPoll > 3 || now < lastPoll
+        let previousPoll = lastPoll
+        let interrupted = now - previousPoll > 3 || now < previousPoll
         lastPoll = now
         state.permissionGranted = isTrusted()
         if state.permissionGranted && !lastPermission { needsRecovery = settings.automaticRecovery || manualRecovery }
         lastPermission = state.permissionGranted
         do {
-            if interrupted { try store.openGap(runID: run, reason: "poll_interruption", at: now) }
+            if interrupted { try store.openGap(runID: run, reason: "poll_interruption", at: min(now, previousPoll)) }
             guard !state.sleeping else { state.status = "Sleeping"; emit(); return }
             guard !settings.paused, !settings.allowedLabels.isEmpty else {
                 endRecovery(reason: "Recovery stopped while capture is paused")
@@ -208,16 +218,18 @@ public final class CaptureWorker {
             guard state.permissionGranted else {
                 endRecovery(reason: "Recovery needs Accessibility permission")
                 try store.openGap(runID: run, reason: "permission", at: now)
+                try store.heartbeat(runID: run, at: now)
                 state.status = "Accessibility permission needed"
                 emit()
                 return
             }
             if automation == nil && needsRecovery && (settings.automaticRecovery || manualRecovery) {
                 needsRecovery = false
-                let recovery = RecoveryAutomation()
+                let recovery = makeRecovery()
                 do {
                     try recovery.begin()
                     automation = recovery
+                    recoveryFailed = false
                     recoveryInserted = 0
                     recoveryDuplicateSightings = 0
                     recoveryPeakObserved = 0
@@ -227,7 +239,10 @@ public final class CaptureWorker {
                     emit()
                     return // Let the panel settle before reading it.
                 } catch {
-                    state.recoveryStatus = String(describing: error)
+                    recoveryFailed = true
+                    let message = String(describing: error)
+                    state.recoveryStatus = message
+                    state.error = message
                     try store.openGap(runID: run, reason: "recovery_navigation", at: now)
                 }
             }
@@ -243,8 +258,9 @@ public final class CaptureWorker {
             state.lastScan = "Observed \(result.observed) · New \(result.inserted) · Duplicates \(result.duplicates) · Issues \(scan.issues.count)"
             state.status = automation == nil ? "Collecting accessible alerts" : "Recovering retained alerts"
             if scan.issues.isEmpty {
-                state.error = nil
-                try store.recover(runID: run, at: Date().timeIntervalSince1970)
+                if !recoveryFailed { state.error = nil }
+                try store.recover(runID: run, at: Date().timeIntervalSince1970,
+                                  excluding: recoveryFailed ? ["recovery_navigation"] : [])
             } else {
                 try store.openGap(runID: run, reason: "partial_scan", at: now)
                 state.error = scan.issues.first
@@ -257,9 +273,16 @@ public final class CaptureWorker {
                 do {
                     if let reason = try recovery.advance(allowedApps: settings.allowedLabels) {
                         endRecovery(reason: reason)
+                        recoveryFailed = false
+                        if scan.issues.isEmpty {
+                            state.error = nil
+                            try store.recover(runID: run, at: Date().timeIntervalSince1970)
+                        }
                     }
                 } catch {
+                    recoveryFailed = true
                     endRecovery(reason: "Recovery navigation stopped: \(error)")
+                    state.error = String(describing: error)
                     try store.openGap(runID: run, reason: "recovery_navigation", at: now)
                 }
             }
@@ -268,16 +291,18 @@ public final class CaptureWorker {
             endRecovery(reason: "Recovery stopped: \(error)")
             state.status = error.description
             state.lastCaptureIssue = error.description
-            do { try store.openGap(runID: run, reason: "accessibility_unavailable", at: now) }
-            catch { fail(error) }
+            do {
+                try store.openGap(runID: run, reason: "accessibility_unavailable", at: now)
+                try store.heartbeat(runID: run, at: now)
+            } catch { fail(error) }
         } catch { fail(error) }
         emit()
     }
 
-    private func endRecovery(reason: String) {
+    private func endRecovery(reason: String, finishTimeout: TimeInterval = 3) {
         guard let recovery = automation else { return }
         state.recoveryStatus = "Saved \(recoveryInserted); peak observed \(recoveryPeakObserved); duplicate sightings \(recoveryDuplicateSightings). \(reason)"
-        do { try recovery.finish() }
+        do { try recovery.finish(timeout: finishTimeout) }
         catch { state.recoveryStatus += " Panel cleanup failed: \(error)" }
         automation = nil
         state.recovering = false
@@ -293,10 +318,11 @@ public final class CaptureWorker {
     private func fail(_ error: Error) {
         timer?.cancel()
         timer = nil
-        endRecovery(reason: "Recovery stopped after a storage error")
+        endRecovery(reason: "Recovery stopped after a storage error", finishTimeout: 0.5)
         state.ready = false
         state.status = "Capture stopped after an error"
         state.error = String(describing: error)
+        runID = nil
         store = nil
         owner = nil
     }

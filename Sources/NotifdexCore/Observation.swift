@@ -6,7 +6,19 @@ public enum NotificationOrigin: String, Codable {
 
 /// Evidence from a rendered alert. App labels and display names are unverified text.
 public struct Observation: Codable {
-    private static let appLabelDirectionMarks = CharacterSet(charactersIn: "\u{061C}\u{200E}\u{200F}")
+    public static let appLabelDirectionMarks = CharacterSet(charactersIn: "\u{061C}\u{200E}\u{200F}")
+
+    public static func normalizedAppLabel(_ raw: String) -> String {
+        raw.trimmingCharacters(in: appLabelDirectionMarks)
+    }
+
+    public static func leadingAppToken(in description: String) -> String? {
+        let normalized = normalizedAppLabel(description)
+        guard let comma = normalized.firstIndex(of: ",") else { return nil }
+        let token = normalizedAppLabel(String(normalized[..<comma]))
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return token.isEmpty ? nil : token
+    }
 
     public var sourceID: String
     public var sourceEventID: String

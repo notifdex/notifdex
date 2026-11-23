@@ -84,7 +84,12 @@ final class InboxTriageTests: XCTestCase {
         try store.setFlag(42, flagged: false)
         try store.setFlag(42, flagged: false)
         XCTAssertTrue(try store.inbox(query).isEmpty)
+        let retainedAfterUnflag = try XCTUnwrap(store.selectedInboxEntry(42, in: query))
+        XCTAssertEqual(retainedAfterUnflag.id, 42)
+        XCTAssertFalse(retainedAfterUnflag.isFlagged)
+        try store.hideAlert(42)
         XCTAssertNil(try store.selectedInboxEntry(42, in: query))
+        try store.restoreAlert(42)
         XCTAssertEqual(try store.inbox(InboxQuery()).first?.saved, true)
     }
 }

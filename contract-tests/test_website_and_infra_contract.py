@@ -31,18 +31,26 @@ class WebsiteAndCloudflareInfraContractTests(unittest.TestCase):
 
     def test_website_avoids_rolodex_branding_and_includes_required_links(self):
         src_dir = WEBSITE / "src"
+        text_suffixes = {".html", ".css", ".js", ".svg", ".txt", ".xml", ""}
         combined = "\n".join(
             path.read_text(encoding="utf-8")
             for path in sorted(src_dir.iterdir())
-            if path.is_file()
+            if path.is_file() and path.suffix in text_suffixes
         )
         self.assertIsNone(re.search(r"\brolodex\b", combined, re.IGNORECASE))
 
+        self.assertTrue((src_dir / "app-icon.png").is_file())
+        self.assertTrue((src_dir / "favicon.png").is_file())
+
         index_html = (src_dir / "index.html").read_text(encoding="utf-8")
         self.assertIn('rel="canonical" href="https://notifdex.com/"', index_html)
+        self.assertIn("/app-icon.png", index_html)
         self.assertIn("https://github.com/qzyu999/notifdex#run-the-menu-bar-app", index_html)
         self.assertIn("https://github.com/qzyu999/notifdex/issues", index_html)
         self.assertIn('href="/privacy.html"', index_html)
+
+        styles_css = (src_dir / "styles.css").read_text(encoding="utf-8")
+        self.assertIn("scroll-margin-top:", styles_css)
 
         headers = (src_dir / "_headers").read_text(encoding="utf-8")
         self.assertIn("https://notifdex.pages.dev/*", headers)

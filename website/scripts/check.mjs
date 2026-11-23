@@ -20,7 +20,9 @@ const requiredFiles = [
   "404.html",
   "styles.css",
   "app.js",
-  "favicon.svg",
+  "app-icon.png",
+  "apple-touch-icon.png",
+  "favicon.png",
   "og-card.svg",
   "_headers",
   "robots.txt",
@@ -39,20 +41,26 @@ if (failures.length === 0) {
   const robots = readFileSync(path.join(distDir, "robots.txt"), "utf8");
   const sitemap = readFileSync(path.join(distDir, "sitemap.xml"), "utf8");
   const appJs = readFileSync(path.join(distDir, "app.js"), "utf8");
+  const stylesCss = readFileSync(path.join(distDir, "styles.css"), "utf8");
 
   // Branding compliance (#38): avoid "Rolodex" in public website assets.
   const publicBundle = `${indexHtml}\n${privacyHtml}\n${notFoundHtml}\n${appJs}`;
   assert(!/\brolodex\b/i.test(publicBundle), "Public website must not use the term 'Rolodex' (see issue #38)");
 
-  // Canonical host and required links (#57)
+  // Canonical host, bundled icon, and required links (#57)
   assert(indexHtml.includes('rel="canonical" href="https://notifdex.com/"'), "index.html missing canonical link for https://notifdex.com/");
   assert(privacyHtml.includes('rel="canonical" href="https://notifdex.com/privacy.html"'), "privacy.html missing canonical link");
+  assert(indexHtml.includes("/app-icon.png"), "index.html should reference the bundled app icon (/app-icon.png)");
+  assert(indexHtml.includes("/favicon.png"), "index.html should reference /favicon.png");
   assert(indexHtml.includes("https://github.com/qzyu999/notifdex"), "index.html missing GitHub repository link");
   assert(indexHtml.includes("https://github.com/qzyu999/notifdex#run-the-menu-bar-app"), "index.html missing install guide link");
   assert(indexHtml.includes("https://github.com/qzyu999/notifdex/issues"), "index.html missing support link");
   assert(indexHtml.includes('href="/privacy.html"'), "index.html missing link to /privacy.html");
 
-  // CSP hygiene: no inline event handlers or inline scripts in HTML pages
+  // Sticky header scroll offset protection
+  assert(/scroll-margin-top\s*:/.test(stylesCss), "styles.css should set scroll-margin-top so anchored sections clear the sticky header");
+
+  // CSP hygiene: no inline event handlers, inline styles, or inline scripts in HTML pages
   for (const [name, html] of [
     ["index.html", indexHtml],
     ["privacy.html", privacyHtml],
@@ -90,4 +98,4 @@ if (failures.length > 0) {
   process.exit(1);
 }
 
-console.log("Website verification passed (all files, links, CSP hygiene, headers, and branding checks OK).");
+console.log("Website verification passed (all files, links, CSP hygiene, headers, scroll offsets, and branding checks OK).");

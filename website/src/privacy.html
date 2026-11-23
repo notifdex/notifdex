@@ -6,22 +6,23 @@
   <title>Privacy — Notifdex</title>
   <meta
     name="description"
-    content="How Notifdex handles data locally on your Mac and what the static notifdex.com website does (and does not) collect."
+    content="How Notifdex stores notifications locally on your Mac and what notifdex.com does and does not collect."
   />
   <link rel="canonical" href="https://notifdex.com/privacy.html" />
-  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  <link rel="icon" type="image/png" href="/favicon.png" />
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
   <link rel="stylesheet" href="/styles.css" />
 </head>
 <body>
-  <a class="skip-link" href="#main">Skip to main content</a>
+  <a class="skip-link" href="#main">Skip to content</a>
 
   <header class="site-header">
     <div class="container header-inner">
       <a class="brand" href="/">
-        <img src="/favicon.svg" alt="" width="28" height="28" />
+        <img class="brand-icon" src="/app-icon.png" alt="" width="26" height="26" />
         <span>Notifdex</span>
       </a>
-      <nav class="nav-links" aria-label="Primary navigation">
+      <nav class="nav-links" aria-label="Primary">
         <a href="/">Home</a>
         <a href="/#install">Install</a>
         <a href="https://github.com/qzyu999/notifdex" rel="noopener">GitHub</a>
@@ -31,76 +32,67 @@
   </header>
 
   <main id="main" class="container prose">
-    <h1>Privacy &amp; Local Data</h1>
-    <p>
-      Notifdex is designed so your notification history, People profiles, and notes stay on your Mac —
-      not on our servers.
+    <h1>Privacy</h1>
+    <p class="prose-lead">
+      Your notifications, people, and notes stay on your Mac. This website is static, sets no
+      cookies, and has no connection to your device.
     </p>
 
-    <div class="callout">
-      <strong>Short version:</strong> The public website at <code>notifdex.com</code> is a static site
-      with no user accounts, no tracking cookies, and no access to your Mac or notifications. The macOS
-      app stores all captured alerts and notes locally in SQLite on your device.
-    </div>
-
-    <h2>1. The Notifdex macOS app</h2>
+    <h2>The macOS app</h2>
     <ul>
       <li>
-        <strong>Local storage only:</strong> Captured notification previews, Accessibility metadata, People
-        links, notes, and follow-ups are stored in <code>~/Library/Application Support/Notifdex/capture.db</code>
-        with private file permissions. Note that SQLite itself is unencrypted on disk; standard macOS
-        FileVault disk encryption protects data at rest.
+        <strong>Local storage:</strong> Captured alerts, people links, notes, and follow-ups are
+        written to <code>~/Library/Application Support/Notifdex/capture.db</code> with private file
+        permissions. SQLite itself is unencrypted; macOS FileVault protects the disk at rest.
       </li>
       <li>
-        <strong>No account credentials:</strong> Notifdex reads notification previews macOS exposes via
-        Accessibility for the apps you explicitly enable. It does not sign in to your email, messaging, or
-        social accounts.
+        <strong>No account logins:</strong> Notifdex reads notification previews macOS exposes via
+        Accessibility—including iPhone notifications forwarded to your Mac—for apps you enable.
+        It never asks for your email or messaging credentials.
       </li>
       <li>
-        <strong>Best-effort capture and gaps:</strong> macOS may redact locked-screen previews or clear
-        banners while your Mac is asleep. Notifdex records coverage gaps transparently rather than claiming
-        complete delivery.
+        <strong>Honest gaps:</strong> Locked-screen redactions, Focus modes, and Mac sleep can leave
+        gaps. Notifdex records coverage gaps instead of claiming complete capture.
       </li>
       <li>
-        <strong>Future optional AI features:</strong> Any future AI summarization or chat capabilities
-        (tracked in <a href="https://github.com/qzyu999/notifdex/issues/5" rel="noopener">#5</a> and
-        <a href="https://github.com/qzyu999/notifdex/issues/48" rel="noopener">#48</a>) will require explicit
-        opt-in and keep local capture and storage usable offline.
+        <strong>Optional AI:</strong> Any future summarization or chat features
+        (<a href="https://github.com/qzyu999/notifdex/issues/5" rel="noopener">#5</a>,
+        <a href="https://github.com/qzyu999/notifdex/issues/48" rel="noopener">#48</a>) will be
+        strictly opt-in while local indexing remains fully offline.
       </li>
     </ul>
 
-    <h2>2. The public website (<code>notifdex.com</code>)</h2>
+    <h2>This website</h2>
     <ul>
       <li>
-        <strong>Static hosting:</strong> Hosted on Cloudflare Pages. All examples shown in the interactive
-        preview use fictional, synthetic sample data.
+        <strong>Static files only:</strong> Served on Cloudflare Pages with no third-party scripts,
+        fonts, or tracking cookies. Every notification shown in the preview is fictional.
       </li>
       <li>
-        <strong>No cookies or third-party trackers:</strong> This site sets no advertising or analytics
-        cookies and loads no third-party scripts or fonts.
-      </li>
-      <li>
-        <strong>Infrastructure logs:</strong> Standard CDN edge networking (Cloudflare) processes IP
-        addresses and request metadata transiently to serve HTTPS traffic and mitigate abuse.
+        <strong>Network transport:</strong> Cloudflare handles standard HTTPS edge delivery and
+        abuse protection transiently.
       </li>
     </ul>
 
-    <h2>3. Reporting bugs without leaking personal data</h2>
+    <h2>Reporting issues</h2>
     <p>
-      When opening a support issue on
-      <a href="https://github.com/qzyu999/notifdex/issues" rel="noopener">GitHub Issues</a>, please share
-      only sanitized diagnostics (scan counts, app labels, and synthetic test messages) and never upload
-      personal messages or your <code>capture.db</code> file.
+      When filing a bug on
+      <a href="https://github.com/qzyu999/notifdex/issues" rel="noopener">GitHub Issues</a>, share
+      only sanitized diagnostics or synthetic test alerts—never personal messages or
+      <code>capture.db</code>.
     </p>
 
     <p class="mt-32">
-      <a class="btn btn-secondary" href="/">Back to notifdex.com</a>
+      <a class="action-link" href="/">&larr; Back to notifdex.com</a>
     </p>
   </main>
 
   <footer class="site-footer">
     <div class="container footer-inner">
-      <div>Notifdex · Local-first macOS notification inbox &amp; relationship notebook.</div>
+      <div class="footer-brand">
+        <img src="/app-icon.png" alt="" width="18" height="18" />
+        <span>Notifdex &middot; Local notification index for iPhone &amp; Mac</span>
+      </div>
       <div class="footer-links">
         <a href="/">Home</a>
         <a href="https://github.com/qzyu999/notifdex" rel="noopener">GitHub</a>

@@ -70,10 +70,10 @@ Never use Global API Keys or Inference Exchange tokens. Create **two** scoped Cl
 
 1. **`notifdex-tofu-plan` (read-only — used for PR/manual plan checks):**
    - Account (`Qzyu999`): `Cloudflare Pages: Read`
-   - Zone (`notifdex.com` ONLY): `Zone: Read`, `Zone Settings: Read`, `DNS: Read`, `Single Redirect: Read` (or `Zone Rulesets: Read`)
+   - Zone (`notifdex.com` ONLY): `Zone: Read`, `Zone Settings: Read`, `DNS: Read`, `Dynamic URL Redirects: Read` (shown as `Single Redirect: Read` in some dashboard views)
 2. **`notifdex-tofu-apply` (read/write — restricted to the protected GitHub `cloudflare-prod` environment):**
    - Account (`Qzyu999`): `Cloudflare Pages: Edit`
-   - Zone (`notifdex.com` ONLY): `Zone: Read`, `Zone Settings: Edit`, `DNS: Edit`, `Single Redirect: Edit` (or `Zone Rulesets: Edit`)
+   - Zone (`notifdex.com` ONLY): `Zone: Read`, `Zone Settings: Edit`, `DNS: Edit`, `Dynamic URL Redirects: Edit` (shown as `Single Redirect: Edit` in some dashboard views)
 
 ### Token rotation
 

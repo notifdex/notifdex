@@ -9,6 +9,6 @@ pages_project_name      = "notifdex"
 production_branch       = "main"
 github_owner            = "notifdex"
 github_repo             = "notifdex"
-manage_pages_git_source = false
+manage_pages_git_source = true
 enable_www_redirect     = true
 enable_hsts             = false

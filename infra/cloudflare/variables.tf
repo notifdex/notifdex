@@ -59,9 +59,9 @@ variable "github_repo" {
 }
 
 variable "manage_pages_git_source" {
-  description = "Whether OpenTofu manages the GitHub source block on the Pages project. Keep false until the one-time Cloudflare GitHub App OAuth connection is authorized and the project is imported."
+  description = "Whether OpenTofu manages the GitHub source block on the Pages project. Keep true after the one-time Cloudflare GitHub App OAuth connection is authorized and the project is imported so applies preserve the repo binding."
   type        = bool
-  default     = false
+  default     = true
 }
 
 variable "enable_www_redirect" {

@@ -107,6 +107,7 @@ final class AppearanceSettings: ObservableObject {
 
     private let defaults: UserDefaults
     let backdropURL: URL
+    private var backdropGeneration = 0
 
     @Published var surfaceMode: AppSurfaceMode {
         didSet { defaults.set(surfaceMode.rawValue, forKey: Keys.surfaceMode) }
@@ -195,18 +196,23 @@ final class AppearanceSettings: ObservableObject {
     }
 
     func loadSavedBackdrop() {
+        backdropGeneration += 1
+        let generation = backdropGeneration
         let url = backdropURL
         Task {
             let loaded: NSImage? = await Task.detached(priority: .utility) {
                 guard let data = try? Data(contentsOf: url) else { return nil }
                 return NSImage(data: data)
             }.value
+            guard self.backdropGeneration == generation else { return }
             self.customBackdropImage = loaded
         }
     }
 
     func importBackdrop(_ result: Result<URL, Error>) {
         backdropError = nil
+        backdropGeneration += 1
+        let generation = backdropGeneration
         let destination = backdropURL
         Task {
             do {
@@ -214,9 +220,11 @@ final class AppearanceSettings: ObservableObject {
                 let image: NSImage = try await Task.detached(priority: .userInitiated) {
                     try Self.copyAndValidateImage(from: source, to: destination)
                 }.value
+                guard self.backdropGeneration == generation else { return }
                 self.customBackdropImage = image
                 self.surfaceMode = .customImage
             } catch {
+                guard self.backdropGeneration == generation else { return }
                 self.backdropError = error.localizedDescription
             }
         }
@@ -224,6 +232,7 @@ final class AppearanceSettings: ObservableObject {
 
     func removeCustomBackdrop() {
         backdropError = nil
+        backdropGeneration += 1
         let url = backdropURL
         customBackdropImage = nil
         if surfaceMode == .customImage {

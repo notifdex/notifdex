@@ -43,10 +43,16 @@ private func readBanner<Node>(_ node: Node, source: String, allowedApps: Set<Str
         title: fields["title"] ?? "", subtitle: fields["subtitle"] ?? "",
         body: fields["body"] ?? ""
     )
-    guard let app = observation.appLabel else {
+    if let app = observation.appLabel {
+        guard allowedApps.contains(app) else { return nil }
+    } else {
+        // Ignore malformed/body-less banners clearly originating from unmonitored apps.
+        if let leading = Observation.leadingAppToken(in: description),
+           !allowedApps.contains(leading) {
+            return nil
+        }
         throw CaptureError(description: "Unrecognized banner description; app attribution unavailable")
     }
-    guard allowedApps.contains(app) else { return nil }
     guard !identifier.isEmpty else { throw CaptureError(description: "Banner ID unavailable") }
     return observation
 }

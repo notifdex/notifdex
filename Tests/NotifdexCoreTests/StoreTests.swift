@@ -171,4 +171,45 @@ final class StoreTests: XCTestCase {
         XCTAssertEqual(summaries.first?.appLabel, "X")
         XCTAssertEqual(summaries.first?.count, 1)
     }
+
+    func testRecoverExcludingPreservesFailedRecoveryNavigationGap() throws {
+        let store = try CaptureStore(path: path)
+        let run = try store.startRun(at: 1)
+        try store.openGap(runID: run, reason: "recovery_navigation", at: 2)
+        try store.recover(runID: run, at: 3, excluding: ["recovery_navigation"])
+        XCTAssertEqual(try store.openGapCount(), 1, "recovery_navigation must survive a plain live scan")
+        try store.recover(runID: run, at: 4)
+        XCTAssertEqual(try store.openGapCount(), 0)
+    }
+
+    func testBackwardClockJumpAttributesCollectorStoppedToLatestInsertedRun() throws {
+        let store = try CaptureStore(path: path)
+        let run1 = try store.startRun(at: 1000)
+        try store.finishRun(runID: run1, at: 1005)
+        let run2 = try store.startRun(at: 500)
+        try store.finishRun(runID: run2, at: 510)
+        _ = try store.startRun(at: 520)
+        XCTAssertEqual(try store.gapCount(reason: "collector_stopped"), 2)
+    }
+
+    func testFinishRunRejectsUnknownOrAlreadyFinishedRunAndNonFiniteTimestamps() throws {
+        let store = try CaptureStore(path: path)
+        XCTAssertThrowsError(try store.startRun(at: .nan))
+        XCTAssertThrowsError(try store.startRun(at: .infinity))
+        let run = try store.startRun(at: 1)
+        XCTAssertThrowsError(try store.heartbeat(runID: run, at: .nan))
+        XCTAssertThrowsError(try store.openGap(runID: run, reason: "sleep", at: .infinity))
+        XCTAssertThrowsError(try store.recover(runID: run, at: .nan))
+        XCTAssertThrowsError(try store.finishRun(runID: "missing", at: 2))
+        XCTAssertThrowsError(try store.finishRun(runID: run, at: .nan))
+        try store.finishRun(runID: run, at: 2)
+        XCTAssertThrowsError(try store.finishRun(runID: run, at: 3))
+    }
+
+    func testDirectionMarkNormalizationAndLeadingAppToken() {
+        XCTAssertEqual(Observation.normalizedAppLabel("\u{200E}WhatsApp\u{200F}"), "WhatsApp")
+        XCTAssertEqual(Observation.leadingAppToken(in: "\u{200E}WhatsApp, 3 notifications"), "WhatsApp")
+        XCTAssertEqual(Observation.leadingAppToken(in: "Calendar, Standup"), "Calendar")
+        XCTAssertNil(Observation.leadingAppToken(in: "NoCommaHere"))
+    }
 }

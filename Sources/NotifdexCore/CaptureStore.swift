@@ -109,6 +109,7 @@ public final class CaptureStore {
     deinit { sqlite3_close(database) }
 
     public func startRun(at time: Double) throws -> String {
+        guard time.isFinite else { throw StoreError(description: "Invalid capture timestamp") }
         let runID = UUID().uuidString
         try transaction {
             let prior = try scalar("SELECT count(*) FROM capture_runs")
@@ -123,7 +124,7 @@ public final class CaptureStore {
                 try execute("""
                     INSERT INTO coverage_gaps(run_id, reason, started_at, ended_at)
                     SELECT id, 'collector_stopped', ended_at, max(ended_at, ?)
-                    FROM capture_runs ORDER BY started_at DESC LIMIT 1
+                    FROM capture_runs ORDER BY rowid DESC LIMIT 1
                     """, numbers: [time])
             }
             // End the prior process's active intervals. The new startup-scan
@@ -145,6 +146,10 @@ public final class CaptureStore {
 
     /// Atomically persist a snapshot. Counters describe this committed attempt.
     public func recordBatch(_ values: [Observation], runID: String, at time: Double) throws -> CaptureBatchResult {
+        guard time.isFinite else { throw StoreError(description: "Invalid capture timestamp") }
+        for value in values {
+            guard value.capturedAt.isFinite else { throw StoreError(description: "Invalid observation timestamp") }
+        }
         var inserted = 0
         try transaction {
             try heartbeat(runID: runID, at: time)
@@ -167,28 +172,42 @@ public final class CaptureStore {
     }
 
     public func heartbeat(runID: String, at time: Double) throws {
+        guard time.isFinite else { throw StoreError(description: "Invalid heartbeat timestamp") }
         try execute("UPDATE capture_runs SET heartbeat_at = max(heartbeat_at, ?) WHERE id = ? AND ended_at IS NULL",
                     numbersFirst: [time], strings: [runID])
         guard sqlite3_changes(database) == 1 else { throw StoreError(description: "Unknown or ended capture run") }
     }
 
     public func openGap(runID: String, reason: String, at time: Double) throws {
+        guard time.isFinite else { throw StoreError(description: "Invalid gap timestamp") }
         try execute("""
             INSERT INTO coverage_gaps(run_id, reason, started_at) VALUES (?, ?, ?)
             ON CONFLICT(run_id, reason) WHERE ended_at IS NULL DO NOTHING
             """, strings: [runID, reason], numbers: [time])
     }
 
-    public func recover(runID: String, at time: Double) throws {
-        try execute("""
-            UPDATE coverage_gaps SET ended_at = max(started_at, ?), recovery_scanned_at = ?
-            WHERE run_id = ? AND ended_at IS NULL
-            """, numbersFirst: [time, time], strings: [runID])
+    public func recover(runID: String, at time: Double, excluding excludedReasons: Set<String> = []) throws {
+        guard time.isFinite else { throw StoreError(description: "Invalid recovery timestamp") }
+        let excluded = excludedReasons.sorted()
+        if excluded.isEmpty {
+            try execute("""
+                UPDATE coverage_gaps SET ended_at = max(started_at, ?), recovery_scanned_at = ?
+                WHERE run_id = ? AND ended_at IS NULL
+                """, numbersFirst: [time, time], strings: [runID])
+        } else {
+            let placeholders = Array(repeating: "?", count: excluded.count).joined(separator: ", ")
+            try execute("""
+                UPDATE coverage_gaps SET ended_at = max(started_at, ?), recovery_scanned_at = ?
+                WHERE run_id = ? AND ended_at IS NULL AND reason NOT IN (\(placeholders))
+                """, numbersFirst: [time, time], strings: [runID] + excluded)
+        }
     }
 
     public func finishRun(runID: String, at time: Double) throws {
-        try execute("UPDATE capture_runs SET ended_at = max(started_at, ?) WHERE id = ?",
+        guard time.isFinite else { throw StoreError(description: "Invalid finish timestamp") }
+        try execute("UPDATE capture_runs SET ended_at = max(started_at, ?) WHERE id = ? AND ended_at IS NULL",
                     numbersFirst: [time], strings: [runID])
+        guard sqlite3_changes(database) == 1 else { throw StoreError(description: "Unknown or already finished capture run") }
     }
 
     public func observationCount() throws -> Int { try scalar("SELECT count(*) FROM observations") }
@@ -442,10 +461,13 @@ public extension CaptureStore {
         try inboxRows(query, selectedID: nil)
     }
 
-    /// Keep an open alert available when reading it removes it from the filtered list.
+    /// Keep an open alert available when reading or unflagging removes it from the filtered list.
     func selectedInboxEntry(_ id: Int64, in query: InboxQuery) throws -> InboxEntry? {
         var lookup = query
         lookup.readFilter = .all
+        if case .flagged(let app) = lookup.scope {
+            lookup.scope = .inbox(app: app, saved: false)
+        }
         lookup.limit = 1
         return try inboxRows(lookup, selectedID: id).first
     }

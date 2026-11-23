@@ -142,7 +142,6 @@ func run() throws {
                     lastReport = signature
                 }
                 let completedAt = Date().timeIntervalSince1970
-                try store.heartbeat(runID: runID, at: completedAt)
                 if scan.issues.isEmpty {
                     try store.recover(runID: runID, at: completedAt)
                 } else {
@@ -158,6 +157,7 @@ func run() throws {
                 lastState = state
             } catch let error as CaptureError {
                 try store.openGap(runID: runID, reason: "accessibility_unavailable", at: now)
+                try store.heartbeat(runID: runID, at: now)
                 if lastState != error.description { print(error.description); lastState = error.description }
             }
         }

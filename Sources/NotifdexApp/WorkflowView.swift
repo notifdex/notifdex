@@ -172,6 +172,7 @@ private final class WorkflowModel: ObservableObject {
     @Published private(set) var timeline: [InboxEntry] = []
     @Published private(set) var busy = false
     @Published private(set) var error: String?
+    @Published private(set) var sheetError: String?
 
     private let worker: CaptureWorker
     private var generation = 0
@@ -288,18 +289,21 @@ private final class WorkflowModel: ObservableObject {
 
     func loadMore() { limit = min(1000, limit + 50) }
 
-    func edit(_ operation: @escaping (CaptureStore) throws -> Void, then: (() -> Void)? = nil) {
+    func edit(_ operation: @escaping (CaptureStore) throws -> Void, inSheet: Bool = false, then: (() -> Void)? = nil) {
         guard !busy else { return }
         busy = true
-        error = nil
+        if inSheet { sheetError = nil } else { error = nil }
         worker.withStore(operation) { [weak self] result in
             guard let self else { return }
             self.busy = false
             switch result {
             case .success:
+                if inSheet { self.sheetError = nil }
                 then?()
                 self.load(query: self.query)
-            case .failure(let error): self.error = String(describing: error)
+            case .failure(let error):
+                if inSheet { self.sheetError = String(describing: error) }
+                else { self.error = String(describing: error) }
             }
         }
     }
@@ -366,7 +370,7 @@ private final class WorkflowModel: ObservableObject {
     }
 
     private func openNoteEditor(_ draft: NoteDraft, title: String, body: String, folderID: String?) {
-        error = nil
+        sheetError = nil
         noteTitle = title
         noteBody = body
         noteFolderID = folderID
@@ -389,7 +393,7 @@ private final class WorkflowModel: ObservableObject {
             } else {
                 try store.savePersonalNote(draft.noteID, folderID: folderID, title: title, body: body, at: time)
             }
-        }, then: { [weak self] in self?.noteDraft = nil })
+        }, inSheet: true, then: { [weak self] in self?.noteDraft = nil })
     }
 
     func deleteNote(_ draft: NoteDraft) {
@@ -400,11 +404,11 @@ private final class WorkflowModel: ObservableObject {
             } else {
                 try store.deletePersonalNote(id)
             }
-        }, then: { [weak self] in self?.noteDraft = nil })
+        }, inSheet: true, then: { [weak self] in self?.noteDraft = nil })
     }
 
     func openFolderEditor(_ folder: NoteFolder? = nil) {
-        error = nil
+        sheetError = nil
         folderName = folder?.name ?? ""
         confirmingFolderDeletion = false
         folderDraft = FolderDraft(folderID: folder?.id)
@@ -414,12 +418,12 @@ private final class WorkflowModel: ObservableObject {
         let folderName = folderName
         edit({ store in
             try store.saveNoteFolder(draft.folderID, name: folderName)
-        }, then: { [weak self] in self?.folderDraft = nil })
+        }, inSheet: true, then: { [weak self] in self?.folderDraft = nil })
     }
 
     func deleteFolder(_ draft: FolderDraft) {
         guard let id = draft.folderID else { return }
-        edit({ try $0.deleteNoteFolder(id) }, then: { [weak self] in
+        edit({ try $0.deleteNoteFolder(id) }, inSheet: true, then: { [weak self] in
             self?.notebookFolder = .unfiled
             self?.folderDraft = nil
         })
@@ -490,17 +494,19 @@ private final class WorkflowModel: ObservableObject {
     }
 
     func openWorkspaceEditor() {
-        error = nil
+        sheetError = nil
         workspaceName = ""
         showingNewWorkspace = true
     }
 
     func createWorkspace() {
         let name = workspaceName
-        edit({ store in _ = try store.createWorkspace(name: name) }) { [weak self] in
+        edit({ store in _ = try store.createWorkspace(name: name) }, inSheet: true) { [weak self] in
             self?.showingNewWorkspace = false
         }
     }
+
+    func resetLimit() { limit = 50 }
 
     func createPerson(linking id: Int64?) {
         let name = name
@@ -667,6 +673,7 @@ struct WorkflowView<AppsContent: View, RecoveryContent: View>: View {
             model.search = ""
             model.identifier = ""
             model.name = ""
+            model.resetLimit()
             if ready, previous.isLibrary || next.isLibrary { model.load(query: model.query) }
         }
     }
@@ -1002,8 +1009,9 @@ struct WorkflowView<AppsContent: View, RecoveryContent: View>: View {
         GeometryReader { geometry in
             let minimumFeedWidth: CGFloat = 250
             let dividerWidth: CGFloat = 12
-            let maximumWidth = min(640, geometry.size.width - minimumFeedWidth - dividerWidth)
-            let clamped = { (width: CGFloat) in min(maximumWidth, max(300, width)) }
+            let rawMaximum = min(640, geometry.size.width - minimumFeedWidth - dividerWidth)
+            let maximumWidth = max(0, rawMaximum)
+            let clamped = { (width: CGFloat) in min(maximumWidth, max(min(300, maximumWidth), width)) }
             let startWidth = clamped(model.inboxDetailWidth ?? maximumWidth)
             let width = clamped(startWidth - detailDragOffset)
             let dividerActive = model.hoveringDivider || model.draggingDivider
@@ -1628,7 +1636,7 @@ struct WorkflowView<AppsContent: View, RecoveryContent: View>: View {
         VStack(alignment: .leading, spacing: 12) {
             Text("New workspace").font(.title2)
             TextField("Workspace name", text: $model.workspaceName)
-            if let error = model.error { Text(error).foregroundStyle(.red) }
+            if let error = model.sheetError { Text(error).foregroundStyle(.red) }
             HStack {
                 Button("Cancel") { model.showingNewWorkspace = false }.keyboardShortcut(.cancelAction)
                 Spacer()
@@ -1807,7 +1815,7 @@ private struct NoteEditor: View {
                 .accessibilityLabel("Note")
                 .frame(minHeight: 120)
                 .disabled(model.busy)
-            if let error = model.error {
+            if let error = model.sheetError {
                 Text(error).foregroundStyle(.red)
             }
             HStack {
@@ -1841,7 +1849,7 @@ private struct FolderEditor: View {
         VStack(alignment: .leading, spacing: 12) {
             Text(draft.folderID == nil ? "New folder" : "Edit folder").font(.headline)
             TextField("Folder name", text: $model.folderName)
-            if let error = model.error {
+            if let error = model.sheetError {
                 Text(error).foregroundStyle(.red)
             }
             HStack {

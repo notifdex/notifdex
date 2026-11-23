@@ -62,6 +62,29 @@ final class CaptureFixturesTests: XCTestCase {
         XCTAssertEqual(Set(scan.observations.map(\.sourceEventID)), ["gmail", "x"])
         XCTAssertEqual(scan.issues.count, 1)
     }
+
+    func testMalformedBannerFromDisabledAppDoesNotCreateFalseScanIssue() {
+        let disabledBodyless = FixtureNode(attributes: [
+            "AXSubrole": "AXNotificationCenterBanner",
+            "AXIdentifier": "cal-1",
+            "AXAttributedDescription": "Calendar, Standup"
+        ], children: [
+            FixtureNode(attributes: ["AXIdentifier": "title", "AXValue": "Standup"])
+        ])
+        let enabledMalformed = FixtureNode(attributes: [
+            "AXSubrole": "AXNotificationCenterBanner",
+            "AXIdentifier": "x-bad",
+            "AXAttributedDescription": "X, MissingBodyBoundary"
+        ], children: [
+            FixtureNode(attributes: ["AXIdentifier": "title", "AXValue": "MissingBodyBoundary"])
+        ])
+        let cleanScan = FixtureNode.scan([disabledBodyless], apps: ["X"])
+        XCTAssertTrue(cleanScan.observations.isEmpty)
+        XCTAssertTrue(cleanScan.issues.isEmpty)
+
+        let enabledScan = FixtureNode.scan([enabledMalformed], apps: ["X"])
+        XCTAssertEqual(enabledScan.issues.count, 1)
+    }
 }
 
 #if os(macOS)
@@ -143,6 +166,102 @@ extension CaptureFixturesTests {
         let stopped = expectation(description: "worker stopped")
         worker.stop { stopped.fulfill() }
         wait(for: [stopped], timeout: 3)
+    }
+
+    func testFailedRecoveryBeginPreservesRecoveryGapAcrossCleanLiveScan() throws {
+        final class FailingRecovery: RecoverySession {
+            func begin() throws { throw CaptureError(description: "Menu bar clock unavailable") }
+            func advance(allowedApps: Set<String>) throws -> String? { nil }
+            func finish(timeout: TimeInterval) throws {}
+        }
+
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        var settings = CaptureSettings(sourceID: "fixture")
+        settings.automaticRecovery = true
+        settings.apps = [CaptureApp(id: "x", name: "X", labels: ["X"], enabled: true)]
+        try AppSettingsStore(url: directory.appendingPathComponent("settings.json")).save(settings)
+
+        let worker = CaptureWorker(
+            directory: directory,
+            isTrusted: { true },
+            readSnapshot: { _, _ in Snapshot() },
+            makeRecovery: { FailingRecovery() }
+        )
+        let sawFailure = expectation(description: "failed recovery surfaces error after live scan")
+        var fulfilled = false
+        worker.start { state in
+            if !fulfilled, state.recoveryStatus.contains("Menu bar clock unavailable"), state.lastScan.contains("Issues 0") {
+                fulfilled = true
+                XCTAssertEqual(state.error, "Menu bar clock unavailable")
+                sawFailure.fulfill()
+            }
+        }
+        wait(for: [sawFailure], timeout: 5)
+
+        let checked = expectation(description: "recovery_navigation gap stays open")
+        worker.withStore({ store in
+            (try store.openGapCount(), try store.gapCount(reason: "recovery_navigation"))
+        }) { result in
+            defer { checked.fulfill() }
+            do {
+                let (openCount, navCount) = try result.get()
+                XCTAssertEqual(navCount, 1)
+                XCTAssertEqual(openCount, 1, "clean live scan must not erase failed recovery_navigation gap")
+            } catch { XCTFail("Store inspect failed: \(error)") }
+        }
+        wait(for: [checked], timeout: 3)
+
+        let stopped = expectation(description: "worker stopped")
+        worker.stop { stopped.fulfill() }
+        wait(for: [stopped], timeout: 3)
+    }
+
+    func testSecondWorkerFailsLockWhileFirstOwnsDatabaseAndSucceedsAfterStop() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let first = CaptureWorker(directory: directory, isTrusted: { false }, readSnapshot: { _, _ in Snapshot() })
+        let firstReady = expectation(description: "first worker ready")
+        var gotFirst = false
+        first.start { state in
+            if !gotFirst, state.ready {
+                gotFirst = true
+                firstReady.fulfill()
+            }
+        }
+        wait(for: [firstReady], timeout: 5)
+
+        let second = CaptureWorker(directory: directory, isTrusted: { false }, readSnapshot: { _, _ in Snapshot() })
+        let lockDenied = expectation(description: "second worker blocked by flock")
+        var gotDenied = false
+        second.start { state in
+            if !gotDenied, !state.ready, state.error?.contains("Another collector is running") == true {
+                gotDenied = true
+                lockDenied.fulfill()
+            }
+        }
+        wait(for: [lockDenied], timeout: 5)
+
+        let firstStopped = expectation(description: "first stopped")
+        first.stop { firstStopped.fulfill() }
+        wait(for: [firstStopped], timeout: 3)
+
+        let secondReady = expectation(description: "second acquires lock after first stops")
+        var gotSecond = false
+        second.start { state in
+            if !gotSecond, state.ready {
+                gotSecond = true
+                secondReady.fulfill()
+            }
+        }
+        wait(for: [secondReady], timeout: 5)
+
+        let secondStopped = expectation(description: "second stopped")
+        second.stop { secondStopped.fulfill() }
+        wait(for: [secondStopped], timeout: 3)
     }
 }
 #endif

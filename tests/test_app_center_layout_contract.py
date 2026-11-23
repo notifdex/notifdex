@@ -32,8 +32,11 @@ class AppCenterLayoutContractTests(unittest.TestCase):
 
     def test_app_center_uses_native_window_sizing(self):
         source = (APP_DIR / "NotifdexApp.swift").read_text()
+        presence = (APP_DIR / "AppCenterPresence.swift").read_text()
         self.assertNotIn('Menu("Window Size")', source)
+        self.assertNotIn(".windowStyle(.hiddenTitleBar)", source)
         self.assertIn(".defaultSize(width: 780, height: 620)", source)
+        self.assertIn("window.titlebarAppearsTransparent = true", presence)
 
     def test_inbox_detail_defaults_to_the_available_maximum_and_can_resize(self):
         workflow = (APP_DIR / "WorkflowView.swift").read_text()

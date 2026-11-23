@@ -646,13 +646,12 @@ private struct AppSurfaceModifier: ViewModifier {
         case .window:
             EmptyView()
         case .sidebar:
-            // Continuous full-height glass column separated only by a 0.5pt architectural rule.
+            // Starts cleanly beneath the unified full-width titlebar, separated by a 0.5pt rule.
             Rectangle()
                 .fill(tokens.sidebarPlane)
                 .overlay(alignment: .trailing) {
                     Rectangle().fill(tokens.hairline).frame(width: 0.5)
                 }
-                .ignoresSafeArea(edges: .top)
         case .inboxList, .list:
             // Open canvas: sits directly on the glass without a nested card frame.
             Color.clear
@@ -689,7 +688,6 @@ private struct AppSurfaceModifier: ViewModifier {
         case .sidebar:
             Color(nsColor: .controlBackgroundColor).opacity(0.6)
                 .overlay(alignment: .trailing) { Rectangle().fill(rule).frame(width: 0.5) }
-                .ignoresSafeArea(edges: .top)
         case .inboxList, .list:
             Color.clear
         case .detail, .inspector:

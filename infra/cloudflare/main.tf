@@ -30,6 +30,7 @@ resource "cloudflare_pages_project" "website" {
       deployments_enabled            = true
       production_deployments_enabled = true
       pr_comments_enabled            = true
+      preview_branch_includes        = ["*"]
       preview_deployment_setting     = "all"
       path_includes                  = ["website/**"]
     }

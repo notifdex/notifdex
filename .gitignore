@@ -10,3 +10,14 @@ dist/
 *.jsonl
 spec/states/
 spec/*_TTrace_*
+website/dist/
+infra/**/.terraform/
+infra/**/*.tfstate
+infra/**/*.tfstate.*
+infra/**/*.tfplan
+infra/**/tfplan
+infra/**/crash.log
+infra/**/backend.hcl
+infra/**/*.tfvars
+!infra/**/*.tfvars.example
+

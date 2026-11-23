@@ -1,0 +1,471 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Notifdex — Local-First macOS Notification Inbox &amp; Relationship Notebook</title>
+  <meta
+    name="description"
+    content="Notifdex indexes macOS notifications locally from the menu bar, including forwarded iPhone alerts, so you can search history, link alerts to People, and track follow-ups."
+  />
+  <link rel="canonical" href="https://notifdex.com/" />
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  <meta property="og:type" content="website" />
+  <meta property="og:url" content="https://notifdex.com/" />
+  <meta property="og:title" content="Notifdex — Local-First macOS Notification Inbox" />
+  <meta
+    property="og:description"
+    content="Search notifications your Mac has shown, connect cross-app alerts to People, and schedule follow-ups — stored locally in SQLite."
+  />
+  <meta property="og:image" content="https://notifdex.com/og-card.svg" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <link rel="stylesheet" href="/styles.css" />
+  <script defer src="/app.js"></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to main content</a>
+
+  <header class="site-header">
+    <div class="container header-inner">
+      <a class="brand" href="/">
+        <img src="/favicon.svg" alt="" width="28" height="28" />
+        <span>Notifdex</span>
+      </a>
+      <nav class="nav-links" aria-label="Primary navigation">
+        <a href="#workflows">Workflows</a>
+        <a href="#local-first">Local-first</a>
+        <a href="#install">Install</a>
+        <a href="/privacy.html">Privacy</a>
+        <a href="#support">Support</a>
+        <a class="btn btn-secondary btn-sm" href="https://github.com/qzyu999/notifdex" rel="noopener">GitHub</a>
+      </nav>
+    </div>
+  </header>
+
+  <main id="main">
+    <section class="hero">
+      <div class="container">
+        <div class="eyebrow">Native macOS menu bar app · Local SQLite · Open source</div>
+        <h1>Your macOS notifications, indexed locally.</h1>
+        <p class="hero-lead">
+          Notifdex runs quietly in your menu bar and indexes notifications macOS exposes through
+          Accessibility — including iPhone alerts forwarded to your Mac. Search past alerts, link
+          conversations across apps to People, and track follow-ups without sending your history to a cloud service.
+        </p>
+        <div class="hero-actions">
+          <a class="btn btn-primary" href="#install">Build &amp; install on macOS</a>
+          <a class="btn btn-secondary" href="https://github.com/qzyu999/notifdex#run-the-menu-bar-app" rel="noopener">Read install guide</a>
+          <a class="btn btn-secondary" href="https://github.com/qzyu999/notifdex" rel="noopener">View source on GitHub</a>
+        </div>
+        <ul class="hero-facts">
+          <li>Runs from the menu bar even when App Center closes</li>
+          <li>No account logins or cloud sync required</li>
+          <li>Explicit coverage-gap tracking and local recovery</li>
+        </ul>
+      </div>
+    </section>
+
+    <section class="showcase" aria-label="Interactive App Center preview">
+      <div class="container">
+        <div class="showcase-bar">
+          <div class="sample-badge">
+            <span class="sample-dot" aria-hidden="true"></span>
+            <span>Interactive preview with synthetic sample data — this public site never accesses your Mac or notifications.</span>
+          </div>
+          <div class="surface-toggle" role="group" aria-label="Preview appearance">
+            <button type="button" class="surface-btn" data-surface-mode="glass" aria-pressed="true">Nocturne Glass</button>
+            <button type="button" class="surface-btn" data-surface-mode="solid" aria-pressed="false">Solid macOS</button>
+          </div>
+        </div>
+
+        <div id="demo-app-window" class="app-window">
+          <div class="window-chrome">
+            <div class="traffic-lights" aria-hidden="true">
+              <span class="dot dot-red"></span>
+              <span class="dot dot-yellow"></span>
+              <span class="dot dot-green"></span>
+            </div>
+
+            <div class="app-tabs" role="tablist" aria-label="Notifdex App Center views">
+              <button type="button" class="app-tab" role="tab" data-app-tab="inbox" aria-selected="true">Inbox</button>
+              <button type="button" class="app-tab" role="tab" data-app-tab="people" aria-selected="false">People</button>
+              <button type="button" class="app-tab" role="tab" data-app-tab="today" aria-selected="false">Today</button>
+              <button type="button" class="app-tab" role="tab" data-app-tab="recovery" aria-selected="false">Recovery</button>
+            </div>
+
+            <div class="status-pill">Collecting · Local SQLite</div>
+          </div>
+
+          <div class="app-body">
+            <!-- INBOX -->
+            <div class="tab-panel" data-app-panel="inbox" role="tabpanel">
+              <div class="inbox-grid">
+                <div class="pane">
+                  <div class="filter-row">
+                    <div class="filter-group" role="group" aria-label="Filter sample inbox">
+                      <button type="button" class="filter-chip" data-inbox-filter="all" aria-pressed="true">All</button>
+                      <button type="button" class="filter-chip" data-inbox-filter="unread" aria-pressed="false">Unread</button>
+                      <button type="button" class="filter-chip" data-inbox-filter="flagged" aria-pressed="false">Flagged</button>
+                    </div>
+                    <span class="detail-meta">4 sample alerts</span>
+                  </div>
+
+                  <div id="demo-alert-list" class="alert-list">
+                    <button type="button" class="alert-row" aria-current="true">
+                      <div class="alert-row-top">
+                        <span class="app-badge"><span class="unread-dot" aria-hidden="true"></span>Gmail</span>
+                        <span>10:14 AM</span>
+                      </div>
+                      <div class="alert-sender">Maya Chen ★</div>
+                      <div class="alert-preview">Shared the notes from our walkthrough — happy to test the next local build on Thursday afternoon.</div>
+                    </button>
+                  </div>
+                </div>
+
+                <div class="pane" aria-live="polite">
+                  <div class="detail-header">
+                    <div>
+                      <div id="detail-meta" class="detail-meta">Gmail · Today · 10:14 AM</div>
+                      <h2 id="detail-title" class="detail-title">Re: Q4 macOS beta feedback &amp; onboarding notes</h2>
+                    </div>
+                    <div class="detail-actions">
+                      <span id="detail-action" class="pill pill-accent">Open in Gmail</span>
+                      <span class="pill">Flagged</span>
+                      <span class="pill">Hide rule</span>
+                    </div>
+                  </div>
+
+                  <div class="detail-body-card">
+                    <p id="detail-body">
+                      Shared the notes from our walkthrough — happy to test the next local build on Thursday afternoon.
+                    </p>
+                  </div>
+
+                  <div class="detail-kv">
+                    <div class="kv-box">
+                      <div class="kv-label">Linked Person</div>
+                      <div id="detail-person" class="kv-value">Maya Chen</div>
+                    </div>
+                    <div class="kv-box">
+                      <div class="kv-label">Workspace</div>
+                      <div id="detail-workspace" class="kv-value">Advisory</div>
+                    </div>
+                    <div class="kv-box">
+                      <div class="kv-label">Follow-up</div>
+                      <div id="detail-followup" class="kv-value">Reply with beta checklist · Thu 2:00 PM</div>
+                    </div>
+                    <div class="kv-box">
+                      <div class="kv-label">Capture provenance</div>
+                      <div id="detail-source" class="kv-value">macOS Accessibility · Forwarded from iPhone</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- PEOPLE -->
+            <div class="tab-panel" data-app-panel="people" role="tabpanel" hidden>
+              <div class="two-col">
+                <div class="pane">
+                  <div class="person-head">
+                    <div class="avatar" aria-hidden="true">MC</div>
+                    <div>
+                      <div class="detail-title">Maya Chen</div>
+                      <div class="detail-meta">Explicit person link · 3 verified app rules</div>
+                    </div>
+                  </div>
+                  <div class="tag-row">
+                    <span class="pill pill-accent">Workspace: Advisory</span>
+                    <span class="pill">Workspace: Founders</span>
+                    <span class="pill">Template: Active Advisor · Milestone 2/4</span>
+                  </div>
+                  <div class="kv-label">Shared People Notes (synced with Notes view)</div>
+                  <div class="note-box">
+                    Testing local-first notification capture across Gmail + WhatsApp on macOS. Interested in signed auto-updates and multi-workspace timelines. Next check-in scheduled for Thursday.
+                  </div>
+                </div>
+
+                <div class="pane">
+                  <div class="kv-label">Linked timeline in Advisory workspace</div>
+                  <ul class="timeline-list">
+                    <li class="timeline-item">
+                      <div class="alert-row-top">
+                        <span class="app-badge">Gmail</span>
+                        <span>Today · 10:14 AM</span>
+                      </div>
+                      <div class="alert-sender">Re: Q4 macOS beta feedback &amp; onboarding notes</div>
+                      <div class="alert-preview">Shared the notes from our walkthrough — happy to test the next local build.</div>
+                    </li>
+                    <li class="timeline-item">
+                      <div class="alert-row-top">
+                        <span class="app-badge">WhatsApp</span>
+                        <span>Tue · 4:09 PM</span>
+                      </div>
+                      <div class="alert-sender">Maya Chen</div>
+                      <div class="alert-preview">Can send over two synthetic test cases for Notification Center recovery.</div>
+                    </li>
+                    <li class="timeline-item">
+                      <div class="alert-row-top">
+                        <span class="app-badge">Messages</span>
+                        <span>Mon · 11:32 AM</span>
+                      </div>
+                      <div class="alert-sender">Maya Chen</div>
+                      <div class="alert-preview">Confirmed Thursday 2 PM works for the walkthrough.</div>
+                    </li>
+                  </ul>
+                </div>
+              </div>
+            </div>
+
+            <!-- TODAY -->
+            <div class="tab-panel" data-app-panel="today" role="tabpanel" hidden>
+              <div class="pane">
+                <div class="filter-row">
+                  <div>
+                    <div class="detail-title">Today &amp; upcoming follow-ups</div>
+                    <div class="detail-meta">Turn any captured alert into a dated follow-up without leaving your local database.</div>
+                  </div>
+                  <span class="pill pill-accent">3 open</span>
+                </div>
+                <ul class="followup-list">
+                  <li class="followup-item">
+                    <div>
+                      <div class="followup-title alert-sender">Reply to Maya Chen with beta checklist</div>
+                      <div class="detail-meta">Due Thu 2:00 PM · Linked to Gmail alert · Advisory</div>
+                    </div>
+                    <button type="button" class="btn btn-secondary btn-sm" data-toggle-followup aria-pressed="false">Mark done</button>
+                  </li>
+                  <li class="followup-item">
+                    <div>
+                      <div class="followup-title alert-sender">Confirm coffee spot with David Park</div>
+                      <div class="detail-meta">Due Today 3:15 PM · Linked to WhatsApp alert · Personal</div>
+                    </div>
+                    <button type="button" class="btn btn-secondary btn-sm" data-toggle-followup aria-pressed="false">Mark done</button>
+                  </li>
+                  <li class="followup-item">
+                    <div>
+                      <div class="followup-title alert-sender">Review Elena Morales icon contrast exports</div>
+                      <div class="detail-meta">Due Fri 10:00 AM · Linked to Messages alert · Design</div>
+                    </div>
+                    <button type="button" class="btn btn-secondary btn-sm" data-toggle-followup aria-pressed="false">Mark done</button>
+                  </li>
+                </ul>
+              </div>
+            </div>
+
+            <!-- RECOVERY -->
+            <div class="tab-panel" data-app-panel="recovery" role="tabpanel" hidden>
+              <div class="two-col">
+                <div class="pane">
+                  <div class="detail-title">Retained Notification Center recovery</div>
+                  <p class="detail-meta">
+                    Notifdex records historical coverage gaps honestly across Mac sleep, restarts, or permission changes, and can scan retained Notification Center stacks on demand or on wake.
+                  </p>
+                  <div class="detail-kv">
+                    <div class="kv-box">
+                      <div class="kv-label">Accessibility access</div>
+                      <div class="kv-value">Granted (App Center)</div>
+                    </div>
+                    <div class="kv-box">
+                      <div class="kv-label">Collector source</div>
+                      <div class="kv-value">sample-macbook-local</div>
+                    </div>
+                    <div class="kv-box">
+                      <div class="kv-label">Auto-recovery</div>
+                      <div class="kv-value">On launch &amp; wake</div>
+                    </div>
+                    <div class="kv-box">
+                      <div class="kv-label">Last local scan</div>
+                      <div class="kv-value">12 retained · 0 errors</div>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="pane">
+                  <div class="kv-label">Sample coverage log</div>
+                  <ul class="recovery-list">
+                    <li class="recovery-item">
+                      <div class="alert-row-top">
+                        <span class="app-badge">Recovery scan completed</span>
+                        <span>Today · 8:02 AM</span>
+                      </div>
+                      <div class="alert-preview">Scanned retained stacks after Mac wake. 3 new observations committed to local SQLite.</div>
+                    </li>
+                    <li class="recovery-item">
+                      <div class="alert-row-top">
+                        <span class="app-badge">Coverage gap recorded</span>
+                        <span>Today · 12:15 AM – 8:01 AM</span>
+                      </div>
+                      <div class="alert-preview">Mac asleep. Alerts cleared on iPhone during sleep remain unknown rather than silently assumed delivered.</div>
+                    </li>
+                  </ul>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="workflows" class="section">
+      <div class="container">
+        <div class="section-head">
+          <h2>Built for triage, memory, and follow-through</h2>
+          <p>
+            Ephemeral banners disappear as soon as you swipe them away. Notifdex turns the alerts
+            macOS exposes into an indexed inbox and relationship notebook you own on disk.
+          </p>
+        </div>
+
+        <div class="feature-grid">
+          <article class="card">
+            <div class="card-kicker">Inbox</div>
+            <h3>Search, filter, flag, and silence noise</h3>
+            <p>
+              Filter by All, Unread, Read, Flagged, or Saved. Group by app, jump back with Open in app,
+              and hide recurring subjects with reversible rules and Undo.
+            </p>
+          </article>
+
+          <article class="card">
+            <div class="card-kicker">People &amp; Workspaces</div>
+            <h3>One timeline across every messaging app</h3>
+            <p>
+              Explicitly link Gmail, Messages, WhatsApp, X, Slack, Discord, or LinkedIn alerts to a person.
+              Organize people across multiple workspaces with versioned relationship templates — never auto-merged by display name alone.
+            </p>
+          </article>
+
+          <article class="card">
+            <div class="card-kicker">Today &amp; Notes</div>
+            <h3>Follow-ups and shared context in one place</h3>
+            <p>
+              Attach due dates to alerts, snooze or complete tasks in Today, and keep structured foldered Notes
+              alongside shared People Notes that update everywhere you edit them.
+            </p>
+          </article>
+
+          <article class="card">
+            <div class="card-kicker">Recovery &amp; Reliability</div>
+            <h3>Durable SQLite and honest coverage gaps</h3>
+            <p>
+              Every observation is committed transactionally with provenance and banner revisions.
+              When the Mac sleeps or permissions pause, Notifdex logs the gap and lets you scan retained Notification Center stacks.
+            </p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section id="local-first" class="section">
+      <div class="container">
+        <div class="section-head">
+          <h2>Local-first by architecture, not just policy</h2>
+          <p>
+            Notifdex operates solely on notification text macOS exposes locally via Accessibility.
+            It never asks for your social or email passwords, and your database stays on your Mac.
+          </p>
+        </div>
+
+        <div class="feature-grid">
+          <article class="card">
+            <h3>Single local SQLite database</h3>
+            <p>
+              Captured alerts, People profiles, notes, and follow-ups live under
+              <code>~/Library/Application Support/Notifdex</code> with private file permissions and an exclusive collector lock.
+            </p>
+          </article>
+          <article class="card">
+            <h3>No cloud accounts required</h3>
+            <p>
+              App toggles match observed macOS notification labels (X, Messages, Gmail, WhatsApp, Slack, Discord, LinkedIn, or custom labels)
+              without connecting to third-party APIs.
+            </p>
+          </article>
+          <article class="card">
+            <h3>Static public website</h3>
+            <p>
+              <code>notifdex.com</code> is a static Cloudflare Pages site with zero tracking cookies, zero telemetry,
+              and zero connection to your Mac or database. Read our <a href="/privacy.html">Privacy details</a>.
+            </p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section id="install" class="section">
+      <div class="container">
+        <div class="section-head">
+          <h2>Build and run Notifdex on macOS</h2>
+          <p>
+            Notifdex is currently distributed from source while signed public beta packaging
+            (<a href="https://github.com/qzyu999/notifdex/issues/20" rel="noopener">#20</a> and
+            <a href="https://github.com/qzyu999/notifdex/issues/22" rel="noopener">#22</a>) is in progress.
+            Building requires Apple's Command Line Tools on macOS.
+          </p>
+        </div>
+
+        <div class="install-grid">
+          <div class="code-card">
+            <div class="code-head">
+              <span>Build &amp; install locally from source</span>
+              <button type="button" id="copy-install-btn" class="btn btn-secondary btn-sm">Copy</button>
+            </div>
+            <pre><code id="install-command">git clone https://github.com/qzyu999/notifdex.git
+cd notifdex
+bash tools/build-app.sh
+mkdir -p "$HOME/Applications"
+ditto dist/Notifdex.app "$HOME/Applications/Notifdex.app"
+open "$HOME/Applications/Notifdex.app"</code></pre>
+          </div>
+
+          <div class="card">
+            <h3>First-run checklist</h3>
+            <ol class="checklist">
+              <li>Click the Notifdex menu bar icon and open <strong>App Center</strong>.</li>
+              <li>Grant <strong>Notifdex</strong> Accessibility permission in <em>System Settings → Privacy &amp; Security → Accessibility</em>.</li>
+              <li>Enable the apps you want to index under <strong>Apps</strong>, then send a test notification.</li>
+            </ol>
+            <p class="mt-16">
+              Full instructions:
+              <a href="https://github.com/qzyu999/notifdex#run-the-menu-bar-app" rel="noopener">README install guide</a> ·
+              <a href="https://github.com/qzyu999/notifdex/blob/main/docs/app-center.md" rel="noopener">App Center checklist</a> ·
+              <a href="https://github.com/qzyu999/notifdex/blob/main/docs/reliability.md" rel="noopener">Reliability matrix</a>
+            </p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="support" class="section">
+      <div class="container">
+        <div class="section-head">
+          <h2>Support &amp; source</h2>
+          <p>
+            Have a question, missing-notification report, or feature suggestion? Notifdex is developed
+            in the open on GitHub.
+          </p>
+        </div>
+
+        <div class="hero-actions">
+          <a class="btn btn-primary" href="https://github.com/qzyu999/notifdex/issues" rel="noopener">Open a GitHub issue</a>
+          <a class="btn btn-secondary" href="https://github.com/qzyu999/notifdex" rel="noopener">Browse repository</a>
+          <a class="btn btn-secondary" href="/privacy.html">Privacy &amp; local data</a>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="container footer-inner">
+      <div>Notifdex · Local-first macOS notification inbox &amp; relationship notebook.</div>
+      <div class="footer-links">
+        <a href="/privacy.html">Privacy</a>
+        <a href="https://github.com/qzyu999/notifdex#run-the-menu-bar-app" rel="noopener">Install guide</a>
+        <a href="https://github.com/qzyu999/notifdex" rel="noopener">GitHub</a>
+        <a href="https://github.com/qzyu999/notifdex/issues" rel="noopener">Support</a>
+      </div>
+    </div>
+  </footer>
+</body>
+</html>

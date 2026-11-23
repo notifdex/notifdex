@@ -29,7 +29,6 @@ let package = Package(
                 "Sources/NotifdexCore/CaptureStore.swift",
                 "Sources/NotifdexCore/Inbox.swift",
                 "Sources/NotifdexCore/InboxPresentation.swift",
-                "Sources/NotifdexCore/LocalDocument.swift",
                 "Sources/NotifdexCore/Observation.swift",
                 "Sources/NotifdexCore/RelationshipTemplate.swift"
             ],
@@ -39,7 +38,7 @@ let package = Package(
                 .copy("Sources/NotifdexCore/person-notes.sql"), .copy("Sources/NotifdexCore/flags.sql"),
                 .copy("Sources/NotifdexCore/hide-rules.sql"), .copy("Sources/NotifdexCore/relationship-templates.sql"),
                 .copy("Sources/NotifdexCore/workspaces.sql"), .copy("Sources/NotifdexCore/notebook.sql"),
-                .copy("Sources/NotifdexCore/documents.sql"), .copy("templates")
+                .copy("templates")
             ]
         ),
         .target(name: "NotifdexMac", dependencies: ["NotifdexCore"]),

@@ -22,7 +22,7 @@ struct UserGuideView: View {
                 ])
 
                 topic("How capture works", paragraphs: [
-                    "Notifdex reads notification previews that macOS makes available through Accessibility. This can include iPhone notifications forwarded to your Mac. Notifdex stores captured alerts, notes, and saved documents locally. Find the database through Settings → Show data folder.",
+                    "Notifdex reads notification previews that macOS makes available through Accessibility. This can include iPhone notifications forwarded to your Mac. Notifdex stores captured alerts and notes locally. Find the database through Appearance → Show data folder.",
                     "A scan can see the same banner more than once. Notifdex skips repeats of the same captured rendering and can keep a new revision when its visible content changes. The capture time is when Notifdex saw the alert. Redacted previews, missing alerts, and interruptions can leave gaps."
                 ])
 
@@ -37,9 +37,8 @@ struct UserGuideView: View {
                     "A person can belong to several workspaces. Person notes are shared across those workspaces. Assign an alert's workspace separately from the person's memberships. Use a relationship template if you want to track stages and milestones."
                 ])
 
-                topic("Notes and saved documents", paragraphs: [
-                    "My Notes is your personal notebook. Create folders to organize notes, or leave them in Unfiled. People Notes opens the same notes you see on person profiles, so saving an edit in either place updates the shared note.",
-                    "In Notes → Saved Documents, create a longer reference or import a UTF-8 text or Markdown file. Import opens a draft. Save stores a local copy."
+                topic("Notes", paragraphs: [
+                    "My Notes is your personal notebook. Create folders to organize notes, or leave them in Unfiled. People Notes opens the same notes you see on person profiles, so saving an edit in either place updates the shared note."
                 ])
 
                 topic("Recovery and troubleshooting", paragraphs: [

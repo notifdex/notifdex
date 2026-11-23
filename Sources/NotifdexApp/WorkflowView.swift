@@ -19,7 +19,6 @@ private struct FolderDraft: Identifiable {
 private enum NoteCollection: String, CaseIterable, Identifiable {
     case mine = "My Notes"
     case people = "People Notes"
-    case documents = "Saved Documents"
 
     var id: Self { self }
 }
@@ -1095,9 +1094,7 @@ struct WorkflowView<AppsContent: View, RecoveryContent: View>: View {
             .fixedSize()
             .disabled(!ready || model.busy)
 
-            if model.noteCollection == .documents {
-                SavedDocumentsView(worker: worker, ready: ready)
-            } else if model.noteCollection == .mine {
+            if model.noteCollection == .mine {
                 HStack {
                     Picker("Folder", selection: $model.notebookFolder) {
                         Text("All Notes").tag(NoteFolderFilter.all)
@@ -1154,7 +1151,7 @@ struct WorkflowView<AppsContent: View, RecoveryContent: View>: View {
                 }
             }
         }
-        .disabled(model.noteCollection != .documents && (!ready || model.busy))
+        .disabled(!ready || model.busy)
     }
 
     private func notebookRow(title: String, body: String, updatedAt: Double, open: @escaping () -> Void) -> some View {

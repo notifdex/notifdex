@@ -10,10 +10,13 @@ class UserGuideContractTests(unittest.TestCase):
         self.assertRegex(workflow, r"else if model\.mode == \.docs \{\s*UserGuideView\(\)")
         guide = (APP / "UserGuideView.swift").read_text()
         for topic in ("Get started", "How capture works", "Inbox and follow-ups",
-                      "People and workspaces", "Notes and saved documents", "Recovery and troubleshooting"):
+                      "People and workspaces", "Notes", "Recovery and troubleshooting"):
             self.assertIn(f'"{topic}"', guide)
 
-    def test_existing_document_library_remains_reachable_from_notes(self):
+    def test_saved_documents_removed_from_notes(self):
         workflow = (APP / "WorkflowView.swift").read_text()
-        self.assertIn('case documents = "Saved Documents"', workflow)
-        self.assertRegex(workflow, r"model\.noteCollection == \.documents \{\s*SavedDocumentsView\(worker: worker, ready: ready\)")
+        guide = (APP / "UserGuideView.swift").read_text()
+        self.assertNotIn("Saved Documents", workflow)
+        self.assertNotIn("SavedDocumentsView", workflow)
+        self.assertNotIn("Saved Documents", guide)
+        self.assertFalse((APP / "SavedDocumentsView.swift").exists())

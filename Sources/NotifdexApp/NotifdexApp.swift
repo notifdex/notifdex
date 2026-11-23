@@ -263,9 +263,8 @@ struct NotifdexApp: App {
         guard let unfiled = try store.personalNotes().first, unfiled.id == personalNote, unfiled.folderID == nil else {
             throw StoreError(description: "Packaged notebook check failed")
         }
-        let doc = try store.saveDocument(title: "Synthetic document", body: "# Test", at: 4)
-        guard try store.documents().first?.id == doc, try store.document(doc).body == "# Test" else {
-            throw StoreError(description: "Packaged Docs check failed")
+        guard Bundle.main.url(forResource: "notebook", withExtension: "sql") != nil else {
+            throw StoreError(description: "Packaged notebook.sql is missing")
         }
         try store.setFlag(alert.id, flagged: true)
         guard try store.inbox(InboxQuery(scope: .flagged(app: nil))).first?.id == alert.id else {

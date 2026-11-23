@@ -70,4 +70,31 @@ final class NotebookTests: XCTestCase {
         XCTAssertTrue(try reopened.personalNotes().isEmpty)
         XCTAssertEqual(try reopened.personNotes(for: "maya").first?.id, "old")
     }
+
+    func testLegacyVersionElevenDatabaseRemainsReadableWithoutDroppingData() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let path = dir.appendingPathComponent("capture.db").path
+
+        do {
+            let initial = try CaptureStore(path: path)
+            _ = try initial.savePersonalNote(folderID: nil, title: "Keep me", body: "Important note", at: 1)
+            var db: OpaquePointer?
+            XCTAssertEqual(sqlite3_open(path, &db), SQLITE_OK)
+            defer { sqlite3_close(db) }
+            let legacyV11 = """
+                CREATE TABLE documents (id TEXT PRIMARY KEY NOT NULL, title TEXT NOT NULL, body TEXT NOT NULL, created_at REAL NOT NULL, updated_at REAL NOT NULL);
+                INSERT INTO documents VALUES ('d1', 'Legacy', 'Body', 1, 1);
+                PRAGMA user_version = 11;
+                """
+            XCTAssertEqual(sqlite3_exec(db, legacyV11, nil, nil, nil), SQLITE_OK)
+        }
+
+        let reopened = try CaptureStore(path: path)
+        let notes = try reopened.personalNotes()
+        XCTAssertEqual(notes.count, 1)
+        XCTAssertEqual(notes.first?.title, "Keep me")
+        XCTAssertEqual(notes.first?.body, "Important note")
+    }
 }

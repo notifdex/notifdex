@@ -22,7 +22,7 @@ let package = Package(
             name: "NotifdexCore",
             dependencies: ["CSQLite"],
             path: ".",
-            exclude: ["AGENTS.md", "README.md", "Sources/CSQLite", "Sources/NotifdexMac",
+            exclude: ["AGENTS.md", "README.md", "Resources", "Sources/CSQLite", "Sources/NotifdexMac",
                       "Sources/NotifdexCapture", "Sources/NotifdexApp", "Tests", "tests", "spec", "tools", "docs"],
             sources: [
                 "Sources/NotifdexCore/AppSettings.swift",

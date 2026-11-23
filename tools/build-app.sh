@@ -19,6 +19,18 @@ mkdir -p "$notifdex_app_dir/Contents/MacOS" "$notifdex_app_dir/Contents/Resource
 install -m 755 "$notifdex_bin_dir/Notifdex" "$notifdex_app_dir/Contents/MacOS/Notifdex"
 cp Sources/NotifdexCore/{schema,inbox-work,filters,person-matches,person-notes,flags,hide-rules,relationship-templates,workspaces,notebook,documents}.sql "$notifdex_app_dir/Contents/Resources/"
 cp -R templates "$notifdex_app_dir/Contents/Resources/"
+if [[ -f Resources/Icons/AppIcon.png ]]; then
+    cp Resources/Icons/AppIcon.png "$notifdex_app_dir/Contents/Resources/AppIcon.png"
+    notifdex_iconset="$(mktemp -d)/AppIcon.iconset"
+    mkdir -p "$notifdex_iconset"
+    for sz in 16 32 128 256 512; do
+        sips -z "$sz" "$sz" Resources/Icons/AppIcon.png --out "$notifdex_iconset/icon_${sz}x${sz}.png" >/dev/null
+        sz2=$((sz * 2))
+        sips -z "$sz2" "$sz2" Resources/Icons/AppIcon.png --out "$notifdex_iconset/icon_${sz}x${sz}@2x.png" >/dev/null
+    done
+    iconutil -c icns "$notifdex_iconset" -o "$notifdex_app_dir/Contents/Resources/AppIcon.icns"
+    rm -rf "$(dirname "$notifdex_iconset")"
+fi
 cat > "$notifdex_app_dir/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -27,6 +39,7 @@ cat > "$notifdex_app_dir/Contents/Info.plist" <<'PLIST'
     <key>CFBundleDisplayName</key><string>Notifdex</string>
     <key>CFBundleIdentifier</key><string>com.notifdex.mac</string>
     <key>CFBundleExecutable</key><string>Notifdex</string>
+    <key>CFBundleIconFile</key><string>AppIcon</string>
     <key>CFBundlePackageType</key><string>APPL</string>
     <key>CFBundleShortVersionString</key><string>0.1.0</string>
     <key>CFBundleVersion</key><string>1</string>

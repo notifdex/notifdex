@@ -32,7 +32,8 @@ let package = Package(
                 "Sources/NotifdexCore/Inbox.swift",
                 "Sources/NotifdexCore/InboxPresentation.swift",
                 "Sources/NotifdexCore/Observation.swift",
-                "Sources/NotifdexCore/RelationshipTemplate.swift"
+                "Sources/NotifdexCore/RelationshipTemplate.swift",
+                "Sources/NotifdexCore/WindowChromeLayout.swift"
             ],
             resources: [
                 .copy("Sources/NotifdexCore/schema.sql"), .copy("Sources/NotifdexCore/inbox-work.sql"),

@@ -92,5 +92,25 @@ class AppCenterLayoutContractTests(unittest.TestCase):
         self.assertTrue((icons_dir / "AppIcon.png").is_file(), "Missing bundled AppIcon.png")
         studio = (APP_DIR / "AppearanceStudioView.swift").read_text()
         workflow = (APP_DIR / "WorkflowView.swift").read_text()
+        presence = (APP_DIR / "AppCenterPresence.swift").read_text()
+        chrome_core = Path(__file__).resolve().parents[1] / "Sources" / "NotifdexCore" / "WindowChromeLayout.swift"
+        self.assertTrue(chrome_core.is_file(), "Expected platform-independent WindowChromeLayout specification in NotifdexCore")
         self.assertIn("ForEach(MenuBarIconStyle.allCases)", studio)
         self.assertIn("AppIconCatalog.appIconImage", workflow)
+        # Single titlebar owner: native SwiftUI .toolbar + .unifiedCompact (~38pt), NEVER manual empty NSToolbar + .ignoresSafeArea.
+        self.assertIn(".toolbar {", workflow)
+        self.assertIn("ToolbarItem(placement: .navigation)", workflow)
+        self.assertIn("window.toolbarStyle = .unifiedCompact", presence)
+        self.assertNotIn("window.toolbar = toolbar", presence)
+        self.assertNotIn(".ignoresSafeArea(.container, edges: .top)", workflow)
+        # Status & Appearance controls stay anchored in the LHS sidebar footer (with compact-header fallback).
+        self.assertIn("sidebarFooter", workflow)
+        self.assertNotIn("ToolbarItemGroup(placement: .primaryAction)", workflow)
+        # Native macOS titlebar double-click (Zoom / Minimize per AppleActionOnDoubleClick) must remain active.
+        self.assertIn("addLocalMonitorForEvents(matching: .leftMouseUp)", presence)
+        self.assertIn("TitlebarDoubleClickAction", presence)
+        self.assertIn("performZoom", presence)
+        self.assertIn("miniaturize", presence)
+        # LHS sidebar uses legible >=14pt typography and main panel does not repeat the active mode title.
+        self.assertIn("WindowChromeState.sidebarLabelFontSize", workflow)
+        self.assertNotIn("Text(model.mode.rawValue)", workflow)

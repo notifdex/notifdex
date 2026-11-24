@@ -153,6 +153,48 @@ button:focus-visible {
   color: var(--ink);
 }
 
+/* Obvious Light / Dark (Night) toggle button */
+.theme-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--hairline-strong);
+  background: var(--surface-strong);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: 0.82rem;
+  font-weight: 500;
+  letter-spacing: 0.005em;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background-color 0.16s ease, border-color 0.16s ease, color 0.16s ease;
+}
+
+.theme-toggle:hover {
+  background: var(--ink);
+  color: var(--paper);
+  border-color: var(--ink);
+}
+
+.theme-icon {
+  display: block;
+  flex-shrink: 0;
+}
+
+.theme-toggle .icon-sun {
+  display: none;
+}
+
+html[data-theme="dark"] .theme-toggle .icon-moon {
+  display: none;
+}
+
+html[data-theme="dark"] .theme-toggle .icon-sun {
+  display: block;
+}
+
 /* Editorial controls (mirrors NotifdexGlassButtonStyle) */
 .action-primary {
   display: inline-flex;
@@ -1178,4 +1220,169 @@ code {
     backdrop-filter: none;
     -webkit-backdrop-filter: none;
   }
+
+  html[data-theme="dark"] .site-header {
+    background: #121318;
+  }
+}
+
+/* --------------------------------------------------------------------------
+   Dark / Night mode — Smoked Flint / Architectural Obsidian
+   Matches AppAppearance.swift dark tokens across all 6 pigments
+   -------------------------------------------------------------------------- */
+html[data-theme="dark"] {
+  color-scheme: dark;
+  --paper: #111216;
+  --paper-deep: #171920;
+  --surface: rgba(255, 255, 255, 0.055);
+  --surface-strong: rgba(255, 255, 255, 0.09);
+  --ink: #f1efe9;
+  --ink-secondary: #aeacb6;
+  --ink-muted: #7f7e8a;
+  --hairline: rgba(255, 255, 255, 0.095);
+  --hairline-strong: rgba(255, 255, 255, 0.2);
+}
+
+html[data-theme="dark"] body {
+  background: linear-gradient(180deg, #101115 0%, #13141a 52%, #161820 100%);
+}
+
+html[data-theme="dark"] a {
+  text-decoration-color: rgba(241, 239, 233, 0.32);
+}
+
+html[data-theme="dark"] a:hover {
+  text-decoration-color: var(--ink);
+}
+
+html[data-theme="dark"] .site-header {
+  background: rgba(16, 17, 21, 0.84);
+}
+
+html[data-theme="dark"] .action-primary {
+  background: #f1efe9;
+  color: #13141a;
+  border-color: #f1efe9;
+}
+
+html[data-theme="dark"] .action-primary:hover {
+  color: #111216;
+  opacity: 0.9;
+}
+
+html[data-theme="dark"] .action-subtle {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+html[data-theme="dark"] .action-subtle:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+html[data-theme="dark"] .swatch-dot {
+  border-color: rgba(255, 255, 255, 0.22);
+}
+
+html[data-theme="dark"] .swatch-btn[aria-pressed="true"] .swatch-dot {
+  box-shadow: 0 0 0 2px var(--paper), 0 0 0 3.5px rgba(241, 239, 233, 0.82);
+}
+
+html[data-theme="dark"] .app-window {
+  --win-bg: linear-gradient(135deg, #18191e 0%, #121318 100%);
+  --win-orb-a: rgba(184, 179, 168, 0.10);
+  --win-orb-b: rgba(115, 120, 133, 0.10);
+  --win-sidebar: rgba(0, 0, 0, 0.22);
+  --win-inspector: rgba(255, 255, 255, 0.03);
+  --win-selection: rgba(255, 255, 255, 0.085);
+  --win-accent: #e8e3db;
+
+  border-color: rgba(255, 255, 255, 0.14);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.07) inset,
+    0 28px 72px rgba(0, 0, 0, 0.56);
+}
+
+html[data-theme="dark"] .app-window[data-pigment="mineral"] .mini-btn-accent {
+  color: #141417;
+}
+
+html[data-theme="dark"] .app-window[data-pigment="vermilion"] {
+  --win-bg: linear-gradient(135deg, #17161a 0%, #111114 100%);
+  --win-orb-a: rgba(199, 51, 41, 0.16);
+  --win-orb-b: rgba(90, 42, 38, 0.10);
+  --win-selection: rgba(224, 69, 54, 0.16);
+  --win-accent: #e04536;
+}
+
+html[data-theme="dark"] .app-window[data-pigment="prussian"] {
+  --win-bg: linear-gradient(135deg, #111b33 0%, #0d1426 100%);
+  --win-orb-a: rgba(46, 102, 214, 0.28);
+  --win-orb-b: rgba(97, 143, 199, 0.16);
+  --win-sidebar: rgba(8, 16, 36, 0.34);
+  --win-inspector: rgba(102, 158, 245, 0.045);
+  --win-selection: rgba(112, 173, 245, 0.16);
+  --win-accent: #70adf5;
+}
+
+html[data-theme="dark"] .app-window[data-pigment="prussian"] .mini-btn-accent {
+  color: #0b1326;
+}
+
+html[data-theme="dark"] .app-window[data-pigment="sienna"] {
+  --win-bg: linear-gradient(135deg, #211815 0%, #161211 100%);
+  --win-orb-a: rgba(209, 102, 46, 0.22);
+  --win-orb-b: rgba(143, 71, 46, 0.15);
+  --win-sidebar: rgba(0, 0, 0, 0.24);
+  --win-inspector: rgba(245, 194, 153, 0.035);
+  --win-selection: rgba(219, 133, 82, 0.16);
+  --win-accent: #db8552;
+}
+
+html[data-theme="dark"] .app-window[data-pigment="sienna"] .mini-btn-accent {
+  color: #1b120e;
+}
+
+html[data-theme="dark"] .app-window[data-pigment="celadon"] {
+  --win-bg: linear-gradient(135deg, #111e1f 0%, #0f1718 100%);
+  --win-orb-a: rgba(66, 158, 143, 0.22);
+  --win-orb-b: rgba(87, 133, 148, 0.16);
+  --win-sidebar: rgba(0, 0, 0, 0.22);
+  --win-inspector: rgba(158, 224, 214, 0.035);
+  --win-selection: rgba(107, 189, 168, 0.16);
+  --win-accent: #6bbda8;
+}
+
+html[data-theme="dark"] .app-window[data-pigment="celadon"] .mini-btn-accent {
+  color: #0d1a19;
+}
+
+html[data-theme="dark"] .app-window[data-pigment="nocturne"] {
+  --win-bg: linear-gradient(135deg, #1b162b 0%, #1d1421 100%);
+  --win-orb-a: rgba(204, 112, 143, 0.22);
+  --win-orb-b: rgba(71, 87, 184, 0.26);
+  --win-sidebar: rgba(0, 0, 0, 0.24);
+  --win-inspector: rgba(255, 255, 255, 0.035);
+  --win-selection: rgba(219, 148, 173, 0.16);
+  --win-accent: #db94ad;
+}
+
+html[data-theme="dark"] .app-window[data-pigment="nocturne"] .mini-btn-accent {
+  color: #1c1324;
+}
+
+html[data-theme="dark"] .sidebar-btn:hover,
+html[data-theme="dark"] .alert-row:hover {
+  background: rgba(255, 255, 255, 0.045);
+}
+
+html[data-theme="dark"] .mini-btn:not(.mini-btn-accent),
+html[data-theme="dark"] .followup-toggle {
+  background: rgba(255, 255, 255, 0.07);
+}
+
+html[data-theme="dark"] .note-excerpt {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+html[data-theme="dark"] .code-frame {
+  background: rgba(255, 255, 255, 0.04);
 }

@@ -1,5 +1,57 @@
 (() => {
   /* =========================================================================
+     0. Light / Dark mode toggle (persisted in localStorage, OS default fallback)
+     ========================================================================= */
+  const THEME_KEY = "notifdex-theme";
+  const themeToggleBtn = document.getElementById("theme-toggle");
+  const themeLabelEl = themeToggleBtn?.querySelector(".theme-toggle-label");
+  const darkMedia = window.matchMedia("(prefers-color-scheme: dark)");
+
+  function getSavedTheme() {
+    try {
+      const saved = window.localStorage.getItem(THEME_KEY);
+      if (saved === "dark" || saved === "light") return saved;
+    } catch {
+      // Ignore storage access errors in restricted contexts.
+    }
+    return null;
+  }
+
+  function applyTheme(theme, persist = false) {
+    const isDark = theme === "dark";
+    document.documentElement.dataset.theme = isDark ? "dark" : "light";
+    if (themeToggleBtn) {
+      themeToggleBtn.setAttribute("aria-pressed", String(isDark));
+      themeToggleBtn.setAttribute("aria-label", isDark ? "Switch to light mode" : "Switch to dark mode");
+    }
+    if (themeLabelEl) {
+      themeLabelEl.textContent = isDark ? "Light mode" : "Dark mode";
+    }
+    if (persist) {
+      try {
+        window.localStorage.setItem(THEME_KEY, isDark ? "dark" : "light");
+      } catch {
+        // Ignore storage write failures.
+      }
+    }
+  }
+
+  applyTheme(getSavedTheme() || (darkMedia.matches ? "dark" : "light"), false);
+
+  if (themeToggleBtn) {
+    themeToggleBtn.addEventListener("click", () => {
+      const current = document.documentElement.dataset.theme === "dark" ? "dark" : "light";
+      applyTheme(current === "dark" ? "light" : "dark", true);
+    });
+  }
+
+  darkMedia.addEventListener("change", (ev) => {
+    if (!getSavedTheme()) {
+      applyTheme(ev.matches ? "dark" : "light", false);
+    }
+  });
+
+  /* =========================================================================
      1. Cursor-reactive kinetic glass-leaf sculpture
         Inspired by Resources/Icons/AppIcon.png and "Flipping Memories":
         translucent beveled glass leaves symmetrically fanning around a warm
@@ -168,7 +220,9 @@
       const focusY = state.y * 0.85 * state.hover + idleWave * (1 - state.hover * 0.7);
       const twistX = state.x * state.hover + (reducedMotion ? 0 : Math.cos(state.t * 0.55) * 0.12 * (1 - state.hover));
 
-      // Chromatic bounce light onto gallery alabaster ground
+      const isDark = document.documentElement.dataset.theme === "dark";
+
+      // Chromatic bounce light onto gallery ground (alabaster in day, obsidian in night)
       const focusIdx = Math.max(0, Math.min(n - 1, Math.round(((focusY + 1) / 2) * (n - 1))));
       const activeRgb = palette[focusIdx].rgb;
       const ambientGlow = ctx.createRadialGradient(
@@ -179,9 +233,12 @@
         cy,
         Math.max(width, height) * 0.48
       );
-      ambientGlow.addColorStop(0, `rgba(${activeRgb[0]}, ${activeRgb[1]}, ${activeRgb[2]}, ${0.14 + state.hover * 0.09})`);
-      ambientGlow.addColorStop(0.45, "rgba(255, 245, 224, 0.24)");
-      ambientGlow.addColorStop(1, "rgba(245, 244, 240, 0)");
+      ambientGlow.addColorStop(
+        0,
+        `rgba(${activeRgb[0]}, ${activeRgb[1]}, ${activeRgb[2]}, ${(isDark ? 0.24 : 0.14) + state.hover * 0.10})`
+      );
+      ambientGlow.addColorStop(0.45, isDark ? "rgba(255, 224, 170, 0.14)" : "rgba(255, 245, 224, 0.24)");
+      ambientGlow.addColorStop(1, isDark ? "rgba(17, 18, 22, 0)" : "rgba(245, 244, 240, 0)");
       ctx.fillStyle = ambientGlow;
       ctx.fillRect(0, 0, width, height);
 
@@ -231,8 +288,8 @@
         spineY,
         baseWidth * 0.62
       );
-      spineGlow.addColorStop(0, "rgba(255, 253, 245, 0.96)");
-      spineGlow.addColorStop(0.55, "rgba(246, 224, 178, 0.34)");
+      spineGlow.addColorStop(0, isDark ? "rgba(255, 248, 228, 0.72)" : "rgba(255, 253, 245, 0.96)");
+      spineGlow.addColorStop(0.55, isDark ? "rgba(240, 198, 128, 0.24)" : "rgba(246, 224, 178, 0.34)");
       spineGlow.addColorStop(1, "rgba(246, 224, 178, 0)");
       ctx.fillStyle = spineGlow;
       ctx.fillRect(0, spineY - 64, width, 128);
@@ -270,6 +327,10 @@
       resize();
       if (reducedMotion) render();
     });
+
+    if (themeToggleBtn && reducedMotion) {
+      themeToggleBtn.addEventListener("click", () => render());
+    }
 
     // Replace fallback image once canvas is ready
     const fallback = stage.querySelector(".hero-fallback");

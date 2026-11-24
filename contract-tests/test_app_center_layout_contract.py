@@ -100,8 +100,14 @@ class AppCenterLayoutContractTests(unittest.TestCase):
         # Single titlebar owner: native SwiftUI .toolbar + .unifiedCompact (~38pt), NEVER manual empty NSToolbar + .ignoresSafeArea.
         self.assertIn(".toolbar {", workflow)
         self.assertIn("ToolbarItem(placement: .navigation)", workflow)
-        self.assertIn("ToolbarItemGroup(placement: .primaryAction)", workflow)
-        self.assertIn('Text("Appearance")', workflow)
         self.assertIn("window.toolbarStyle = .unifiedCompact", presence)
         self.assertNotIn("window.toolbar = toolbar", presence)
         self.assertNotIn(".ignoresSafeArea(.container, edges: .top)", workflow)
+        # Status & Appearance controls stay anchored in the LHS sidebar footer (with compact-header fallback).
+        self.assertIn("sidebarFooter", workflow)
+        self.assertNotIn("ToolbarItemGroup(placement: .primaryAction)", workflow)
+        # Native macOS titlebar double-click (Zoom / Minimize per AppleActionOnDoubleClick) must remain active.
+        self.assertIn("addLocalMonitorForEvents(matching: .leftMouseUp)", presence)
+        self.assertIn("TitlebarDoubleClickAction", presence)
+        self.assertIn("performZoom", presence)
+        self.assertIn("miniaturize", presence)

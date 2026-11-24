@@ -271,3 +271,11 @@ ordinary workspace-filtered inbox continues to require an explicit route.
 - `OrthogonalPreferences`: selecting a color theme (`SelectTheme`) never changes `surface` (preventing the #70 regression where Solid snapped back to Clear), selecting a surface never changes `theme`, and importing or removing a custom backdrop preserves `theme` while only falling back from `customImage` to `clearGlass` when a photo backdrop is removed.
 
 The new contract test in `contract-tests/test_app_center_layout_contract.py` failed before implementation (missing `AppearancePreferences.swift` and Solid pigment rendering) and passes after the fix alongside `Tests/NotifdexCoreTests/AppearancePreferencesTests.swift`. Visual contrast and macOS light/dark appearance checks remain hands-on device verification.
+
+### Window chrome ownership, compact titlebar height, and sidebar accounting
+
+`spec/WindowChrome.tla` (`spec/WindowChrome.cfg`) models App Center's top titlebar ownership (`swiftui_toolbar`, `manual_view`, `both`), toolbar height budget (`unifiedCompact` = `38pt`, `<= 44pt`), brand visibility, global control reachability (collection status & Appearance Studio), mutual exclusion of titlebar popovers, and complete disjoint partitioning of all `WorkflowMode` destinations across sidebar sections (`Primary`, `Library`, `System`). It corresponds to `Sources/NotifdexCore/WindowChromeLayout.swift`, `Sources/NotifdexApp/AppCenterPresence.swift`, and `Sources/NotifdexApp/WorkflowView.swift`:
+
+- `SingleTitlebarOwner` and `TitlebarHeightBounded`: prevents combining an empty manual `NSToolbar` with a custom SwiftUI titlebar view (which previously doubled the titlebar to ~`104pt` and occluded the brand mark and Appearance button behind the empty toolbar container).
+- `BrandAlwaysVisibleInTitlebar` and `GlobalControlsAlwaysReachable`: guarantees the bundled app icon, `Notifdex` wordmark, collection status, and labeled `Appearance` control live in native SwiftUI `.toolbar` items and stay visible across both wide and compact window widths.
+- `AtMostOneToolbarPopoverOpen` and `SidebarCompleteAndDisjoint`: prevents overlapping titlebar popovers and ensures every navigation destination belongs to exactly one sidebar group with consistent spacing.

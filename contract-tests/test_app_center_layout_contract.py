@@ -93,8 +93,15 @@ class AppCenterLayoutContractTests(unittest.TestCase):
         studio = (APP_DIR / "AppearanceStudioView.swift").read_text()
         workflow = (APP_DIR / "WorkflowView.swift").read_text()
         presence = (APP_DIR / "AppCenterPresence.swift").read_text()
+        chrome_core = Path(__file__).resolve().parents[1] / "Sources" / "NotifdexCore" / "WindowChromeLayout.swift"
+        self.assertTrue(chrome_core.is_file(), "Expected platform-independent WindowChromeLayout specification in NotifdexCore")
         self.assertIn("ForEach(MenuBarIconStyle.allCases)", studio)
         self.assertIn("AppIconCatalog.appIconImage", workflow)
-        self.assertIn("unifiedTitlebar", workflow)
-        self.assertIn("TitlebarDragArea", workflow)
-        self.assertIn("window.toolbarStyle = .unified", presence)
+        # Single titlebar owner: native SwiftUI .toolbar + .unifiedCompact (~38pt), NEVER manual empty NSToolbar + .ignoresSafeArea.
+        self.assertIn(".toolbar {", workflow)
+        self.assertIn("ToolbarItem(placement: .navigation)", workflow)
+        self.assertIn("ToolbarItemGroup(placement: .primaryAction)", workflow)
+        self.assertIn('Text("Appearance")', workflow)
+        self.assertIn("window.toolbarStyle = .unifiedCompact", presence)
+        self.assertNotIn("window.toolbar = toolbar", presence)
+        self.assertNotIn(".ignoresSafeArea(.container, edges: .top)", workflow)

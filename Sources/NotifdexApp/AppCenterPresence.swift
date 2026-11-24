@@ -41,12 +41,8 @@ final class AppCenterPresenceView: NSView {
         if !window.styleMask.contains(.fullSizeContentView) {
             window.styleMask.insert(.fullSizeContentView)
         }
-        if window.toolbar == nil {
-            let toolbar = NSToolbar(identifier: NSToolbar.Identifier("NotifdexUnifiedTitlebar"))
-            toolbar.showsBaselineSeparator = false
-            window.toolbar = toolbar
-        }
-        window.toolbarStyle = .unified
+        window.toolbarStyle = .unifiedCompact
+        window.toolbar?.showsBaselineSeparator = false
         window.titlebarAppearsTransparent = true
         window.titleVisibility = .hidden
         window.isMovableByWindowBackground = false
@@ -63,27 +59,6 @@ final class AppCenterPresenceView: NSView {
 
     @objc private func windowWillClose(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
-    }
-}
-
-/// Interactive drag/zoom surface for empty space inside the tall unified titlebar.
-struct TitlebarDragArea: NSViewRepresentable {
-    func makeNSView(context: Context) -> TitlebarDragNSView {
-        TitlebarDragNSView()
-    }
-
-    func updateNSView(_ nsView: TitlebarDragNSView, context: Context) {}
-}
-
-final class TitlebarDragNSView: NSView {
-    override var mouseDownCanMoveWindow: Bool { true }
-
-    override func mouseDown(with event: NSEvent) {
-        if event.clickCount == 2 {
-            window?.performZoom(nil)
-        } else {
-            window?.performDrag(with: event)
-        }
     }
 }
 #endif

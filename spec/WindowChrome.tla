@@ -1,4 +1,6 @@
 -------------------------- MODULE WindowChrome --------------------------
+EXTENDS Naturals
+
 CONSTANTS Modes, PrimaryModes, LibraryModes, SystemModes, MaxTitlebarHeight
 
 WidthClasses == {"wide", "compact"}

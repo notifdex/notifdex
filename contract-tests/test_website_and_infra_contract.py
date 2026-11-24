@@ -84,8 +84,11 @@ class WebsiteAndCloudflareInfraContractTests(unittest.TestCase):
             'setting_id = "ssl"',
             'setting_id = "always_use_https"',
             'setting_id = "min_tls_version"',
+            'path_includes                  = ["website/*"]',
         ):
             self.assertIn(required_snippet, main_tf)
+        # Cloudflare Pages watch paths use single-* wildcards (matching '/'); '**' silently skips all builds.
+        self.assertNotIn('"website/**"', main_tf)
 
     def test_workflows_and_gitignore_isolate_website_and_protect_infra_applies(self):
         version_pin = (INFRA / ".opentofu-version").read_text(encoding="utf-8").strip()

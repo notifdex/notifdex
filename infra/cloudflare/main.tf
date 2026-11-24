@@ -31,7 +31,7 @@ resource "cloudflare_pages_project" "website" {
       pr_comments_enabled            = true
       preview_branch_includes        = ["*"]
       preview_deployment_setting     = "all"
-      path_includes                  = ["website/**"]
+      path_includes                  = ["website/*"]
     }
   } : null
 }

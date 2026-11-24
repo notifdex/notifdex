@@ -8,7 +8,7 @@ Version-controlled Cloudflare configuration for `notifdex.com`, managed with **O
 | --- | --- |
 | IaC engine | **OpenTofu** `1.13.9` (`.opentofu-version`; `required_version = ">= 1.10.0, < 2.0.0"`) to match Inference Exchange and use native S3 lockfiles (`use_lockfile = true`). |
 | Provider | `cloudflare/cloudflare` `~> 5.29.0`, with multi-platform dependency hashes committed in `.terraform.lock.hcl` (`linux_amd64`, `darwin_arm64`, `darwin_amd64`). |
-| Hosting | **Cloudflare Pages** with Git integration (`website/` root, `npm run build` → `dist`, `website/**` watch path). Static hosting is \$0 on Cloudflare's free and Workers Paid plans. |
+| Hosting | **Cloudflare Pages** with Git integration (`website/` root, `npm run build` → `dist`, `website/*` watch path). Static hosting is \$0 on Cloudflare's free and Workers Paid plans. |
 | Remote state | Dedicated private **Cloudflare R2** bucket (`notifdex-tfstate`), separate from Inference Exchange state (`ie-tfstate`), with R2 S3 conditional-write locking (`use_lockfile = true`). |
 
 ## Domain & DNS inventory (baseline verified before launch)
@@ -30,7 +30,7 @@ Each Cloudflare setting has **one owner** to prevent drift and duplicate managem
 | --- | --- | --- |
 | Domain registrar & Cloudflare zone creation | Manual (Cloudflare Dashboard) | Zone `notifdex.com` already exists and is delegated to Cloudflare. |
 | R2 state bucket (`notifdex-tfstate`) & R2 S3 credentials | Manual bootstrap (one-time) | Kept outside OpenTofu state so state does not manage itself. |
-| Cloudflare Pages GitHub App OAuth authorization | Manual bootstrap (one-time) | Required once in **Workers & Pages → Create → Pages → Connect to Git** (select `notifdex/notifdex`, root `website`, build `npm run build`, output `dist`, watch path `website/**`). |
+| Cloudflare Pages GitHub App OAuth authorization | Manual bootstrap (one-time) | Required once in **Workers & Pages → Create → Pages → Connect to Git** (select `notifdex/notifdex`, root `website`, build `npm run build`, output `dist`, watch path `website/*`). |
 | Pages project build config (`cloudflare_pages_project.website`) | OpenTofu (after import) | Import the created Pages project before enabling `apply`. Flip `manage_pages_git_source = true` only after confirming a clean no-change import plan. |
 | Canonical apex custom domain (`cloudflare_pages_domain.apex`) | OpenTofu | Attaching via API/OpenTofu does **not** auto-create a DNS record. |
 | Apex `CNAME` (`notifdex.com` → `notifdex.pages.dev`) | OpenTofu (`cloudflare_dns_record.apex`) | **Single-owner rule:** If you attached `notifdex.com` in the dashboard UI first, Cloudflare created an apex CNAME automatically — import it into `cloudflare_dns_record.apex` before running `tofu apply` so it is never duplicated. |
@@ -88,7 +88,7 @@ Follow this order so existing live resources are adopted cleanly without recreat
 1. Connect the repo once in **Workers & Pages → Create → Pages → Connect to Git**:
    - Repository: `notifdex/notifdex`, production branch: `main`
    - Root directory: `website`, build command: `npm run build`, output directory: `dist`
-   - Build watch paths: include `website/**` (so Swift-only PRs do not trigger Pages builds)
+   - Build watch paths: include `website/*` (Cloudflare Pages uses single-`*` wildcards that match across `/`; do not use `website/**`)
    - Project name: `notifdex`
 2. Import any resources that already exist in Cloudflare (Pages project, zone settings, and any dashboard-created apex CNAME or redirect ruleset):
 

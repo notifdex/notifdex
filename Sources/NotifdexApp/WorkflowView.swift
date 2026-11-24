@@ -569,6 +569,7 @@ struct WorkflowView<AppsContent: View, RecoveryContent: View>: View {
         GeometryReader { geometry in
             let compact = geometry.size.width < 860
             VStack(spacing: 0) {
+                unifiedTitlebar
                 Rectangle()
                     .fill(themeTokens.hairline)
                     .frame(height: 0.5)
@@ -609,6 +610,7 @@ struct WorkflowView<AppsContent: View, RecoveryContent: View>: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 }
             }
+            .ignoresSafeArea(.container, edges: .top)
         }
         .sheet(item: $model.matchPreview) { preview in
             matchReview(preview)
@@ -770,25 +772,76 @@ struct WorkflowView<AppsContent: View, RecoveryContent: View>: View {
         .frame(width: 280)
     }
 
+    private var unifiedTitlebar: some View {
+        ZStack {
+            TitlebarDragArea()
+            HStack(spacing: 10) {
+                HStack(spacing: 9) {
+                    if let icon = AppIconCatalog.appIconImage {
+                        Image(nsImage: icon)
+                            .resizable()
+                            .interpolation(.high)
+                            .scaledToFit()
+                            .frame(width: 22, height: 22)
+                            .clipShape(RoundedRectangle(cornerRadius: 5.5, style: .continuous))
+                            .shadow(color: Color.black.opacity(0.14), radius: 1.5, x: 0, y: 0.5)
+                    }
+                    Text("Notifdex")
+                        .font(.system(size: 16, weight: .regular, design: .serif))
+                        .tracking(-0.2)
+                        .foregroundStyle(.primary)
+                }
+                .allowsHitTesting(false)
+
+                Spacer(minLength: 16)
+
+                Button {
+                    appModel.showingCollectionStatus.toggle()
+                } label: {
+                    HStack(spacing: 6) {
+                        Circle()
+                            .fill(collectionIndicatorColor)
+                            .frame(width: 6, height: 6)
+                        Text("\(compactCollectionTitle) · \(total)")
+                            .font(.system(size: 12).monospacedDigit())
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 5)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help("Collection status and pause controls")
+                .popover(isPresented: $appModel.showingCollectionStatus, arrowEdge: .bottom) {
+                    collectionStatusPopover
+                }
+
+                Button {
+                    appearance.showingStudio.toggle()
+                } label: {
+                    Image(systemName: "slider.horizontal.3")
+                        .font(.system(size: 13, weight: .light))
+                        .foregroundStyle(.secondary)
+                        .padding(6)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Appearance & Settings")
+                .help("Appearance, custom background & data folder")
+                .popover(isPresented: $appearance.showingStudio, arrowEdge: .bottom) {
+                    AppearanceStudioView(appearance: appearance, dataDirectory: worker.directory)
+                }
+            }
+            .padding(.leading, 80)
+            .padding(.trailing, 16)
+        }
+        .frame(height: 52)
+    }
+
     private var sidebar: some View {
         let tokens = themeTokens
         return VStack(alignment: .leading, spacing: 2) {
-            HStack(spacing: 8) {
-                if let icon = AppIconCatalog.appIconImage {
-                    Image(nsImage: icon)
-                        .resizable()
-                        .interpolation(.high)
-                        .scaledToFit()
-                        .frame(width: 24, height: 24)
-                }
-                Text("Notifdex")
-                    .font(.system(size: 16, weight: .regular, design: .serif))
-                    .tracking(-0.2)
-            }
-            .padding(.horizontal, 12)
-            .padding(.top, 10)
-            .padding(.bottom, 18)
-
             ForEach(WorkflowMode.allCases) { mode in
                 if mode == .flagged {
                     Spacer().frame(height: 16)
@@ -803,56 +856,10 @@ struct WorkflowView<AppsContent: View, RecoveryContent: View>: View {
                 }
                 sidebarNavButton(mode, tokens: tokens)
             }
-
-            Rectangle()
-                .fill(tokens.hairline)
-                .frame(height: 0.5)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 10)
-
-            HStack(spacing: 8) {
-                Button {
-                    appModel.showingCollectionStatus.toggle()
-                } label: {
-                    HStack(spacing: 6) {
-                        Circle()
-                            .fill(collectionIndicatorColor)
-                            .frame(width: 5.5, height: 5.5)
-                        Text("\(compactCollectionTitle) · \(total)")
-                            .font(.system(size: 11.5).monospacedDigit())
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                    }
-                    .padding(.vertical, 4)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .help("Collection status and pause controls")
-                .popover(isPresented: $appModel.showingCollectionStatus, arrowEdge: .trailing) {
-                    collectionStatusPopover
-                }
-
-                Spacer(minLength: 0)
-
-                Button {
-                    appearance.showingStudio.toggle()
-                } label: {
-                    Image(systemName: "slider.horizontal.3")
-                        .font(.system(size: 12, weight: .light))
-                        .foregroundStyle(.secondary)
-                        .padding(5)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Appearance & Settings")
-                .help("Appearance, custom background & data folder")
-                .popover(isPresented: $appearance.showingStudio, arrowEdge: .trailing) {
-                    AppearanceStudioView(appearance: appearance, dataDirectory: worker.directory)
-                }
-            }
-            .padding(.horizontal, 14)
-            .padding(.bottom, 14)
+            Spacer(minLength: 8)
         }
+        .padding(.top, 12)
+        .padding(.bottom, 12)
         .frame(width: 184)
         .frame(maxHeight: .infinity)
         .notifdexSurface(.sidebar)
@@ -950,41 +957,6 @@ struct WorkflowView<AppsContent: View, RecoveryContent: View>: View {
                         Rectangle()
                             .fill(model.search.isEmpty ? tokens.hairline : tokens.hairlineStrong)
                             .frame(height: 0.5)
-                    }
-                }
-                if compact {
-                    Button {
-                        appModel.showingCollectionStatus.toggle()
-                    } label: {
-                        HStack(spacing: 5) {
-                            Circle()
-                                .fill(collectionIndicatorColor)
-                                .frame(width: 5.5, height: 5.5)
-                            Text(compactCollectionTitle)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                        .padding(.vertical, 4)
-                    }
-                    .buttonStyle(.plain)
-                    .help("Collection status and pause controls")
-                    .popover(isPresented: $appModel.showingCollectionStatus, arrowEdge: .bottom) {
-                        collectionStatusPopover
-                    }
-
-                    Button {
-                        appearance.showingStudio.toggle()
-                    } label: {
-                        Image(systemName: "slider.horizontal.3")
-                            .font(.system(size: 12, weight: .light))
-                            .foregroundStyle(.secondary)
-                            .padding(5)
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Appearance & Settings")
-                    .help("Appearance, custom background & data folder")
-                    .popover(isPresented: $appearance.showingStudio, arrowEdge: .bottom) {
-                        AppearanceStudioView(appearance: appearance, dataDirectory: worker.directory)
                     }
                 }
             }

@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -75,9 +76,27 @@ if (failures.length === 0) {
   }
 
   // Local static asset links referenced from index.html exist in dist/
-  const assetRefs = [...indexHtml.matchAll(/(?:href|src)="\/([^"#?]+)"/g)].map((m) => m[1]);
+  const assetRefs = [...indexHtml.matchAll(/(?:href|src)="\/([^"#?]+)(?:[?#][^"]*)?"/g)].map((m) => m[1]);
   for (const ref of assetRefs) {
     assert(existsSync(path.join(distDir, ref)), `Broken local asset/link in index.html: /${ref}`);
+  }
+
+  // Content-hash cache-busting so returning visitors never hit stale 4h-cached JS/CSS after deploys
+  const stylesHash = createHash("sha256").update(stylesCss).digest("hex").slice(0, 10);
+  const appHash = createHash("sha256").update(appJs).digest("hex").slice(0, 10);
+  for (const [name, html] of [
+    ["index.html", indexHtml],
+    ["privacy.html", privacyHtml],
+    ["404.html", notFoundHtml],
+  ]) {
+    assert(
+      html.includes(`href="/styles.css?v=${stylesHash}"`),
+      `${name} must reference versioned /styles.css?v=${stylesHash} to bust browser/CDN caches`
+    );
+    assert(
+      html.includes(`src="/app.js?v=${appHash}"`),
+      `${name} must reference versioned /app.js?v=${appHash} to bust browser/CDN caches`
+    );
   }
 
   // Security headers and preview/pages.dev noindex

@@ -1,4 +1,5 @@
-import { cpSync, existsSync, mkdirSync, readdirSync, rmSync, statSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -15,6 +16,23 @@ if (!existsSync(srcDir)) {
 rmSync(distDir, { recursive: true, force: true });
 mkdirSync(distDir, { recursive: true });
 cpSync(srcDir, distDir, { recursive: true });
+
+function contentHash(filePath) {
+  return createHash("sha256").update(readFileSync(filePath)).digest("hex").slice(0, 10);
+}
+
+const stylesHash = contentHash(path.join(distDir, "styles.css"));
+const appHash = contentHash(path.join(distDir, "app.js"));
+
+for (const entry of readdirSync(distDir)) {
+  if (!entry.endsWith(".html")) continue;
+  const htmlPath = path.join(distDir, entry);
+  const original = readFileSync(htmlPath, "utf8");
+  const versioned = original
+    .replaceAll('href="/styles.css"', `href="/styles.css?v=${stylesHash}"`)
+    .replaceAll('src="/app.js"', `src="/app.js?v=${appHash}"`);
+  writeFileSync(htmlPath, versioned, "utf8");
+}
 
 function listFiles(dir, prefix = "") {
   const results = [];

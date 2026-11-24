@@ -130,6 +130,9 @@ public enum AppNavigationDestination: String, CaseIterable, Equatable, Hashable,
 /// Pure, platform-independent window chrome & sidebar specification matching `spec/WindowChrome.tla`.
 public struct WindowChromeState: Equatable, Sendable {
     public static let maxTitlebarHeight: Double = 44
+    public static let minimumSidebarLabelFontSize: Double = 14
+    public static let sidebarLabelFontSize: Double = 14.5
+    public static let sidebarWidth: Double = 196
 
     public var widthClass: AppWindowWidthClass
     public var activeDestination: AppNavigationDestination
@@ -209,6 +212,28 @@ public struct WindowChromeState: Equatable, Sendable {
 
     public var atMostOnePopoverOpen: Bool {
         !(statusPopoverOpen && appearancePopoverOpen)
+    }
+
+    public var showsSidebar: Bool {
+        widthClass == .wide
+    }
+
+    public var showsCompactPicker: Bool {
+        widthClass == .compact
+    }
+
+    /// The active section is indicated by the LHS sidebar (wide) or the View picker (compact),
+    /// never repeated as a separate section heading inside the main panel.
+    public var showsMainPanelModeHeading: Bool {
+        false
+    }
+
+    public var activeModeAlwaysIndicated: Bool {
+        showsSidebar || showsCompactPicker
+    }
+
+    public var hasDuplicateModeHeading: Bool {
+        showsSidebar && showsMainPanelModeHeading
     }
 
     public mutating func resize(windowWidth: Double) {

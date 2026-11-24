@@ -36,6 +36,15 @@ StatusReachable ==
 AppearanceReachable ==
     IF widthClass = "wide" THEN appearanceInSidebarFooter ELSE appearanceInCompactHeader
 
+ShowsSidebar ==
+    widthClass = "wide"
+
+ShowsCompactPicker ==
+    widthClass = "compact"
+
+ShowsMainPanelHeading ==
+    FALSE
+
 SidebarSectionsPartitionModes ==
     /\ PrimaryModes \cup LibraryModes \cup SystemModes = Modes
     /\ PrimaryModes \cap LibraryModes = {}
@@ -173,6 +182,12 @@ AtMostOneToolbarPopoverOpen ==
 
 SidebarCompleteAndDisjoint ==
     SidebarSectionsPartitionModes
+
+ActiveModeAlwaysIndicated ==
+    ShowsSidebar \/ ShowsCompactPicker
+
+NoDuplicateActiveModeHeading ==
+    ~(ShowsSidebar /\ ShowsMainPanelHeading)
 
 DoubleClickTitlebarBehavior == [][
     /\ (action' = "double_click_empty_titlebar" /\ doubleClickPref = "maximize") => (zoomed' # zoomed /\ minimized' = minimized)

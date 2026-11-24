@@ -111,3 +111,6 @@ class AppCenterLayoutContractTests(unittest.TestCase):
         self.assertIn("TitlebarDoubleClickAction", presence)
         self.assertIn("performZoom", presence)
         self.assertIn("miniaturize", presence)
+        # LHS sidebar uses legible >=14pt typography and main panel does not repeat the active mode title.
+        self.assertIn("WindowChromeState.sidebarLabelFontSize", workflow)
+        self.assertNotIn("Text(model.mode.rawValue)", workflow)

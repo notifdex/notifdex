@@ -15,6 +15,13 @@ final class WindowChromeLayoutTests: XCTestCase {
         XCTAssertTrue(chrome.appearanceInSidebarFooter)
         XCTAssertTrue(chrome.statusReachable)
         XCTAssertTrue(chrome.appearanceReachable)
+        XCTAssertGreaterThanOrEqual(
+            WindowChromeState.sidebarLabelFontSize,
+            WindowChromeState.minimumSidebarLabelFontSize
+        )
+        XCTAssertFalse(chrome.showsMainPanelModeHeading)
+        XCTAssertFalse(chrome.hasDuplicateModeHeading)
+        XCTAssertTrue(chrome.activeModeAlwaysIndicated)
 
         for width in [660.0, 780.0, 859.0, 860.0, 1280.0] {
             chrome.resize(windowWidth: width)
@@ -22,6 +29,8 @@ final class WindowChromeLayoutTests: XCTestCase {
             XCTAssertTrue(chrome.statusReachable)
             XCTAssertTrue(chrome.appearanceReachable)
             XCTAssertTrue(chrome.isHeightBounded)
+            XCTAssertTrue(chrome.activeModeAlwaysIndicated)
+            XCTAssertFalse(chrome.hasDuplicateModeHeading)
         }
     }
 

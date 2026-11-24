@@ -816,7 +816,7 @@ struct WorkflowView<AppsContent: View, RecoveryContent: View>: View {
             sidebarFooter
         }
         .padding(.top, 12)
-        .frame(width: 184)
+        .frame(width: CGFloat(WindowChromeState.sidebarWidth))
         .frame(maxHeight: .infinity)
         .notifdexSurface(.sidebar)
     }
@@ -831,9 +831,9 @@ struct WorkflowView<AppsContent: View, RecoveryContent: View>: View {
                 HStack(spacing: 6) {
                     Circle()
                         .fill(collectionIndicatorColor)
-                        .frame(width: 5.5, height: 5.5)
+                        .frame(width: 6, height: 6)
                     Text("\(compactCollectionTitle) · \(total)")
-                        .font(.system(size: 11.5).monospacedDigit())
+                        .font(.system(size: 12.5).monospacedDigit())
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                 }
@@ -854,7 +854,7 @@ struct WorkflowView<AppsContent: View, RecoveryContent: View>: View {
                 appearance.showingStudio = next
             } label: {
                 Image(systemName: "slider.horizontal.3")
-                    .font(.system(size: 12, weight: .light))
+                    .font(.system(size: 13.5, weight: .light))
                     .foregroundStyle(.secondary)
                     .padding(5)
                     .contentShape(Rectangle())
@@ -879,28 +879,28 @@ struct WorkflowView<AppsContent: View, RecoveryContent: View>: View {
             HStack(spacing: 10) {
                 Rectangle()
                     .fill(selected ? tokens.accent : Color.clear)
-                    .frame(width: 1.5, height: 14)
+                    .frame(width: 2, height: 16)
                 Image(systemName: mode.symbol)
-                    .font(.system(size: 12.5, weight: selected ? .regular : .light))
+                    .font(.system(size: 14, weight: selected ? .regular : .light))
                     .foregroundStyle(selected ? Color.primary : Color.secondary)
-                    .frame(width: 15)
+                    .frame(width: 18)
                 Text(mode.rawValue)
-                    .font(.system(size: 13, weight: selected ? .medium : .regular))
+                    .font(.system(size: CGFloat(WindowChromeState.sidebarLabelFontSize), weight: selected ? .medium : .regular))
                     .foregroundStyle(selected ? Color.primary : Color.secondary)
                 Spacer(minLength: 4)
                 if mode == .apps && appModel.enabledAppCount > 0 {
                     Text("\(appModel.enabledAppCount)")
-                        .font(.system(size: 11).monospacedDigit())
+                        .font(.system(size: 12).monospacedDigit())
                         .foregroundStyle(.tertiary)
                 } else if mode == .recovery && appModel.state.recovering {
                     Circle()
                         .fill(tokens.accent)
-                        .frame(width: 5, height: 5)
+                        .frame(width: 5.5, height: 5.5)
                 }
             }
             .padding(.leading, 10)
             .padding(.trailing, 14)
-            .padding(.vertical, 6)
+            .padding(.vertical, 7)
             .background {
                 if selected {
                     Rectangle().fill(tokens.selectionFill)
@@ -918,106 +918,112 @@ struct WorkflowView<AppsContent: View, RecoveryContent: View>: View {
         .accessibilityAddTraits(selected ? .isSelected : [])
     }
 
+    private func searchField(tokens: ThemeTokens) -> some View {
+        HStack(spacing: 7) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 11.5, weight: .light))
+                .foregroundStyle(.secondary)
+            TextField("Search captured alerts", text: $model.search)
+                .textFieldStyle(.plain)
+                .font(.system(size: 12.5))
+            if !model.search.isEmpty {
+                Button {
+                    model.search = ""
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Clear search")
+            }
+        }
+        .padding(.vertical, 5)
+        .frame(minWidth: 130, maxWidth: 230)
+        .overlay(alignment: .bottom) {
+            Rectangle()
+                .fill(model.search.isEmpty ? tokens.hairline : tokens.hairlineStrong)
+                .frame(height: 0.5)
+        }
+    }
+
+    @ViewBuilder
     private func workflowHeader(compact: Bool) -> some View {
         let tokens = themeTokens
-        return VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .firstTextBaseline, spacing: 12) {
+        let showsHeaderContent = compact
+            || !model.mode.isLibrary
+            || model.lastHide != nil
+            || (model.mode == .hidden && !model.rules.isEmpty)
+            || model.error != nil
+        if showsHeaderContent {
+            VStack(alignment: .leading, spacing: 12) {
                 if compact {
-                    Picker("View", selection: $model.mode) {
-                        ForEach(WorkflowMode.allCases) { mode in
-                            Label(mode.rawValue, systemImage: mode.symbol).tag(mode)
+                    HStack(alignment: .firstTextBaseline, spacing: 12) {
+                        Picker("View", selection: $model.mode) {
+                            ForEach(WorkflowMode.allCases) { mode in
+                                Label(mode.rawValue, systemImage: mode.symbol).tag(mode)
+                            }
                         }
-                    }
-                    .pickerStyle(.menu)
-                    .fixedSize()
-                } else {
-                    Text(model.mode.rawValue)
-                        .font(.system(size: 24, weight: .regular, design: .serif))
-                        .tracking(-0.3)
-                }
-                Spacer(minLength: 12)
-                if !model.mode.isLibrary {
-                    HStack(spacing: 7) {
-                        Image(systemName: "magnifyingglass")
-                            .font(.system(size: 11.5, weight: .light))
-                            .foregroundStyle(.secondary)
-                        TextField("Search captured alerts", text: $model.search)
-                            .textFieldStyle(.plain)
-                            .font(.system(size: 12.5))
-                        if !model.search.isEmpty {
-                            Button {
-                                model.search = ""
-                            } label: {
-                                Image(systemName: "xmark")
-                                    .font(.system(size: 10, weight: .medium))
+                        .pickerStyle(.menu)
+                        .fixedSize()
+                        Spacer(minLength: 12)
+                        if !model.mode.isLibrary {
+                            searchField(tokens: tokens)
+                        }
+                        Button {
+                            let next = !appModel.showingCollectionStatus
+                            if next { appearance.showingStudio = false }
+                            appModel.showingCollectionStatus = next
+                        } label: {
+                            HStack(spacing: 5) {
+                                Circle()
+                                    .fill(collectionIndicatorColor)
+                                    .frame(width: 5.5, height: 5.5)
+                                Text(compactCollectionTitle)
+                                    .font(.caption)
                                     .foregroundStyle(.secondary)
                             }
-                            .buttonStyle(.plain)
-                            .accessibilityLabel("Clear search")
+                            .padding(.vertical, 4)
                         }
-                    }
-                    .padding(.vertical, 5)
-                    .frame(maxWidth: 230)
-                    .overlay(alignment: .bottom) {
-                        Rectangle()
-                            .fill(model.search.isEmpty ? tokens.hairline : tokens.hairlineStrong)
-                            .frame(height: 0.5)
-                    }
-                }
-                if compact {
-                    Button {
-                        let next = !appModel.showingCollectionStatus
-                        if next { appearance.showingStudio = false }
-                        appModel.showingCollectionStatus = next
-                    } label: {
-                        HStack(spacing: 5) {
-                            Circle()
-                                .fill(collectionIndicatorColor)
-                                .frame(width: 5.5, height: 5.5)
-                            Text(compactCollectionTitle)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
+                        .buttonStyle(.plain)
+                        .help("Collection status and pause controls")
+                        .popover(isPresented: $appModel.showingCollectionStatus, arrowEdge: .bottom) {
+                            collectionStatusPopover
                         }
-                        .padding(.vertical, 4)
-                    }
-                    .buttonStyle(.plain)
-                    .help("Collection status and pause controls")
-                    .popover(isPresented: $appModel.showingCollectionStatus, arrowEdge: .bottom) {
-                        collectionStatusPopover
-                    }
 
-                    Button {
-                        let next = !appearance.showingStudio
-                        if next { appModel.showingCollectionStatus = false }
-                        appearance.showingStudio = next
-                    } label: {
-                        Image(systemName: "slider.horizontal.3")
-                            .font(.system(size: 12, weight: .light))
-                            .foregroundStyle(.secondary)
-                            .padding(5)
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Appearance & Settings")
-                    .help("Appearance, custom background & data folder")
-                    .popover(isPresented: $appearance.showingStudio, arrowEdge: .bottom) {
-                        AppearanceStudioView(appearance: appearance, dataDirectory: worker.directory)
+                        Button {
+                            let next = !appearance.showingStudio
+                            if next { appModel.showingCollectionStatus = false }
+                            appearance.showingStudio = next
+                        } label: {
+                            Image(systemName: "slider.horizontal.3")
+                                .font(.system(size: 12, weight: .light))
+                                .foregroundStyle(.secondary)
+                                .padding(5)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Appearance & Settings")
+                        .help("Appearance, custom background & data folder")
+                        .popover(isPresented: $appearance.showingStudio, arrowEdge: .bottom) {
+                            AppearanceStudioView(appearance: appearance, dataDirectory: worker.directory)
+                        }
                     }
                 }
-            }
-            if !model.mode.isLibrary { filterBar }
-            if let action = model.lastHide {
-                HStack {
-                    Text(action.message).foregroundStyle(.secondary)
-                    Button("Undo") { model.restore(action) }
-                        .buttonStyle(NotifdexGlassButtonStyle(emphasis: .subtle))
-                        .disabled(!ready || model.busy)
-                    Spacer()
+                if !model.mode.isLibrary { filterBar(includeSearch: !compact) }
+                if let action = model.lastHide {
+                    HStack {
+                        Text(action.message).foregroundStyle(.secondary)
+                        Button("Undo") { model.restore(action) }
+                            .buttonStyle(NotifdexGlassButtonStyle(emphasis: .subtle))
+                            .disabled(!ready || model.busy)
+                        Spacer()
+                    }
+                    .font(.callout)
+                    .padding(.vertical, 4)
                 }
-                .font(.callout)
-                .padding(.vertical, 4)
+                if model.mode == .hidden && !model.rules.isEmpty { hideRules }
+                if let error = model.error { Text(error).foregroundStyle(.red).textSelection(.enabled) }
             }
-            if model.mode == .hidden && !model.rules.isEmpty { hideRules }
-            if let error = model.error { Text(error).foregroundStyle(.red).textSelection(.enabled) }
         }
     }
 
@@ -1231,9 +1237,9 @@ struct WorkflowView<AppsContent: View, RecoveryContent: View>: View {
         .notifdexSurface(.inspector)
     }
 
-    private var filterBar: some View {
+    private func filterBar(includeSearch: Bool) -> some View {
         let tokens = themeTokens
-        return HStack(spacing: 14) {
+        return HStack(spacing: 12) {
             if model.mode.hasTriageControls {
                 HStack(spacing: 16) {
                     readFilterTab("All", filter: .all, tokens: tokens)
@@ -1269,7 +1275,7 @@ struct WorkflowView<AppsContent: View, RecoveryContent: View>: View {
                     }
                 }
                 .labelsHidden()
-                .frame(maxWidth: 170)
+                .frame(maxWidth: 145)
                 .onChange(of: model.workspaceID) { _, _ in model.selected = nil }
                 Button { model.openWorkspaceEditor() } label: {
                     Label("New workspace", systemImage: "plus")
@@ -1281,7 +1287,7 @@ struct WorkflowView<AppsContent: View, RecoveryContent: View>: View {
                     Text("Choose a person").tag(nil as String?)
                     ForEach(model.visiblePeople) { person in Text(person.name).tag(Optional(person.id)) }
                 }
-                .frame(maxWidth: 220)
+                .frame(maxWidth: 180)
                 .onChange(of: model.person) { _, _ in
                     model.selected = nil
                     model.identifier = ""
@@ -1294,7 +1300,10 @@ struct WorkflowView<AppsContent: View, RecoveryContent: View>: View {
                 .fixedSize()
                 .disabled(!ready || model.busy || model.person == nil || model.cardID != model.person)
             }
-            Spacer(minLength: 0)
+            Spacer(minLength: 8)
+            if includeSearch {
+                searchField(tokens: tokens)
+            }
         }
         .padding(.bottom, 6)
         .overlay(alignment: .bottom) {

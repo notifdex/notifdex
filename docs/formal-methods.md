@@ -260,3 +260,14 @@ include unassigned alerts through the person's membership without writing
 any routes. Swift tests cover migrated links, a new rule-linked capture,
 search, explicit routing and clearing, and selected alert lookup. An
 ordinary workspace-filtered inbox continues to require an explicit route.
+
+### Appearance preferences and surface orthogonality (#70)
+
+`spec/Appearance.tla` (`spec/Appearance.cfg`) models surface finishes (`clearGlass`, `ambientGlass`, `customImage`, `standard` / Solid), color pigments (`Themes`), custom backdrop presence, and macOS accessibility overrides (`reduceTransparency`, `increaseContrast`). It corresponds directly to `Sources/NotifdexCore/AppearancePreferences.swift` (`AppearanceState`), which `AppearanceSettings` in `Sources/NotifdexApp/AppAppearance.swift` delegates to:
+
+- `SolidNeverTransparent`: `standard` (Solid) never enables glass panels or a transparent window.
+- `AccessibilityForcesOpaque`: enabling macOS Reduce Transparency or Increase Contrast forces opaque rendering without mutating stored user preferences.
+- `SolidAppliesPigmentUnlessHighContrast`: Solid mode applies the selected pigment's opaque matte finish unless Increase Contrast is enabled.
+- `OrthogonalPreferences`: selecting a color theme (`SelectTheme`) never changes `surface` (preventing the #70 regression where Solid snapped back to Clear), selecting a surface never changes `theme`, and importing or removing a custom backdrop preserves `theme` while only falling back from `customImage` to `clearGlass` when a photo backdrop is removed.
+
+The new contract test in `contract-tests/test_app_center_layout_contract.py` failed before implementation (missing `AppearancePreferences.swift` and Solid pigment rendering) and passes after the fix alongside `Tests/NotifdexCoreTests/AppearancePreferencesTests.swift`. Visual contrast and macOS light/dark appearance checks remain hands-on device verification.

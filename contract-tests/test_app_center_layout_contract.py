@@ -50,18 +50,32 @@ class AppCenterLayoutContractTests(unittest.TestCase):
 
     def test_appearance_studio_exposes_see_through_glass_tiers_and_custom_background(self):
         appearance = (APP_DIR / "AppAppearance.swift").read_text()
+        core = (Path(__file__).resolve().parents[1] / "Sources" / "NotifdexCore" / "AppearancePreferences.swift").read_text()
         studio = (APP_DIR / "AppearanceStudioView.swift").read_text()
         app_source = (APP_DIR / "NotifdexApp.swift").read_text()
-        self.assertIn("self.surfaceMode = .clearGlass", appearance)
+        self.assertIn("surfaceMode: AppSurfaceMode = .clearGlass", core)
         self.assertIn("NSVisualEffectView", appearance)
         self.assertIn("blendingMode: .behindWindow", appearance)
-        self.assertIn("enum AppThemeTier", appearance)
+        self.assertIn("enum AppThemeTier", core)
         self.assertIn("ForEach(AppSurfaceMode.allCases)", studio)
         self.assertIn("ForEach(AppColorTheme.coreThemes)", studio)
         self.assertIn("ForEach(AppColorTheme.studioThemes)", studio)
         self.assertIn('Label("Show data folder"', studio)
         self.assertIn("appearance.importBackdrop(result)", app_source)
         self.assertIn("appearance.removeCustomBackdrop()", studio)
+
+    def test_solid_surface_preserves_mode_and_applies_pigment_on_theme_change(self):
+        appearance = (APP_DIR / "AppAppearance.swift").read_text()
+        core_path = Path(__file__).resolve().parents[1] / "Sources" / "NotifdexCore" / "AppearancePreferences.swift"
+        self.assertTrue(core_path.is_file(), "Expected platform-independent AppearancePreferences state model in NotifdexCore")
+        core = core_path.read_text()
+        # Bug #70 regression: selecting a color pigment in Solid (.standard) must never snap back to .clearGlass.
+        self.assertNotIn("if surfaceMode == .standard {\n            surfaceMode = .clearGlass", appearance)
+        self.assertNotIn("if surfaceMode == .standard {\n            surfaceMode = .clearGlass", core)
+        self.assertIn("func selectTheme(", core)
+        self.assertIn("func standardWindowFill(", appearance)
+        self.assertIn("func standardPlane(", appearance)
+        self.assertIn("tokens: ThemeTokens", appearance)
 
     def test_global_controls_and_banners_remain_reachable(self):
         workflow = (APP_DIR / "WorkflowView.swift").read_text()

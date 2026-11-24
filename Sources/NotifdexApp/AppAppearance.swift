@@ -1,75 +1,11 @@
 #if os(macOS)
 import AppKit
 import Foundation
+import NotifdexCore
 import SwiftUI
 import UniformTypeIdentifiers
 
-enum AppSurfaceMode: String, CaseIterable, Identifiable {
-    case clearGlass
-    case ambientGlass
-    case customImage
-    case standard
-
-    var id: Self { self }
-
-    var title: String {
-        switch self {
-        case .clearGlass: "Clear"
-        case .ambientGlass: "Ambient"
-        case .customImage: "Photo"
-        case .standard: "Solid"
-        }
-    }
-
-    var subtitle: String {
-        switch self {
-        case .clearGlass: "See-through architectural glass"
-        case .ambientGlass: "Painterly atmospheric wash"
-        case .customImage: "Your image beneath frosted glass"
-        case .standard: "Opaque native macOS finish"
-        }
-    }
-
-    var usesGlassPanels: Bool {
-        self != .standard
-    }
-}
-
-enum AppThemeTier: String, CaseIterable, Identifiable {
-    case core = "Essential"
-    case studio = "Atelier"
-
-    var id: Self { self }
-}
-
-enum AppColorTheme: String, CaseIterable, Identifiable {
-    case mineral
-    case vermilion
-    case prussian
-    case sienna
-    case celadon
-    case nocturne
-
-    var id: Self { self }
-
-    var title: String {
-        switch self {
-        case .mineral: "Mineral"
-        case .vermilion: "Vermilion"
-        case .prussian: "Prussian"
-        case .sienna: "Sienna"
-        case .celadon: "Celadon"
-        case .nocturne: "Nocturne"
-        }
-    }
-
-    var tier: AppThemeTier {
-        switch self {
-        case .mineral, .vermilion, .prussian: .core
-        case .sienna, .celadon, .nocturne: .studio
-        }
-    }
-
+extension AppColorTheme {
     var swatchColors: [Color] {
         switch self {
         case .mineral:
@@ -86,9 +22,6 @@ enum AppColorTheme: String, CaseIterable, Identifiable {
             [Color(red: 0.30, green: 0.34, blue: 0.66), Color(red: 0.78, green: 0.48, blue: 0.60), Color(red: 0.86, green: 0.66, blue: 0.42)]
         }
     }
-
-    static var coreThemes: [AppColorTheme] { allCases.filter { $0.tier == .core } }
-    static var studioThemes: [AppColorTheme] { allCases.filter { $0.tier == .studio } }
 }
 
 @MainActor
@@ -136,21 +69,13 @@ final class AppearanceSettings: ObservableObject {
         self.defaults = defaults
         self.backdropURL = directory.appendingPathComponent("custom-backdrop.img")
 
-        if let raw = defaults.string(forKey: Keys.surfaceMode),
-           let parsed = AppSurfaceMode(rawValue: raw) {
-            self.surfaceMode = parsed
-        } else if defaults.string(forKey: Keys.legacyAppearance) == "standard" {
-            self.surfaceMode = .standard
-        } else {
-            self.surfaceMode = .clearGlass
-        }
-
-        if let raw = defaults.string(forKey: Keys.colorTheme),
-           let parsed = AppColorTheme(rawValue: raw) {
-            self.colorTheme = parsed
-        } else {
-            self.colorTheme = .mineral
-        }
+        let restored = AppearanceState.restored(
+            savedSurfaceRaw: defaults.string(forKey: Keys.surfaceMode),
+            legacyAppearanceRaw: defaults.string(forKey: Keys.legacyAppearance),
+            savedThemeRaw: defaults.string(forKey: Keys.colorTheme)
+        )
+        self.surfaceMode = restored.surfaceMode
+        self.colorTheme = restored.colorTheme
 
         if let raw = defaults.string(forKey: Keys.menuBarIconStyle),
            let parsed = MenuBarIconStyle(rawValue: raw) {
@@ -168,6 +93,23 @@ final class AppearanceSettings: ObservableObject {
 
     var hasCustomBackdrop: Bool { customBackdropImage != nil }
 
+    var state: AppearanceState {
+        AppearanceState(
+            surfaceMode: surfaceMode,
+            colorTheme: colorTheme,
+            hasCustomBackdrop: hasCustomBackdrop
+        )
+    }
+
+    private func applyState(_ updated: AppearanceState) {
+        if surfaceMode != updated.surfaceMode {
+            surfaceMode = updated.surfaceMode
+        }
+        if colorTheme != updated.colorTheme {
+            colorTheme = updated.colorTheme
+        }
+    }
+
     var activeConfiguration: AppearanceConfiguration {
         AppearanceConfiguration(
             surfaceMode: surfaceMode,
@@ -181,7 +123,9 @@ final class AppearanceSettings: ObservableObject {
 
     func selectSurface(_ mode: AppSurfaceMode) {
         backdropError = nil
-        surfaceMode = mode
+        var next = state
+        next.selectSurface(mode)
+        applyState(next)
         if mode == .customImage && customBackdropImage == nil {
             showingBackdropImporter = true
         }
@@ -189,10 +133,9 @@ final class AppearanceSettings: ObservableObject {
 
     func selectTheme(_ theme: AppColorTheme) {
         backdropError = nil
-        colorTheme = theme
-        if surfaceMode == .standard {
-            surfaceMode = .clearGlass
-        }
+        var next = state
+        next.selectTheme(theme)
+        applyState(next)
     }
 
     func loadSavedBackdrop() {
@@ -222,7 +165,9 @@ final class AppearanceSettings: ObservableObject {
                 }.value
                 guard self.backdropGeneration == generation else { return }
                 self.customBackdropImage = image
-                self.surfaceMode = .customImage
+                var next = self.state
+                next.importCustomBackdrop()
+                self.applyState(next)
             } catch {
                 guard self.backdropGeneration == generation else { return }
                 self.backdropError = error.localizedDescription
@@ -235,9 +180,9 @@ final class AppearanceSettings: ObservableObject {
         backdropGeneration += 1
         let url = backdropURL
         customBackdropImage = nil
-        if surfaceMode == .customImage {
-            surfaceMode = .clearGlass
-        }
+        var next = state
+        next.removeCustomBackdrop()
+        applyState(next)
         Task.detached(priority: .utility) {
             try? FileManager.default.removeItem(at: url)
         }
@@ -289,8 +234,16 @@ struct AppearanceConfiguration: Equatable {
         (lhs.customBackdropImage === rhs.customBackdropImage)
     }
 
+    var state: AppearanceState {
+        AppearanceState(
+            surfaceMode: surfaceMode,
+            colorTheme: colorTheme,
+            hasCustomBackdrop: customBackdropImage != nil
+        )
+    }
+
     var requestsTransparentWindow: Bool {
-        surfaceMode == .clearGlass || (surfaceMode == .customImage && customBackdropImage == nil)
+        state.requestsTransparentWindow(reduceTransparency: false, increaseContrast: false)
     }
 }
 
@@ -613,16 +566,24 @@ private struct AppSurfaceModifier: ViewModifier {
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
 
     private var usesGlass: Bool {
-        config.surfaceMode.usesGlassPanels && !reduceTransparency && contrast != .increased
+        config.state.usesGlassPanels(
+            reduceTransparency: reduceTransparency,
+            increaseContrast: contrast == .increased
+        )
+    }
+
+    private var appliesSolidPigment: Bool {
+        config.state.appliesSolidPigment(increaseContrast: contrast == .increased)
     }
 
     private var hidesScrollBackground: Bool {
-        usesGlass && (surface == .list || surface == .inboxList)
+        (usesGlass || appliesSolidPigment) && (surface == .list || surface == .inboxList)
     }
 
     func body(content: Content) -> some View {
         let dark = colorScheme == .dark
         let tokens = ThemeTokens(theme: config.colorTheme, dark: dark)
+        let increaseContrast = contrast == .increased
         content
             .scrollContentBackground(hidesScrollBackground ? .hidden : .automatic)
             .background(alignment: .center) {
@@ -632,7 +593,7 @@ private struct AppSurfaceModifier: ViewModifier {
                             .allowsHitTesting(false)
                             .accessibilityHidden(true)
                     } else {
-                        Color(nsColor: .windowBackgroundColor)
+                        standardWindowFill(tokens: tokens, increaseContrast: increaseContrast)
                             .ignoresSafeArea()
                             .allowsHitTesting(false)
                             .accessibilityHidden(true)
@@ -642,11 +603,24 @@ private struct AppSurfaceModifier: ViewModifier {
                         .allowsHitTesting(false)
                         .accessibilityHidden(true)
                 } else {
-                    standardPlane(dark: dark)
+                    standardPlane(tokens: tokens, dark: dark, increaseContrast: increaseContrast)
                         .allowsHitTesting(false)
                         .accessibilityHidden(true)
                 }
             }
+    }
+
+    @ViewBuilder
+    private func standardWindowFill(tokens: ThemeTokens, increaseContrast: Bool) -> some View {
+        if config.state.appliesSolidPigment(increaseContrast: increaseContrast) {
+            LinearGradient(
+                colors: tokens.windowTint,
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+        } else {
+            Color(nsColor: .windowBackgroundColor)
+        }
     }
 
     @ViewBuilder
@@ -692,31 +666,32 @@ private struct AppSurfaceModifier: ViewModifier {
     }
 
     @ViewBuilder
-    private func standardPlane(dark: Bool) -> some View {
-        let rule = dark ? Color.white.opacity(0.09) : Color.black.opacity(0.09)
+    private func standardPlane(tokens: ThemeTokens, dark: Bool, increaseContrast: Bool) -> some View {
+        let pigmented = config.state.appliesSolidPigment(increaseContrast: increaseContrast)
+        let rule = pigmented ? tokens.hairline : (dark ? Color.white.opacity(0.09) : Color.black.opacity(0.09))
         switch surface {
         case .window:
             EmptyView()
         case .sidebar:
-            Color(nsColor: .controlBackgroundColor).opacity(0.6)
+            (pigmented ? tokens.sidebarPlane : Color(nsColor: .controlBackgroundColor).opacity(0.6))
                 .overlay(alignment: .trailing) { Rectangle().fill(rule).frame(width: 0.5) }
         case .inboxList, .list:
             Color.clear
         case .detail:
-            Color(nsColor: .controlBackgroundColor).opacity(0.35)
+            (pigmented ? tokens.inspectorPlane : Color(nsColor: .controlBackgroundColor).opacity(0.35))
                 .overlay(alignment: .leading) { Rectangle().fill(rule).frame(width: 0.5) }
         case .inspector:
-            Color(nsColor: .controlBackgroundColor).opacity(0.35)
+            pigmented ? tokens.inspectorPlane : Color(nsColor: .controlBackgroundColor).opacity(0.35)
         case .card:
             RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(Color(nsColor: .controlBackgroundColor))
+                .fill(pigmented ? tokens.subtleFill : Color(nsColor: .controlBackgroundColor))
                 .overlay {
                     RoundedRectangle(cornerRadius: 8, style: .continuous)
                         .strokeBorder(rule, lineWidth: 0.5)
                 }
         case .pill:
             RoundedRectangle(cornerRadius: 6, style: .continuous)
-                .fill(Color(nsColor: .controlBackgroundColor))
+                .fill(pigmented ? tokens.subtleFill : Color(nsColor: .controlBackgroundColor))
                 .overlay {
                     RoundedRectangle(cornerRadius: 6, style: .continuous)
                         .strokeBorder(rule, lineWidth: 0.5)
@@ -735,7 +710,12 @@ private struct AlertSelectionTint: ViewModifier {
 
     func body(content: Content) -> some View {
         content.background {
-            if selected && config.surfaceMode.usesGlassPanels && !reduceTransparency && contrast != .increased {
+            let increaseContrast = contrast == .increased
+            let appliesTint = config.state.usesGlassPanels(
+                reduceTransparency: reduceTransparency,
+                increaseContrast: increaseContrast
+            ) || config.state.appliesSolidPigment(increaseContrast: increaseContrast)
+            if selected && appliesTint {
                 let tokens = ThemeTokens(theme: config.colorTheme, dark: colorScheme == .dark)
                 RoundedRectangle(cornerRadius: 6, style: .continuous)
                     .fill(tokens.selectionFill)

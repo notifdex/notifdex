@@ -10,7 +10,7 @@ Static public website for Notifdex, deployed on **Cloudflare Pages** via Git int
 | Build command | `npm run build` |
 | Build output directory | `dist` |
 | Production branch | `main` |
-| Watch paths (Pages Git integration) | `website/**` |
+| Watch paths (Pages Git integration) | `website/*` |
 
 The build uses Node's built-in modules with zero third-party runtime dependencies so Pages builds stay fast, deterministic, and offline-capable.
 

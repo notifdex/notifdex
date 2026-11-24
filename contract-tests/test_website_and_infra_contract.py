@@ -51,6 +51,8 @@ class WebsiteAndCloudflareInfraContractTests(unittest.TestCase):
 
         styles_css = (src_dir / "styles.css").read_text(encoding="utf-8")
         self.assertIn("scroll-margin-top:", styles_css)
+        self.assertIn('html[data-theme="dark"]', styles_css)
+        self.assertIn('id="theme-toggle"', index_html)
 
         headers = (src_dir / "_headers").read_text(encoding="utf-8")
         self.assertIn("https://notifdex.pages.dev/*", headers)

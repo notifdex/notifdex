@@ -57,8 +57,11 @@ if (failures.length === 0) {
   assert(indexHtml.includes("https://github.com/notifdex/notifdex/issues"), "index.html missing support link");
   assert(indexHtml.includes('href="/privacy.html"'), "index.html missing link to /privacy.html");
 
-  // Sticky header scroll offset protection
+  // Sticky header scroll offset protection & dark mode toggle
   assert(/scroll-margin-top\s*:/.test(stylesCss), "styles.css should set scroll-margin-top so anchored sections clear the sticky header");
+  assert(indexHtml.includes('id="theme-toggle"'), "index.html missing visible #theme-toggle button for dark/light mode");
+  assert(privacyHtml.includes('id="theme-toggle"'), "privacy.html missing visible #theme-toggle button");
+  assert(stylesCss.includes('html[data-theme="dark"]'), "styles.css missing dark theme styling");
 
   // CSP hygiene: no inline event handlers, inline styles, or inline scripts in HTML pages
   for (const [name, html] of [

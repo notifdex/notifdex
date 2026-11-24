@@ -12,6 +12,7 @@
   <link rel="icon" type="image/png" href="/favicon.png" />
   <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
   <link rel="stylesheet" href="/styles.css" />
+  <script defer src="/app.js"></script>
 </head>
 <body>
   <a class="skip-link" href="#main">Skip to content</a>
@@ -27,6 +28,16 @@
         <a href="/#install">Install</a>
         <a href="https://github.com/notifdex/notifdex" rel="noopener">GitHub</a>
         <a href="https://github.com/notifdex/notifdex/issues" rel="noopener">Support</a>
+        <button type="button" id="theme-toggle" class="theme-toggle" aria-pressed="false" aria-label="Switch to dark mode">
+          <svg class="theme-icon icon-moon" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+            <path fill="currentColor" d="M6.2 1.8a6.3 6.3 0 1 0 8 8 5.2 5.2 0 0 1-8-8Z" />
+          </svg>
+          <svg class="theme-icon icon-sun" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+            <circle cx="8" cy="8" r="3.2" fill="currentColor" />
+            <path stroke="currentColor" stroke-width="1.4" stroke-linecap="round" d="M8 1.2v1.6M8 13.2v1.6M1.2 8h1.6M13.2 8h1.6M3.2 3.2l1.1 1.1M11.7 11.7l1.1 1.1M12.8 3.2l-1.1 1.1M4.3 11.7l-1.1 1.1" />
+          </svg>
+          <span class="theme-toggle-label">Dark mode</span>
+        </button>
       </nav>
     </div>
   </header>

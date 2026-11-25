@@ -20,4 +20,8 @@ infra/**/crash.log
 infra/**/backend.hcl
 infra/**/*.tfvars
 !infra/**/*.tfvars.example
+*.p12
+*.p8
+*.cer
+*.certSigningRequest
 

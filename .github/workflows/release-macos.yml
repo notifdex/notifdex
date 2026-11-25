@@ -223,13 +223,21 @@ jobs:
           fi
 
       - name: Update notifdex/homebrew-tap cask
-        if: ${{ steps.meta.outputs.is_draft != 'true' && secrets.HOMEBREW_TAP_TOKEN != '' }}
+        if: ${{ steps.meta.outputs.is_draft != 'true' && secrets.HOMEBREW_TAP_DEPLOY_KEY != '' }}
         env:
-          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          HOMEBREW_TAP_DEPLOY_KEY: ${{ secrets.HOMEBREW_TAP_DEPLOY_KEY }}
           VERSION: ${{ steps.meta.outputs.version }}
         run: |
+          ssh_dir="$RUNNER_TEMP/tap-ssh"
           tap_dir="$RUNNER_TEMP/homebrew-tap"
-          git clone "https://x-access-token:${HOMEBREW_TAP_TOKEN}@github.com/notifdex/homebrew-tap.git" "$tap_dir"
+          mkdir -p "$ssh_dir"
+          chmod 700 "$ssh_dir"
+          printf '%s\n' "$HOMEBREW_TAP_DEPLOY_KEY" > "$ssh_dir/id_ed25519"
+          chmod 600 "$ssh_dir/id_ed25519"
+          ssh-keyscan -t ed25519 github.com > "$ssh_dir/known_hosts" 2>/dev/null
+
+          export GIT_SSH_COMMAND="ssh -i ${ssh_dir}/id_ed25519 -o UserKnownHostsFile=${ssh_dir}/known_hosts -o StrictHostKeyChecking=yes -o IdentitiesOnly=yes"
+          git clone git@github.com:notifdex/homebrew-tap.git "$tap_dir"
           mkdir -p "$tap_dir/Casks"
           cp dist/notifdex.rb "$tap_dir/Casks/notifdex.rb"
           cd "$tap_dir"
@@ -247,7 +255,7 @@ jobs:
         env:
           VERSION: ${{ steps.meta.outputs.version }}
           SHA256: ${{ steps.package.outputs.sha256 }}
-          HAS_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN != '' }}
+          HAS_TAP_KEY: ${{ secrets.HOMEBREW_TAP_DEPLOY_KEY != '' }}
           IS_DRAFT: ${{ steps.meta.outputs.is_draft }}
         run: |
           {
@@ -256,9 +264,9 @@ jobs:
             echo "- **SHA-256:** \`${SHA256}\`"
             echo "- **Install via Homebrew:** \`brew install --cask notifdex/tap/notifdex\`"
             echo "- **Upgrade via Homebrew:** \`brew upgrade --cask notifdex\`"
-            if [[ "$IS_DRAFT" == "true" || "$HAS_TAP_TOKEN" != "true" ]]; then
+            if [[ "$IS_DRAFT" == "true" || "$HAS_TAP_KEY" != "true" ]]; then
               echo ""
-              echo "> Note: \`notifdex/homebrew-tap\` was not pushed automatically (draft=${IS_DRAFT}, HOMEBREW_TAP_TOKEN set=${HAS_TAP_TOKEN})."
+              echo "> Note: \`notifdex/homebrew-tap\` was not pushed automatically (draft=${IS_DRAFT}, HOMEBREW_TAP_DEPLOY_KEY set=${HAS_TAP_KEY})."
               echo "> The rendered \`Casks/notifdex.rb\` is attached to the release."
             fi
           } >> "$GITHUB_STEP_SUMMARY"
@@ -267,4 +275,5 @@ jobs:
         if: always()
         run: |
           security delete-keychain "$RUNNER_TEMP/notifdex-signing.keychain-db" 2>/dev/null || true
+          rm -rf "$RUNNER_TEMP/tap-ssh"
           rm -f "$RUNNER_TEMP/developer-id.p12" "$RUNNER_TEMP"/AuthKey_*.p8 "$RUNNER_TEMP/Notifdex-notary-submit.zip"

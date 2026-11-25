@@ -34,7 +34,21 @@ base64 -i developer-id.p12 | pbcopy
 base64 -i AuthKey_<KEY_ID>.p8 | pbcopy
 ```
 
-### 3. Add GitHub Actions secrets in `notifdex/notifdex`
+### 3. Create a never-expiring Deploy Key for `notifdex/homebrew-tap`
+
+Instead of an expiring PAT, use a single SSH Deploy Key scoped exclusively to `notifdex/homebrew-tap`:
+
+```bash
+ssh-keygen -t ed25519 -N "" -C "notifdex-release-bot" -f /tmp/notifdex-tap-key
+```
+
+1. Copy the **public** key (`pbcopy < /tmp/notifdex-tap-key.pub`) and add it at **GitHub → `notifdex/homebrew-tap` → Settings → Deploy keys → Add deploy key**:
+   - Title: `notifdex-release-bot`
+   - Check **Allow write access**
+2. Copy the **private** key (`pbcopy < /tmp/notifdex-tap-key`) and add it as the `HOMEBREW_TAP_DEPLOY_KEY` repository secret in `notifdex/notifdex`.
+3. Delete the temporary files (`rm -f /tmp/notifdex-tap-key /tmp/notifdex-tap-key.pub`).
+
+### 4. Add GitHub Actions secrets in `notifdex/notifdex`
 
 In **GitHub → `notifdex/notifdex` → Settings → Secrets and variables → Actions → New repository secret**, add:
 
@@ -46,7 +60,7 @@ In **GitHub → `notifdex/notifdex` → Settings → Secrets and variables → A
 | `APPLE_NOTARY_KEY_P8_BASE64` | Base64 output of `AuthKey_<KEY_ID>.p8` |
 | `APPLE_NOTARY_KEY_ID` | The 10-character Key ID from App Store Connect |
 | `APPLE_NOTARY_ISSUER_ID` | The UUID Issuer ID from App Store Connect |
-| `HOMEBREW_TAP_TOKEN` *(optional)* | Fine-grained GitHub PAT with **Contents: Read & Write** on `notifdex/homebrew-tap` so releases auto-update `Casks/notifdex.rb` |
+| `HOMEBREW_TAP_DEPLOY_KEY` *(optional)* | Private ed25519 SSH key whose public half is a write-enabled Deploy Key on `notifdex/homebrew-tap` (never expires) |
 
 *(You can reuse the exact same Developer ID `.p12` and App Store Connect API key secrets across other apps signed under Team ID `HNH4DY9A2T`.)*
 
@@ -66,7 +80,7 @@ git push origin v0.1.0
 3. Verify the code signature and designated requirement (`com.notifdex.mac` + `HNH4DY9A2T`).
 4. Submit to Apple's Notary Service, staple the ticket onto `Notifdex.app`, and verify with `spctl --assess`.
 5. Publish `Notifdex-<version>-macOS-universal.zip`, its `.sha256`, and `notifdex.rb` to GitHub Releases.
-6. Push the updated `Casks/notifdex.rb` to `notifdex/homebrew-tap` (when `HOMEBREW_TAP_TOKEN` is set).
+6. Push the updated `Casks/notifdex.rb` to `notifdex/homebrew-tap` (when `HOMEBREW_TAP_DEPLOY_KEY` is set).
 
 ## Verifying Accessibility continuity across updates (#20)
 

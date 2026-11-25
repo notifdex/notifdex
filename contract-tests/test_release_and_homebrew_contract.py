@@ -88,9 +88,12 @@ class ReleaseAndHomebrewContractTests(unittest.TestCase):
             "xcrun stapler validate dist/Notifdex.app",
             "spctl --assess --type execute",
             "bash tools/render-homebrew-cask.sh",
-            "notifdex/homebrew-tap",
+            "HOMEBREW_TAP_DEPLOY_KEY",
+            "git@github.com:notifdex/homebrew-tap.git",
+            "StrictHostKeyChecking=yes",
             "if: always()",
             "security delete-keychain",
+            'rm -rf "$RUNNER_TEMP/tap-ssh"',
         ):
             self.assertIn(required, workflow)
 

@@ -30,22 +30,67 @@ Notification Center controls available on your Mac.
 
 ## Run the menu bar app
 
-Stop the Terminal collector with Ctrl-C before launching the app. Both use the
-same SQLite database and exclusive owner lock. From your clone:
+### Install with Homebrew (recommended)
+
+Signed, notarized universal builds (`arm64` + `x86_64`) are published on
+[GitHub Releases](https://github.com/notifdex/notifdex/releases/latest) and via
+[`notifdex/homebrew-tap`](https://github.com/notifdex/homebrew-tap):
 
 ```bash
-git pull --ff-only
+brew install --cask notifdex/tap/notifdex
+open /Applications/Notifdex.app
+```
+
+To update later:
+
+```bash
+brew update && brew upgrade --cask notifdex
+open /Applications/Notifdex.app
+```
+
+*(Prefer not to use Homebrew? Download `Notifdex-<version>-macOS-universal.zip` from
+[GitHub Releases](https://github.com/notifdex/notifdex/releases/latest), unzip it,
+and drag `Notifdex.app` into `/Applications`.)*
+
+### First-time setup checklist
+
+1. **System requirements:** macOS 14+ for Mac alerts. For forwarded **iPhone** alerts,
+   you need **macOS 15 (Sequoia)+** on Apple Silicon/T2 and **iOS 18+** (same Apple
+   Account, Bluetooth/Wi-Fi on, iPhone Mirroring paired at least once; note Apple
+   restricts iPhone Mirroring in the EU).
+2. **Enable iPhone alerts & previews (for iPhone notifications):**
+   - In macOS **System Settings → Notifications**, turn on **Allow notifications from iPhone**
+     and enable each individual iPhone app you want forwarded.
+   - Make sure **Show Previews** is set to **Always** or **When Unlocked**—when set to
+     **Never**, macOS exposes redacted text instead of the sender and message body.
+3. **Grant Accessibility access:** Click the Notifdex icon in the menu bar, open
+   **App Center**, and grant **Notifdex** Accessibility access in **System Settings →
+   Privacy & Security → Accessibility**. *(If you previously installed an ad-hoc
+   source build in `~/Applications`, quit it, remove the old copy, and delete its stale
+   Accessibility entry once before using the signed release.)*
+4. **Choose apps to watch:** Open **App Center → Apps** and toggle on the apps you want
+   (X and Messages are enabled by default on new installs; custom apps use their exact
+   macOS notification label). Closing App Center leaves Notifdex running in the menu bar.
+
+### Build from source (developers)
+
+Stop any running Terminal collector with Ctrl-C before launching the app (both share
+the same SQLite database and exclusive file lock). Requires Apple Command Line Tools:
+
+```bash
+git clone https://github.com/notifdex/notifdex.git
+cd notifdex
 bash tools/build-app.sh
 mkdir -p "$HOME/Applications"
 ditto dist/Notifdex.app "$HOME/Applications/Notifdex.app"
 open "$HOME/Applications/Notifdex.app"
 ```
 
-Click the tray icon in the menu bar, then **App Center**. Grant **Notifdex** its
-own Accessibility permission in System Settings. Terminal's earlier grant belongs
-to Terminal. The app polls for permission changes. If the system continues denying
-access after granting it, quit and relaunch the app. Future ad-hoc rebuilds may
-need a renewed permission grant. Quit the installed app before replacing it.
+Local source builds use ad-hoc signing (`codesign --sign -`). Rebuilding an ad-hoc app
+changes its signature, so macOS may require removing and re-adding Notifdex in
+Accessibility settings after local rebuilds. Quit the installed app before replacing it.
+
+### Settings, Inbox, and Recovery details
 
 The Apps tab has toggles for X, Messages, Discord, Slack, Gmail, LinkedIn, WhatsApp,
 and custom exact notification labels. X and Messages are enabled on new installs.

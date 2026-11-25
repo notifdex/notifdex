@@ -31,7 +31,7 @@ cask "notifdex" do
   desc "Local macOS notification inbox and people notebook"
   homepage "https://notifdex.com/"
 
-  depends_on macos: ">= :sonoma"
+  depends_on macos: :sonoma
 
   app "Notifdex.app"
 

@@ -48,12 +48,13 @@ class ReleaseAndHomebrewContractTests(unittest.TestCase):
                 f'sha256 "{sha}"',
                 'url "https://github.com/notifdex/notifdex/releases/download/v#{version}/Notifdex-#{version}-macOS-universal.zip"',
                 'homepage "https://notifdex.com/"',
-                'depends_on macos: ">= :sonoma"',
+                'depends_on macos: :sonoma',
                 'app "Notifdex.app"',
                 'uninstall quit: "com.notifdex.mac"',
                 '"~/Library/Application Support/Notifdex"',
             ):
                 self.assertIn(required, cask)
+            self.assertNotIn('">= :sonoma"', cask)
             self.assertNotIn("rolodex", cask.lower())
 
         bad_version = subprocess.run(

@@ -147,6 +147,17 @@ public enum InboxDestination {
     public static func nativeURL(for app: String) -> URL? {
         app == "WhatsApp" ? URL(string: "whatsapp://") : nil
     }
+
+    public static func bundleIdentifier(for app: String) -> String? {
+        switch app {
+        case "Messages": "com.apple.MobileSMS"
+        default: nil
+        }
+    }
+
+    public static func canOpen(_ app: String) -> Bool {
+        bundleIdentifier(for: app) != nil || nativeURL(for: app) != nil || webURL(for: app) != nil
+    }
 }
 
 

@@ -561,6 +561,44 @@ struct WorkflowView<AppsContent: View, RecoveryContent: View>: View {
         self.recoveryView = recoveryView
     }
 
+    @ToolbarContentBuilder
+    private var brandToolbarItem: some ToolbarContent {
+        #if compiler(>=6.2)
+        if #available(macOS 26.0, *) {
+            ToolbarItem(placement: .navigation) {
+                brandToolbarContent
+            }
+            .sharedBackgroundVisibility(.hidden)
+        } else {
+            ToolbarItem(placement: .navigation) {
+                brandToolbarContent
+            }
+        }
+        #else
+        ToolbarItem(placement: .navigation) {
+            brandToolbarContent
+        }
+        #endif
+    }
+
+    private var brandToolbarContent: some View {
+        HStack(spacing: 8) {
+            if let icon = AppIconCatalog.appIconImage {
+                Image(nsImage: icon)
+                    .resizable()
+                    .interpolation(.high)
+                    .scaledToFit()
+                    .frame(width: 20, height: 20)
+                    .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
+            }
+            Text("Notifdex")
+                .font(.system(size: 15, weight: .regular, design: .serif))
+                .tracking(-0.2)
+                .foregroundStyle(.primary)
+        }
+        .padding(.leading, 4)
+    }
+
     private var themeTokens: ThemeTokens {
         ThemeTokens(theme: appearanceConfig.colorTheme, dark: colorScheme == .dark)
     }
@@ -611,23 +649,7 @@ struct WorkflowView<AppsContent: View, RecoveryContent: View>: View {
             }
         }
         .toolbar {
-            ToolbarItem(placement: .navigation) {
-                HStack(spacing: 8) {
-                    if let icon = AppIconCatalog.appIconImage {
-                        Image(nsImage: icon)
-                            .resizable()
-                            .interpolation(.high)
-                            .scaledToFit()
-                            .frame(width: 20, height: 20)
-                            .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
-                    }
-                    Text("Notifdex")
-                        .font(.system(size: 15, weight: .regular, design: .serif))
-                        .tracking(-0.2)
-                        .foregroundStyle(.primary)
-                }
-                .padding(.leading, 4)
-            }
+            brandToolbarItem
         }
         .sheet(item: $model.matchPreview) { preview in
             matchReview(preview)

@@ -100,9 +100,14 @@ class AppCenterLayoutContractTests(unittest.TestCase):
         # Single titlebar owner: native SwiftUI .toolbar + .unifiedCompact (~38pt), NEVER manual empty NSToolbar + .ignoresSafeArea.
         self.assertIn(".toolbar {", workflow)
         self.assertIn("ToolbarItem(placement: .navigation)", workflow)
+        self.assertIn(".sharedBackgroundVisibility(.hidden)", workflow)
         self.assertIn("window.toolbarStyle = .unifiedCompact", presence)
         self.assertNotIn("window.toolbar = toolbar", presence)
         self.assertNotIn(".ignoresSafeArea(.container, edges: .top)", workflow)
+        # Cross-monitor drag stability: AppCenterPresence must use WindowChromeSyncState so SwiftUI updates never mutate NSWindow chrome mid-drag.
+        self.assertIn("WindowChromeSyncState", presence)
+        self.assertIn("NSWindow.willMoveNotification", presence)
+        self.assertIn("didDrag:", presence)
         # Status & Appearance controls stay anchored in the LHS sidebar footer (with compact-header fallback).
         self.assertIn("sidebarFooter", workflow)
         self.assertNotIn("ToolbarItemGroup(placement: .primaryAction)", workflow)

@@ -15,9 +15,12 @@ import SwiftUI
 ///    appearance) is configured once at window initialization.
 /// 4. `AppCenterRootView` isolates the edge-to-edge backdrop in a non-interactive
 ///    container and pins `NSHostingView` strictly to `window.contentLayoutGuide`
-///    with `sizingOptions = []`, so empty titlebar hits always land on native
-///    `NSThemeFrame` and SwiftUI ticks never push frame mutations to `NSWindow`.
-/// 5. Transparency updates and offscreen-titlebar recovery are deferred by
+///    with `sizingOptions = []`, so SwiftUI ticks never push frame mutations to `NSWindow`.
+/// 5. Titlebar drags are tracked directly in global screen coordinates via
+///    `TitlebarDragSession` + `NSWindow.trackEvents(matching:mode:)` + `setFrameOrigin(_:)`,
+///    anchored to `(startOrigin, startMouse)` so macOS 27.2's broken SkyLight client-initiated
+///    drag trait gesture is bypassed completely (zero snapping, zero cumulative drift).
+/// 6. Transparency updates and offscreen-titlebar recovery are deferred by
 ///    `WindowChromeSyncState` while a drag is active and flushed only when idle.
 @MainActor
 final class AppCenterWindowController: NSWindowController, NSWindowDelegate {
@@ -26,7 +29,6 @@ final class AppCenterWindowController: NSWindowController, NSWindowDelegate {
     private let toolbarDelegate = AppCenterToolbarDelegate()
     private var chromeSync = WindowChromeSyncState()
     private var screenObserver: NSObjectProtocol?
-    private var dragSettleWorkItem: DispatchWorkItem?
 
     private static let defaultContentSize = NSSize(width: 780, height: 620)
     private static let minimumContentSize = NSSize(width: 660, height: 520)
@@ -65,7 +67,6 @@ final class AppCenterWindowController: NSWindowController, NSWindowDelegate {
     }
 
     deinit {
-        dragSettleWorkItem?.cancel()
         if let observer = screenObserver {
             NotificationCenter.default.removeObserver(observer)
         }
@@ -92,7 +93,10 @@ final class AppCenterWindowController: NSWindowController, NSWindowDelegate {
         window.toolbarStyle = .unifiedCompact
         window.titlebarAppearsTransparent = true
         window.titleVisibility = .hidden
-        window.isMovable = true
+        // Titlebar dragging is owned deterministically by `TitlebarDragSession` in
+        // `AppCenterWindow.sendEvent(_:)` so macOS 27.2's broken SkyLight drag gesture
+        // never competes with or snaps our transparent glass window across monitors.
+        window.isMovable = false
         window.isMovableByWindowBackground = false
         window.hasShadow = true
         window.isReleasedWhenClosed = false
@@ -166,21 +170,94 @@ final class AppCenterWindowController: NSWindowController, NSWindowDelegate {
     }
 
     private func configureInteractionHooks(on window: AppCenterWindow) {
-        window.onMouseDown = { [weak self] in
-            self?.dragSettleWorkItem?.cancel()
-            self?.chromeSync.mouseDown()
-        }
-        window.onMouseDragged = { [weak self] in
-            self?.chromeSync.beginDrag()
-        }
-        window.onMouseUp = { [weak self, weak window] event in
+        window.onTitlebarMouseDown = { [weak self, weak window] event in
             guard let self, let window else { return false }
-            let wasDragging = self.chromeSync.isDragging
-            let didDrag = self.chromeSync.draggedSinceMouseDown
-            self.finishDragIfNeeded(in: window)
-            guard !wasDragging else { return false }
-            return self.handleTitlebarDoubleClickIfNeeded(event, in: window, didDrag: didDrag)
+            return self.handleTitlebarMouseDown(event, in: window)
         }
+    }
+
+    private func handleTitlebarMouseDown(_ event: NSEvent, in window: NSWindow) -> Bool {
+        let hitView = window.contentView?.superview?.hitTest(event.locationInWindow)
+        let hitInteractive = Self.isInteractiveControl(hitView)
+        let isDraggable = TitlebarDragZone.isInDraggableTitlebar(
+            point: WindowPoint(
+                x: Double(event.locationInWindow.x),
+                y: Double(event.locationInWindow.y)
+            ),
+            windowSize: WindowPoint(
+                x: Double(window.frame.size.width),
+                y: Double(window.frame.size.height)
+            ),
+            contentMaxY: Double(window.contentLayoutRect.maxY),
+            hitInteractiveControl: hitInteractive,
+            isFullScreen: window.styleMask.contains(.fullScreen)
+        )
+        guard isDraggable else { return false }
+
+        if !NSApp.isActive {
+            NSApp.activate(ignoringOtherApps: true)
+        }
+        if !window.isKeyWindow {
+            window.makeKeyAndOrderFront(nil)
+        }
+
+        chromeSync.mouseDown()
+        let startMouse = NSEvent.mouseLocation
+        let startOrigin = window.frame.origin
+        let titlebarHeight = max(
+            AppTitlebarStyle.unifiedCompact.nominalHeight,
+            Double(window.frame.height - window.contentLayoutRect.maxY)
+        )
+        var session = TitlebarDragSession(
+            startMouse: WindowPoint(x: Double(startMouse.x), y: Double(startMouse.y)),
+            startOrigin: WindowPoint(x: Double(startOrigin.x), y: Double(startOrigin.y)),
+            windowSize: WindowPoint(x: Double(window.frame.width), y: Double(window.frame.height)),
+            titlebarHeight: titlebarHeight
+        )
+        var startedDrag = false
+        var releaseEvent: NSEvent?
+
+        window.trackEvents(
+            matching: [.leftMouseDragged, .leftMouseUp],
+            timeout: NSEvent.foreverDuration,
+            mode: .eventTracking
+        ) { [weak self, weak window] trackedEvent, stop in
+            guard let self, let window, let trackedEvent else {
+                stop.pointee = true
+                return
+            }
+            switch trackedEvent.type {
+            case .leftMouseDragged:
+                let currentMouse = NSEvent.mouseLocation
+                if let nextOrigin = session.updatedOrigin(
+                    for: WindowPoint(x: Double(currentMouse.x), y: Double(currentMouse.y)),
+                    visibleScreens: self.visibleScreenRects()
+                ) {
+                    if !startedDrag {
+                        startedDrag = true
+                        self.chromeSync.beginDrag()
+                    }
+                    window.setFrameOrigin(NSPoint(x: nextOrigin.x, y: nextOrigin.y))
+                }
+            case .leftMouseUp:
+                releaseEvent = trackedEvent
+                stop.pointee = true
+            default:
+                break
+            }
+        }
+
+        if startedDrag {
+            finishDragIfNeeded(in: window)
+        } else if let upEvent = releaseEvent, event.clickCount == 2 || upEvent.clickCount == 2 {
+            _ = handleTitlebarDoubleClickIfNeeded(
+                upEvent,
+                clickCount: max(event.clickCount, upEvent.clickCount),
+                in: window,
+                didDrag: false
+            )
+        }
+        return true
     }
 
     private func installScreenParametersObserver() {
@@ -222,26 +299,12 @@ final class AppCenterWindowController: NSWindowController, NSWindowDelegate {
     }
 
     private func finishDragIfNeeded(in window: NSWindow) {
-        dragSettleWorkItem?.cancel()
-        dragSettleWorkItem = nil
         let plan = chromeSync.endDrag()
         apply(plan, to: window)
     }
 
-    private func scheduleDragSettleCheck(for window: NSWindow) {
-        dragSettleWorkItem?.cancel()
-        let item = DispatchWorkItem { [weak self, weak window] in
-            guard let self, let window else { return }
-            if (NSEvent.pressedMouseButtons & 1) == 0 {
-                self.finishDragIfNeeded(in: window)
-            }
-        }
-        dragSettleWorkItem = item
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.12, execute: item)
-    }
-
-    private func recoverOffscreenTitlebarIfNeeded(in window: NSWindow) {
-        let screens = NSScreen.screens.map { screen in
+    private func visibleScreenRects() -> [WindowRect] {
+        NSScreen.screens.map { screen in
             let rect = screen.visibleFrame
             return WindowRect(
                 x: Double(rect.origin.x),
@@ -250,6 +313,10 @@ final class AppCenterWindowController: NSWindowController, NSWindowDelegate {
                 height: Double(rect.size.height)
             )
         }
+    }
+
+    private func recoverOffscreenTitlebarIfNeeded(in window: NSWindow) {
+        let screens = visibleScreenRects()
         let current = WindowRect(
             x: Double(window.frame.origin.x),
             y: Double(window.frame.origin.y),
@@ -277,12 +344,17 @@ final class AppCenterWindowController: NSWindowController, NSWindowDelegate {
         window.setFrame(targetRect, display: true, animate: false)
     }
 
-    private func handleTitlebarDoubleClickIfNeeded(_ event: NSEvent, in window: NSWindow, didDrag: Bool) -> Bool {
+    private func handleTitlebarDoubleClickIfNeeded(
+        _ event: NSEvent,
+        clickCount: Int,
+        in window: NSWindow,
+        didDrag: Bool
+    ) -> Bool {
         let hitView = window.contentView?.superview?.hitTest(event.locationInWindow)
         let hitInteractive = Self.isInteractiveControl(hitView)
         let setting = UserDefaults.standard.string(forKey: "AppleActionOnDoubleClick")
         let action = TitlebarDoubleClickAction.actionForClick(
-            clickCount: event.clickCount,
+            clickCount: clickCount,
             locationY: Double(event.locationInWindow.y),
             windowHeight: Double(window.frame.height),
             contentMaxY: Double(window.contentLayoutRect.maxY),
@@ -315,34 +387,14 @@ final class AppCenterWindowController: NSWindowController, NSWindowDelegate {
 
     // MARK: - NSWindowDelegate
 
-    func windowWillMove(_ notification: Notification) {
-        if (NSEvent.pressedMouseButtons & 1) != 0 {
-            chromeSync.beginDrag()
-        }
-    }
-
-    func windowDidMove(_ notification: Notification) {
-        guard let window else { return }
-        if (NSEvent.pressedMouseButtons & 1) == 0 {
-            if chromeSync.isDragging {
-                finishDragIfNeeded(in: window)
-            }
-        } else {
-            chromeSync.beginDrag()
-            scheduleDragSettleCheck(for: window)
-        }
-    }
-
     func windowDidResignKey(_ notification: Notification) {
         guard let window else { return }
-        if chromeSync.isDragging && (NSEvent.pressedMouseButtons & 1) == 0 {
+        if chromeSync.isDragging {
             finishDragIfNeeded(in: window)
         }
     }
 
     func windowWillClose(_ notification: Notification) {
-        dragSettleWorkItem?.cancel()
-        dragSettleWorkItem = nil
         if let window, chromeSync.isDragging {
             finishDragIfNeeded(in: window)
         }
@@ -352,26 +404,15 @@ final class AppCenterWindowController: NSWindowController, NSWindowDelegate {
 
 @MainActor
 private final class AppCenterWindow: NSWindow {
-    var onMouseDown: (() -> Void)?
-    var onMouseDragged: (() -> Void)?
-    var onMouseUp: ((NSEvent) -> Bool)?
+    var onTitlebarMouseDown: ((NSEvent) -> Bool)?
 
     override func sendEvent(_ event: NSEvent) {
-        switch event.type {
-        case .leftMouseDown:
-            onMouseDown?()
-            super.sendEvent(event)
-        case .leftMouseDragged:
-            onMouseDragged?()
-            super.sendEvent(event)
-        case .leftMouseUp:
-            if onMouseUp?(event) == true {
-                return
-            }
-            super.sendEvent(event)
-        default:
-            super.sendEvent(event)
+        if event.type == .leftMouseDown,
+           !event.modifierFlags.contains(.control),
+           onTitlebarMouseDown?(event) == true {
+            return
         }
+        super.sendEvent(event)
     }
 }
 

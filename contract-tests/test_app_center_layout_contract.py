@@ -113,9 +113,16 @@ class AppCenterLayoutContractTests(unittest.TestCase):
         self.assertIn("item.isBordered = false", controller)
         self.assertIn("item.isNavigational = true", controller)
         self.assertNotIn(".ignoresSafeArea(.container, edges: .top)", workflow)
-        # Cross-monitor drag stability: native AppKit titlebar pass-through + WindowChromeSyncState + offscreen recovery.
+        # Cross-monitor drag stability: native AppKit titlebar pass-through + deterministic anchor tracking + offscreen recovery.
         self.assertIn("WindowChromeSyncState", controller)
         self.assertIn("WindowPlacementGeometry", controller)
+        self.assertIn("TitlebarDragSession", controller)
+        self.assertIn("TitlebarDragZone", controller)
+        self.assertIn("trackEvents(matching:", controller)
+        self.assertIn("NSEvent.mouseLocation", controller)
+        self.assertIn("setFrameOrigin(", controller)
+        self.assertNotIn("performDrag(with:", controller)
+        self.assertNotIn("performWindowDrag", controller)
         self.assertIn("didChangeScreenParametersNotification", controller)
         self.assertIn("point.y >= window.contentLayoutRect.maxY", controller)
         self.assertIn("NSApp.setActivationPolicy(.regular)", controller)

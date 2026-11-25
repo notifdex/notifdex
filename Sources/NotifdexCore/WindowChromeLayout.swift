@@ -133,6 +133,134 @@ public struct WindowChromeMutationPlan: Equatable, Sendable {
     }
 }
 
+/// Platform-independent 2D point or size in global AppKit screen coordinates (bottom-left origin).
+public struct WindowPoint: Equatable, Sendable {
+    public var x: Double
+    public var y: Double
+
+    public init(x: Double, y: Double) {
+        self.x = x
+        self.y = y
+    }
+}
+
+/// Pure hit-testing policy deciding whether a window-local mouse-down belongs to the
+/// draggable titlebar strip (excluding window content, traffic lights/controls, resize
+/// borders, and native full-screen mode).
+public enum TitlebarDragZone {
+    public static func isInDraggableTitlebar(
+        point: WindowPoint,
+        windowSize: WindowPoint,
+        contentMaxY: Double,
+        hitInteractiveControl: Bool,
+        isFullScreen: Bool,
+        topResizeInset: Double = 5,
+        horizontalEdgeInset: Double = 8,
+        fallbackTitlebarHeight: Double = AppTitlebarStyle.unifiedCompact.nominalHeight
+    ) -> Bool {
+        guard !isFullScreen,
+              !hitInteractiveControl,
+              windowSize.x > horizontalEdgeInset * 2,
+              windowSize.y > topResizeInset else {
+            return false
+        }
+        guard point.x >= horizontalEdgeInset,
+              point.x <= windowSize.x - horizontalEdgeInset,
+              point.y <= windowSize.y - topResizeInset else {
+            return false
+        }
+        return TitlebarDoubleClickAction.isPointInTitlebar(
+            locationY: point.y,
+            windowHeight: windowSize.y,
+            contentMaxY: contentMaxY,
+            fallbackTitlebarHeight: fallbackTitlebarHeight
+        )
+    }
+}
+
+/// Deterministic anchor-based titlebar drag session matching `spec/WindowDrag.tla`.
+///
+/// Computes every dragged origin directly from `(startOrigin, startMouse)` so horizontal
+/// motion across any number of monitors has zero snapping and zero cumulative drift
+/// (`origin.x == startOrigin.x + (mouse.x - startMouse.x)`), while clamping only Y
+/// against the active display's menu-bar ceiling (`visibleFrame.maxY`) and keeping the
+/// titlebar above the lowest connected display floor.
+public struct TitlebarDragSession: Equatable, Sendable {
+    public let startMouse: WindowPoint
+    public let startOrigin: WindowPoint
+    public let windowSize: WindowPoint
+    public let titlebarHeight: Double
+    public let dragActivationDistance: Double
+    public private(set) var didMove: Bool = false
+
+    public init(
+        startMouse: WindowPoint,
+        startOrigin: WindowPoint,
+        windowSize: WindowPoint,
+        titlebarHeight: Double = AppTitlebarStyle.unifiedCompact.nominalHeight,
+        dragActivationDistance: Double = 2.0
+    ) {
+        self.startMouse = startMouse
+        self.startOrigin = startOrigin
+        self.windowSize = windowSize
+        self.titlebarHeight = titlebarHeight
+        self.dragActivationDistance = dragActivationDistance
+    }
+
+    public mutating func updatedOrigin(
+        for currentMouse: WindowPoint,
+        visibleScreens: [WindowRect]
+    ) -> WindowPoint? {
+        let dx = currentMouse.x - startMouse.x
+        let dy = currentMouse.y - startMouse.y
+
+        if !didMove {
+            if hypot(dx, dy) < dragActivationDistance {
+                return nil
+            }
+            didMove = true
+        }
+
+        let nextX = startOrigin.x + dx
+        var nextY = startOrigin.y + dy
+
+        if !visibleScreens.isEmpty {
+            let activeScreen = screen(for: currentMouse, in: visibleScreens)
+            let maxOriginY = activeScreen.maxY - windowSize.y
+            if nextY > maxOriginY {
+                nextY = maxOriginY
+            }
+            if let lowestMinY = visibleScreens.map(\.minY).min() {
+                let minOriginY = lowestMinY + titlebarHeight - windowSize.y
+                if nextY < minOriginY {
+                    nextY = minOriginY
+                }
+            }
+        }
+
+        return WindowPoint(x: nextX, y: nextY)
+    }
+
+    private func screen(for point: WindowPoint, in screens: [WindowRect]) -> WindowRect {
+        if let containing = screens.first(where: {
+            point.x >= $0.minX && point.x <= $0.maxX && point.y >= $0.minY && point.y <= $0.maxY
+        }) {
+            return containing
+        }
+        return screens.min { lhs, rhs in
+            squaredDistance(from: point, to: lhs) < squaredDistance(from: point, to: rhs)
+        } ?? screens[0]
+    }
+
+    private func squaredDistance(from point: WindowPoint, to rect: WindowRect) -> Double {
+        let clampedX = min(max(point.x, rect.minX), rect.maxX)
+        let clampedY = min(max(point.y, rect.minY), rect.maxY)
+        let dx = point.x - clampedX
+        let dy = point.y - clampedY
+        return dx * dx + dy * dy
+    }
+}
+
 /// Platform-independent rectangle in global AppKit screen coordinates (bottom-left origin).
 public struct WindowRect: Equatable, Sendable {
     public var x: Double

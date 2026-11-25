@@ -27,6 +27,39 @@ public enum ContactSuggestions {
         "Messages", "X", "Gmail", "WhatsApp", "LinkedIn", "Slack", "Discord"
     ]
 
+    public static func availablePlatforms(
+        configuredApps: [CaptureApp],
+        observedApps: [String] = [],
+        selectedPlatform: String? = nil
+    ) -> [String] {
+        var result = supportedPlatforms
+        var seen = Set(result.map { $0.lowercased() })
+        var extras: [String] = []
+
+        func appendIfNew(_ raw: String) {
+            let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty, trimmed != "Unknown app" else { return }
+            let normalized = trimmed == "Twitter" ? "X" : trimmed
+            let key = normalized.lowercased()
+            guard seen.insert(key).inserted else { return }
+            extras.append(normalized)
+        }
+
+        for app in configuredApps {
+            appendIfNew(app.name)
+        }
+        for label in observedApps {
+            appendIfNew(label)
+        }
+        if let selectedPlatform {
+            appendIfNew(selectedPlatform)
+        }
+
+        extras.sort { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+        result.append(contentsOf: extras)
+        return result
+    }
+
     public static func defaultPlatform(for alertApp: String) -> String {
         let trimmed = alertApp.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed == "Twitter" { return "X" }

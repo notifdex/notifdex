@@ -33,4 +33,12 @@ class ContactUXContractTests(unittest.TestCase):
         source = SUGGESTIONS.read_text(encoding="utf-8")
         self.assertIn("enum ContactSuggestions", source)
         self.assertIn("case ambiguous([PersonRecord])", source)
+        self.assertIn("static func availablePlatforms(", source)
         self.assertNotIn("CaptureStore", source)
+
+    def test_handle_platform_pickers_include_custom_configured_apps(self):
+        workflow = WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn("ContactSuggestions.availablePlatforms(", workflow)
+        self.assertIn("configuredApps: appModel.state.settings?.apps ?? []", workflow)
+        self.assertIn("observedApps: apps", workflow)
+        self.assertNotIn("ForEach(ContactSuggestions.supportedPlatforms", workflow)

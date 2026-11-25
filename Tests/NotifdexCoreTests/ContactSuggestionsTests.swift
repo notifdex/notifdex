@@ -109,6 +109,28 @@ final class ContactSuggestionsTests: XCTestCase {
         XCTAssertEqual(ContactSuggestions.defaultPlatform(for: "Unknown app"), "Messages")
     }
 
+    func testAvailablePlatformsIncludesCustomConfiguredAndObservedApps() throws {
+        var settings = CaptureSettings(sourceID: "mac")
+        try settings.addCustomApp(label: "WeChat")
+        try settings.addCustomApp(label: "Signal")
+
+        let platforms = ContactSuggestions.availablePlatforms(
+            configuredApps: settings.apps,
+            observedApps: ["Twitter", "Unknown app", "  ", "wechat", "Telegram"],
+            selectedPlatform: "Line"
+        )
+
+        XCTAssertEqual(Array(platforms.prefix(ContactSuggestions.supportedPlatforms.count)),
+                       ContactSuggestions.supportedPlatforms)
+        XCTAssertTrue(platforms.contains("WeChat"))
+        XCTAssertTrue(platforms.contains("Signal"))
+        XCTAssertTrue(platforms.contains("Telegram"))
+        XCTAssertTrue(platforms.contains("Line"))
+        XCTAssertFalse(platforms.contains("Twitter"))
+        XCTAssertFalse(platforms.contains("Unknown app"))
+        XCTAssertEqual(platforms.filter { $0.caseInsensitiveCompare("WeChat") == .orderedSame }.count, 1)
+    }
+
     func testRenameAndDeletePersonPreserveObservations() throws {
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)

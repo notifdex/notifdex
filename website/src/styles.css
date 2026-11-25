@@ -152,8 +152,13 @@ button:focus-visible {
   white-space: nowrap;
 }
 
-.nav-links a:hover {
+.nav-links a:hover,
+.nav-links a[aria-current="page"] {
   color: var(--ink);
+}
+
+.nav-links a[aria-current="page"] {
+  font-weight: 500;
 }
 
 /* Obvious Light / Dark (Night) toggle button */
@@ -1090,6 +1095,53 @@ code {
   color: var(--ink);
   padding-bottom: 24px;
   border-bottom: 1px solid var(--hairline);
+}
+
+.faq-item,
+.release-entry {
+  padding: 28px 0;
+  border-bottom: 1px solid var(--hairline);
+}
+
+.faq-item h2,
+.release-entry h2 {
+  margin: 0 0 12px;
+}
+
+.faq-item p:last-child,
+.faq-item ul:last-child,
+.release-entry p:last-child,
+.release-entry ul:last-child {
+  margin-bottom: 0;
+}
+
+.release-meta {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 10px;
+  font-size: 0.82rem;
+  color: var(--ink-muted);
+}
+
+.release-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--hairline-strong);
+  background: var(--surface-strong);
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  font-weight: 500;
+  color: var(--ink);
+  text-decoration: none;
+}
+
+.release-tag:hover {
+  background: var(--ink);
+  color: var(--paper);
+  border-color: var(--ink);
 }
 
 .mt-24 { margin-top: 24px; }

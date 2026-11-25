@@ -41,7 +41,7 @@ final class InboxWorkflowTests: XCTestCase {
 
         let reopened = try CaptureStore(path: path)
         XCTAssertEqual(try reopened.inbox(InboxQuery(scope: .person(alex))).map(\.id), [mail, dm])
-        XCTAssertEqual(try reopened.identities(for: alex).map(\.identifier), ["alex"])
+        XCTAssertEqual(try reopened.identities(for: alex).map(\.identifier), ["@alex"])
         XCTAssertEqual(try reopened.inbox(InboxQuery(scope: .inbox(app: nil, saved: true))).map(\.id), [dm])
         let open = try XCTUnwrap(reopened.inbox(InboxQuery(scope: .followUps)).first)
         XCTAssertEqual(open.id, dm)

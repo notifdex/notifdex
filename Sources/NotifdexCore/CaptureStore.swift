@@ -729,29 +729,104 @@ public extension CaptureStore {
         }
     }
 
-    func createPerson(name: String, linking observation: Int64? = nil, workspace: String? = nil) throws -> String {
+    func allIdentitiesByPerson() throws -> [String: [PersonIdentity]] {
+        let rows = try readRows("""
+            SELECT person_id, id, platform, identifier
+            FROM identities
+            WHERE person_id IS NOT NULL
+            ORDER BY platform, identifier
+            """) { row in
+            (
+                personID: columnString(row, 0),
+                identity: PersonIdentity(
+                    id: columnString(row, 1),
+                    platform: columnString(row, 2),
+                    identifier: columnString(row, 3)
+                )
+            )
+        }
+        var grouped: [String: [PersonIdentity]] = [:]
+        for item in rows {
+            grouped[item.personID, default: []].append(item.identity)
+        }
+        return grouped
+    }
+
+    func createPerson(
+        name: String,
+        linking observation: Int64? = nil,
+        workspace: String? = nil,
+        identity: (platform: String, identifier: String)? = nil,
+        rememberMatch: Bool = false
+    ) throws -> String {
         let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !name.isEmpty else { throw StoreError(description: "Enter a name for this person.") }
+        guard !name.isEmpty, !name.utf8.contains(0) else {
+            throw StoreError(description: "Enter a name for this person.")
+        }
         let id = UUID().uuidString
         try transaction {
             try execute("INSERT INTO people (id, display_name) VALUES (?, ?)", strings: [id, name])
-            if let observation { try link(observation, to: id) }
+            if let observation { try linkInTransaction(observation, to: id) }
             if let workspace { try setWorkspaceMembership(person: id, workspace: workspace, isMember: true) }
+            if let identity {
+                let trimmedIdentifier = identity.identifier.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !trimmedIdentifier.isEmpty {
+                    try addIdentityInTransaction(person: id, platform: identity.platform, identifier: trimmedIdentifier)
+                }
+            }
+            if rememberMatch, let observation {
+                let preview = try previewPersonMatch(for: observation)
+                try confirmPersonMatchInTransaction(preview, includeExisting: true)
+            }
         }
         return id
     }
 
-    func link(_ observation: Int64, to person: String?) throws {
+    func renamePerson(_ person: String, to newName: String) throws {
+        let trimmed = newName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, !trimmed.utf8.contains(0) else {
+            throw StoreError(description: "Enter a name for this person.")
+        }
+        try execute("UPDATE people SET display_name = ? WHERE id = ?", strings: [trimmed, person])
+        guard sqlite3_changes(database) == 1 else {
+            throw StoreError(description: "That person no longer exists.")
+        }
+    }
+
+    func deletePerson(_ person: String) throws {
+        try transaction {
+            try execute("DELETE FROM person_observations WHERE person_id = ?", strings: [person])
+            try execute("DELETE FROM person_match_rules WHERE person_id = ?", strings: [person])
+            try execute("DELETE FROM identities WHERE person_id = ?", strings: [person])
+            try execute("DELETE FROM person_workspaces WHERE person_id = ?", strings: [person])
+            try execute("DELETE FROM person_notes WHERE person_id = ?", strings: [person])
+            try execute("DELETE FROM person_templates WHERE person_id = ?", strings: [person])
+            try execute("DELETE FROM people WHERE id = ?", strings: [person])
+            guard sqlite3_changes(database) == 1 else {
+                throw StoreError(description: "That person no longer exists.")
+            }
+        }
+    }
+
+    private func linkInTransaction(_ observation: Int64, to person: String?) throws {
         if let person {
             try execute("""
                 INSERT INTO person_observations (observation_id, person_id, method) VALUES (?, ?, 'manual')
                 ON CONFLICT(observation_id) DO UPDATE SET person_id = excluded.person_id, method = 'manual'
                 """, strings: [String(observation), person])
         } else {
+            try execute("DELETE FROM person_observations WHERE observation_id = ?", strings: [String(observation)])
+            try execute("INSERT INTO person_match_exclusions VALUES (?) ON CONFLICT DO NOTHING",
+                        strings: [String(observation)])
+        }
+    }
+
+    func link(_ observation: Int64, to person: String?) throws {
+        if let person {
+            try linkInTransaction(observation, to: person)
+        } else {
             try transaction {
-                try execute("DELETE FROM person_observations WHERE observation_id = ?", strings: [String(observation)])
-                try execute("INSERT INTO person_match_exclusions VALUES (?) ON CONFLICT DO NOTHING",
-                            strings: [String(observation)])
+                try linkInTransaction(observation, to: nil)
             }
         }
     }
@@ -789,18 +864,22 @@ public extension CaptureStore {
                                   personName: name, existingCount: count)
     }
 
+    private func confirmPersonMatchInTransaction(_ preview: PersonMatchPreview, includeExisting: Bool) throws {
+        let current = try previewPersonMatch(for: preview.observationID)
+        guard current.app == preview.app, current.title == preview.title,
+              current.personID == preview.personID else {
+            throw StoreError(description: "The alert link changed. Review the match again.")
+        }
+        let cutoff = includeExisting ? 0 : try scalar("SELECT coalesce(max(id), 0) FROM observations")
+        try execute("""
+            INSERT INTO person_match_rules (id, app, title, person_id, after_observation_id)
+            VALUES (?, ?, ?, ?, ?)
+            """, strings: [UUID().uuidString, current.app, current.title, current.personID, String(cutoff)])
+    }
+
     func confirmPersonMatch(_ preview: PersonMatchPreview, includeExisting: Bool) throws {
         try transaction {
-            let current = try previewPersonMatch(for: preview.observationID)
-            guard current.app == preview.app, current.title == preview.title,
-                  current.personID == preview.personID else {
-                throw StoreError(description: "The alert link changed. Review the match again.")
-            }
-            let cutoff = includeExisting ? 0 : try scalar("SELECT coalesce(max(id), 0) FROM observations")
-            try execute("""
-                INSERT INTO person_match_rules (id, app, title, person_id, after_observation_id)
-                VALUES (?, ?, ?, ?, ?)
-                """, strings: [UUID().uuidString, current.app, current.title, current.personID, String(cutoff)])
+            try confirmPersonMatchInTransaction(preview, includeExisting: includeExisting)
         }
     }
 
@@ -818,25 +897,41 @@ public extension CaptureStore {
         try execute("DELETE FROM person_match_rules WHERE id = ?", strings: [id])
     }
 
-    func addIdentity(person: String, platform: String, identifier: String) throws {
+    private static func normalizedIdentityKey(platform: String, identifier: String) -> String {
+        var key = identifier.trimmingCharacters(in: .whitespacesAndNewlines)
+        if platform == "X", key.hasPrefix("@") {
+            key.removeFirst()
+            key = key.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        return key.lowercased()
+    }
+
+    private func addIdentityInTransaction(person: String, platform: String, identifier: String) throws {
         let platform = platform.trimmingCharacters(in: .whitespacesAndNewlines)
-        var identifier = identifier.trimmingCharacters(in: .whitespacesAndNewlines)
-        if platform == "X" {
-            if identifier.hasPrefix("@") { identifier.removeFirst() }
-            identifier = identifier.lowercased()
-        } else if platform == "Gmail" { identifier = identifier.lowercased() }
-        guard !platform.isEmpty, !identifier.isEmpty else {
+        let identifier = identifier.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedKey = Self.normalizedIdentityKey(platform: platform, identifier: identifier)
+        guard !platform.isEmpty, !identifier.isEmpty, !normalizedKey.isEmpty else {
             throw StoreError(description: "Enter an app and a handle or address.")
         }
-        try transaction {
-            let owners = try readRows("SELECT person_id FROM identities WHERE platform = ? AND identifier = ?",
-                                     strings: [platform, identifier]) { columnString($0, 0) }
-            if let owner = owners.first {
-                guard owner == person else { throw StoreError(description: "This identity is already linked to another person.") }
-                return
+        let existing = try readRows(
+            "SELECT person_id, identifier FROM identities WHERE platform = ?",
+            strings: [platform]
+        ) { (personID: columnString($0, 0), identifier: columnString($0, 1)) }
+        if let match = existing.first(where: {
+            Self.normalizedIdentityKey(platform: platform, identifier: $0.identifier) == normalizedKey
+        }) {
+            guard match.personID == person else {
+                throw StoreError(description: "This identity is already linked to another person.")
             }
-            try execute("INSERT INTO identities (id, person_id, platform, identifier) VALUES (?, ?, ?, ?)",
-                        strings: [UUID().uuidString, person, platform, identifier])
+            return
+        }
+        try execute("INSERT INTO identities (id, person_id, platform, identifier) VALUES (?, ?, ?, ?)",
+                    strings: [UUID().uuidString, person, platform, identifier])
+    }
+
+    func addIdentity(person: String, platform: String, identifier: String) throws {
+        try transaction {
+            try addIdentityInTransaction(person: person, platform: platform, identifier: identifier)
         }
     }
 

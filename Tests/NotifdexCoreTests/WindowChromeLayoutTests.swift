@@ -134,8 +134,11 @@ final class WindowChromeLayoutTests: XCTestCase {
 
     func testWindowChromeSyncIsIdempotentWhenIdleAndDefersMutationsDuringCrossMonitorDrag() {
         final class FakeWindowToken {}
-        let windowA = ObjectIdentifier(FakeWindowToken())
-        let windowB = ObjectIdentifier(FakeWindowToken())
+        let tokenA = FakeWindowToken()
+        let tokenB = FakeWindowToken()
+        let windowA = ObjectIdentifier(tokenA)
+        let windowB = ObjectIdentifier(tokenB)
+        XCTAssertNotEqual(windowA, windowB)
 
         var sync = WindowChromeSyncState()
 
@@ -184,6 +187,7 @@ final class WindowChromeLayoutTests: XCTestCase {
         let reattach = sync.attach(windowID: windowB, transparentWindow: true)
         XCTAssertTrue(reattach.applyStructuralChrome)
         XCTAssertTrue(reattach.applyTransparency)
+        withExtendedLifetime((tokenA, tokenB)) {}
     }
 
     func testWindowChromeDoubleClickStateTransitions() {

@@ -36,17 +36,14 @@ base64 -i AuthKey_<KEY_ID>.p8 | pbcopy
 
 ### 3. Create a never-expiring Deploy Key for `notifdex/homebrew-tap`
 
-Instead of an expiring PAT, use a single SSH Deploy Key scoped exclusively to `notifdex/homebrew-tap`:
+Instead of an expiring PAT, use a single SSH Deploy Key scoped exclusively to `notifdex/homebrew-tap` (ensure **Deploy keys** are enabled under `notifdex` Organization Settings → Member privileges):
 
 ```bash
 ssh-keygen -t ed25519 -N "" -C "notifdex-release-bot" -f /tmp/notifdex-tap-key
+gh repo deploy-key add /tmp/notifdex-tap-key.pub --repo notifdex/homebrew-tap --title notifdex-release-bot --allow-write
+gh secret set HOMEBREW_TAP_DEPLOY_KEY --repo notifdex/notifdex < /tmp/notifdex-tap-key
+rm -f /tmp/notifdex-tap-key /tmp/notifdex-tap-key.pub
 ```
-
-1. Copy the **public** key (`pbcopy < /tmp/notifdex-tap-key.pub`) and add it at **GitHub → `notifdex/homebrew-tap` → Settings → Deploy keys → Add deploy key**:
-   - Title: `notifdex-release-bot`
-   - Check **Allow write access**
-2. Copy the **private** key (`pbcopy < /tmp/notifdex-tap-key`) and add it as the `HOMEBREW_TAP_DEPLOY_KEY` repository secret in `notifdex/notifdex`.
-3. Delete the temporary files (`rm -f /tmp/notifdex-tap-key /tmp/notifdex-tap-key.pub`).
 
 ### 4. Add GitHub Actions secrets in `notifdex/notifdex`
 

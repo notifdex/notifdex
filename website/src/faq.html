@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>FAQ — Notifdex</title>
+  <meta
+    name="description"
+    content="How banner-based notification capture works on macOS, what Notifdex can and cannot see, and answers on names, multiple accounts, iPhone forwarding, and sleep gaps."
+  />
+  <link rel="canonical" href="https://notifdex.com/faq.html" />
+  <link rel="icon" type="image/png" href="/favicon.png" />
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+  <link rel="stylesheet" href="/styles.css" />
+  <script defer src="/app.js"></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+
+  <header class="site-header">
+    <div class="container header-inner">
+      <a class="brand" href="/">
+        <img class="brand-icon" src="/app-icon.png" alt="" width="26" height="26" />
+        <span>Notifdex</span>
+      </a>
+      <nav class="nav-links" aria-label="Primary">
+        <a href="/">Home</a>
+        <a href="/#install">Install</a>
+        <a href="/updates.html">Updates</a>
+        <a href="/faq.html" aria-current="page">FAQ</a>
+        <a href="/privacy.html">Privacy</a>
+        <a href="https://github.com/notifdex/notifdex" rel="noopener">GitHub</a>
+      </nav>
+      <button type="button" id="theme-toggle" class="theme-toggle" aria-pressed="false" aria-label="Switch to dark mode">
+        <svg class="theme-icon icon-moon" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+          <path fill="currentColor" d="M6.2 1.8a6.3 6.3 0 1 0 8 8 5.2 5.2 0 0 1-8-8Z" />
+        </svg>
+        <svg class="theme-icon icon-sun" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+          <circle cx="8" cy="8" r="3.2" fill="currentColor" />
+          <path stroke="currentColor" stroke-width="1.4" stroke-linecap="round" d="M8 1.2v1.6M8 13.2v1.6M1.2 8h1.6M13.2 8h1.6M3.2 3.2l1.1 1.1M11.7 11.7l1.1 1.1M12.8 3.2l-1.1 1.1M4.3 11.7l-1.1 1.1" />
+        </svg>
+        <span class="theme-toggle-label">Dark mode</span>
+      </button>
+    </div>
+  </header>
+
+  <main id="main" class="container prose">
+    <h1>Frequently asked questions</h1>
+    <p class="prose-lead">
+      Notifdex works differently from cloud aggregators and unified inboxes—it reads the
+      notification banners macOS already shows you. That unlocks apps that block APIs, and it
+      comes with a few real-world nuances worth knowing up front.
+    </p>
+
+    <section class="faq-item">
+      <h2>Does Notifdex connect to my apps or read my full message history?</h2>
+      <p>
+        No. Notifdex never connects to app APIs, never asks for your passwords, and never reads
+        inside Messages, WhatsApp, Gmail, or any other app’s database. It only records the text
+        macOS exposes on notification banners through Accessibility—including iPhone alerts
+        forwarded to your Mac.
+      </p>
+      <p>
+        That trade-off is deliberate: it’s why Notifdex works across locked-down apps with no
+        logins or cloud servers. It also means Notifdex only sees what appears in the banner—long
+        messages may be truncated by macOS, image or file attachments aren’t pulled, and messages
+        that never produced a visible notification on your Mac aren’t captured.
+      </p>
+    </section>
+
+    <section class="faq-item">
+      <h2>What if two people I know have the exact same name?</h2>
+      <p>
+        Notification banners usually show a sender’s display name—like &ldquo;Alex Chen&rdquo; or
+        &ldquo;David&rdquo;—without a phone number, email address, or permanent ID. If two people
+        share a name in the same app, raw banners alone can’t tell them apart.
+      </p>
+      <p>
+        Because of this, Notifdex <strong>never creates or merges people automatically by display
+        name</strong>. You link alerts to a person explicitly, and if you turn on
+        <strong>Remember this match</strong> for an app and title and later link that same name to
+        someone else, Notifdex pauses the rule automatically instead of misfiling future alerts.
+        For lookalike names, keeping them in separate workspaces (like <em>Work</em> and
+        <em>Personal</em>) and checking the preview before linking keeps things clean.
+      </p>
+    </section>
+
+    <section class="faq-item">
+      <h2>Can Notifdex tell which account received an alert (like personal vs. work Gmail)?</h2>
+      <p>
+        Not reliably yet. When you’re signed into multiple accounts inside one app—such as two
+        Gmail inboxes or multiple X accounts—macOS notification banners often don’t include which
+        receiving account triggered the alert.
+      </p>
+      <p>
+        Rather than guessing, Notifdex saves what macOS exposes and lets you assign alerts to
+        workspaces manually. We’re investigating reliable receiving-account attribution in
+        <a href="https://github.com/notifdex/notifdex/issues/3" rel="noopener">#3</a> and
+        <a href="https://github.com/notifdex/notifdex/issues/9" rel="noopener">#9</a>.
+      </p>
+    </section>
+
+    <section class="faq-item">
+      <h2>What happens when my Mac is asleep, locked, or in Focus mode?</h2>
+      <p>
+        If your Mac is asleep or Focus suppresses a banner, macOS doesn’t display that alert while
+        it arrives. When your Mac wakes, <strong>Recovery</strong> can scan notifications still
+        sitting unread in Notification Center—and any time window where Notifdex wasn’t watching
+        is logged honestly as a coverage gap instead of pretending nothing was missed.
+      </p>
+      <p>
+        Alerts you already read and cleared on your iPhone while your Mac was asleep won’t still
+        be in Notification Center, so those stay unknown. See the
+        <a href="https://github.com/notifdex/notifdex/blob/main/docs/reliability.md" rel="noopener">reliability notes</a>
+        for the full breakdown.
+      </p>
+    </section>
+
+    <section class="faq-item">
+      <h2>What do I need for forwarded iPhone notifications to work?</h2>
+      <p>
+        For Mac-only alerts, any Mac on <strong>macOS 14 (Sonoma)</strong> or later works. For
+        forwarded <strong>iPhone</strong> alerts, Apple requires:
+      </p>
+      <ul>
+        <li>An Apple Silicon or T2 Mac on <strong>macOS 15 (Sequoia)</strong> or later, and an iPhone on <strong>iOS 18</strong> or later signed into the same Apple Account (note: Apple currently restricts iPhone Mirroring in the EU).</li>
+        <li><strong>iPhone Mirroring</strong> paired at least once, with Wi-Fi and Bluetooth on.</li>
+        <li><strong>Allow notifications from iPhone</strong> enabled in macOS <strong>System Settings → Notifications</strong>—including each individual iPhone app toggled on inside that list.</li>
+        <li><strong>Show Previews</strong> set to <strong>Always</strong> or <strong>When Unlocked</strong> (if set to <em>Never</em>, macOS hides the sender and message text behind a generic placeholder).</li>
+        <li>The matching app enabled under <strong>App Center → Apps</strong> inside Notifdex (X and Messages start enabled by default).</li>
+      </ul>
+    </section>
+
+    <section class="faq-item">
+      <h2>Why does Notifdex ask for Accessibility access, and where is my data stored?</h2>
+      <p>
+        macOS doesn’t offer a public Notification Center history API, so Accessibility is the only
+        local way for a Mac app to read incoming notification banners without requiring your app
+        logins. Notifdex only reads alerts from the apps you turn on.
+      </p>
+      <p>
+        Everything is stored locally in one SQLite database at
+        <code>~/Library/Application Support/Notifdex/capture.db</code> with private file
+        permissions (protected at rest by macOS FileVault). Nothing is uploaded anywhere.
+        Signed Homebrew upgrades (<code>brew update &amp;&amp; brew upgrade --cask notifdex</code>)
+        keep the same signing identity so your Accessibility grant carries across updates.
+      </p>
+    </section>
+
+    <section class="faq-item">
+      <h2>Why does &ldquo;Open in …&rdquo; open the app instead of the exact message?</h2>
+      <p>
+        Notification banners don’t expose a deep link or conversation ID for the underlying
+        thread, and Notifdex intentionally avoids putting captured notification text into URLs.
+        Clicking <strong>Open in Messages</strong>, <strong>Open in Gmail</strong>, or
+        <strong>Open in WhatsApp</strong> takes you straight to the app or inbox so you can reply
+        there safely.
+      </p>
+    </section>
+
+    <p class="mt-32">
+      Still have a question or ran into a snag on your Mac?
+      <a href="https://github.com/notifdex/notifdex/issues" rel="noopener">Open an issue on GitHub</a>.
+    </p>
+
+    <p class="mt-24">
+      <a class="action-link" href="/">&larr; Back to notifdex.com</a>
+    </p>
+  </main>
+
+  <footer class="site-footer">
+    <div class="container footer-inner">
+      <div class="footer-brand">
+        <img src="/app-icon.png" alt="" width="18" height="18" />
+        <span>Notifdex &middot; Local memory for your Mac &amp; iPhone notifications</span>
+      </div>
+      <div class="footer-links">
+        <a href="/">Home</a>
+        <a href="/updates.html">Updates</a>
+        <a href="/privacy.html">Privacy</a>
+        <a href="https://github.com/notifdex/notifdex" rel="noopener">GitHub</a>
+        <a href="https://github.com/notifdex/notifdex/issues" rel="noopener">Support</a>
+      </div>
+    </div>
+  </footer>
+</body>
+</html>

@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Updates — Notifdex</title>
+  <meta
+    name="description"
+    content="Release notes and milestone updates for Notifdex on macOS."
+  />
+  <link rel="canonical" href="https://notifdex.com/updates.html" />
+  <link rel="icon" type="image/png" href="/favicon.png" />
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+  <link rel="stylesheet" href="/styles.css" />
+  <script defer src="/app.js"></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+
+  <header class="site-header">
+    <div class="container header-inner">
+      <a class="brand" href="/">
+        <img class="brand-icon" src="/app-icon.png" alt="" width="26" height="26" />
+        <span>Notifdex</span>
+      </a>
+      <nav class="nav-links" aria-label="Primary">
+        <a href="/">Home</a>
+        <a href="/#install">Install</a>
+        <a href="/updates.html" aria-current="page">Updates</a>
+        <a href="/faq.html">FAQ</a>
+        <a href="/privacy.html">Privacy</a>
+        <a href="https://github.com/notifdex/notifdex" rel="noopener">GitHub</a>
+      </nav>
+      <button type="button" id="theme-toggle" class="theme-toggle" aria-pressed="false" aria-label="Switch to dark mode">
+        <svg class="theme-icon icon-moon" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+          <path fill="currentColor" d="M6.2 1.8a6.3 6.3 0 1 0 8 8 5.2 5.2 0 0 1-8-8Z" />
+        </svg>
+        <svg class="theme-icon icon-sun" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+          <circle cx="8" cy="8" r="3.2" fill="currentColor" />
+          <path stroke="currentColor" stroke-width="1.4" stroke-linecap="round" d="M8 1.2v1.6M8 13.2v1.6M1.2 8h1.6M13.2 8h1.6M3.2 3.2l1.1 1.1M11.7 11.7l1.1 1.1M12.8 3.2l-1.1 1.1M4.3 11.7l-1.1 1.1" />
+        </svg>
+        <span class="theme-toggle-label">Dark mode</span>
+      </button>
+    </div>
+  </header>
+
+  <main id="main" class="container prose">
+    <h1>Updates</h1>
+    <p class="prose-lead">
+      What’s new in Notifdex for macOS. Update anytime with
+      <code>brew update &amp;&amp; brew upgrade --cask notifdex</code>, or browse full commit
+      details on
+      <a href="https://github.com/notifdex/notifdex/releases" rel="noopener">GitHub Releases</a>.
+    </p>
+
+    <article class="release-entry">
+      <div class="release-meta">
+        <a class="release-tag" href="https://github.com/notifdex/notifdex/releases/tag/v0.1.3" rel="noopener">v0.1.3</a>
+        <span>November 25, 2026</span>
+      </div>
+      <h2>Open Apple Messages directly from Inbox</h2>
+      <ul>
+        <li>
+          Added an <strong>Open in Messages</strong> button on captured Apple Messages alerts so
+          you can jump straight into Messages.app without opening a blank compose draft.
+        </li>
+      </ul>
+    </article>
+
+    <article class="release-entry">
+      <div class="release-meta">
+        <a class="release-tag" href="https://github.com/notifdex/notifdex/releases/tag/v0.1.2" rel="noopener">v0.1.2</a>
+        <span>November 25, 2026</span>
+      </div>
+      <h2>Cleaner macOS 26 titlebar &amp; smooth multi-monitor dragging</h2>
+      <ul>
+        <li>
+          Removed the automatic glass bubble around the <strong>Notifdex</strong> icon and
+          wordmark in the titlebar on macOS 26.
+        </li>
+        <li>
+          Fixed an awkward jump to the screen edge when dragging App Center across monitors by
+          deferring window chrome updates while a drag is in progress and preventing drag releases
+          from firing titlebar double-click zoom.
+        </li>
+      </ul>
+    </article>
+
+    <article class="release-entry">
+      <div class="release-meta">
+        <a class="release-tag" href="https://github.com/notifdex/notifdex/releases/tag/v0.1.1" rel="noopener">v0.1.1</a>
+        <span>November 24, 2026</span>
+      </div>
+      <h2>Cleaner Homebrew cask &amp; setup guide</h2>
+      <ul>
+        <li>
+          Removed the deprecated Homebrew <code>depends_on macos:</code> string warning so installs
+          and upgrades run cleanly.
+        </li>
+        <li>
+          Updated the install guide and homepage with Homebrew instructions and a clearer
+          first-time checklist for iPhone notification forwarding.
+        </li>
+      </ul>
+    </article>
+
+    <article class="release-entry">
+      <div class="release-meta">
+        <a class="release-tag" href="https://github.com/notifdex/notifdex/releases/tag/v0.1.0" rel="noopener">v0.1.0</a>
+        <span>November 24, 2026</span>
+      </div>
+      <h2>First signed, notarized macOS release &amp; Homebrew tap</h2>
+      <ul>
+        <li>
+          Published Notifdex’s first Apple Developer ID–signed and notarized universal Mac app
+          (Apple Silicon + Intel) on GitHub Releases and via
+          <code>brew install --cask notifdex/tap/notifdex</code>.
+        </li>
+        <li>
+          Signed builds share a stable identity so macOS Accessibility permissions carry across
+          upgrades instead of resetting on every rebuild.
+        </li>
+        <li>
+          Includes local SQLite capture for Mac and forwarded iPhone notifications, Inbox search
+          and triage, People profiles across workspaces, Today follow-ups, personal and shared
+          notes, Notification Center Recovery, and Glass/Solid themes.
+        </li>
+      </ul>
+    </article>
+
+    <p class="mt-32">
+      <a class="action-link" href="/">&larr; Back to notifdex.com</a>
+    </p>
+  </main>
+
+  <footer class="site-footer">
+    <div class="container footer-inner">
+      <div class="footer-brand">
+        <img src="/app-icon.png" alt="" width="18" height="18" />
+        <span>Notifdex &middot; Local memory for your Mac &amp; iPhone notifications</span>
+      </div>
+      <div class="footer-links">
+        <a href="/">Home</a>
+        <a href="/faq.html">FAQ</a>
+        <a href="/privacy.html">Privacy</a>
+        <a href="https://github.com/notifdex/notifdex" rel="noopener">GitHub</a>
+        <a href="https://github.com/notifdex/notifdex/issues" rel="noopener">Support</a>
+      </div>
+    </div>
+  </footer>
+</body>
+</html>

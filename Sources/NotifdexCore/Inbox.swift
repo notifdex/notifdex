@@ -89,6 +89,11 @@ public struct WorkspaceRecord: Identifiable, Equatable {
 public struct PersonRecord: Identifiable, Equatable {
     public let id: String
     public let name: String
+
+    public init(id: String, name: String) {
+        self.id = id
+        self.name = name
+    }
 }
 
 public struct PersonIdentity: Identifiable, Equatable {

@@ -29,6 +29,7 @@ let package = Package(
                 "Sources/NotifdexCore/AppearancePreferences.swift",
                 "Sources/NotifdexCore/AppSettings.swift",
                 "Sources/NotifdexCore/CaptureStore.swift",
+                "Sources/NotifdexCore/ContactSuggestions.swift",
                 "Sources/NotifdexCore/Inbox.swift",
                 "Sources/NotifdexCore/InboxPresentation.swift",
                 "Sources/NotifdexCore/Observation.swift",

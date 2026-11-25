@@ -281,15 +281,21 @@ final class StoreTests: XCTestCase {
         XCTAssertThrowsError(try store.createWorkspace(name: "Founders"))
     }
 
-    func testIdentityNormalizationAndCrossPersonConflictRejection() throws {
+    func testIdentityPreservesCasingAndRejectsCaseInsensitiveConflicts() throws {
         let store = try CaptureStore(path: path)
         let alex = try store.createPerson(name: "Alex")
         let sam = try store.createPerson(name: "Sam")
         try store.addIdentity(person: alex, platform: "Gmail", identifier: "  Alex@Example.COM ")
+        try store.addIdentity(person: alex, platform: "Gmail", identifier: "alex@example.com")
         try store.addIdentity(person: alex, platform: "X", identifier: "@AlexHandle")
+        try store.addIdentity(person: alex, platform: "X", identifier: "alexhandle")
+        try store.addIdentity(person: alex, platform: "Messages", identifier: "Alex Rivera")
         let ids = try store.identities(for: alex)
-        XCTAssertEqual(Set(ids.map(\.identifier)), ["alex@example.com", "alexhandle"])
+        XCTAssertEqual(Set(ids.map(\.identifier)), ["Alex@Example.COM", "@AlexHandle", "Alex Rivera"])
         XCTAssertThrowsError(try store.addIdentity(person: sam, platform: "Gmail", identifier: "alex@example.com"))
+        XCTAssertThrowsError(try store.addIdentity(person: sam, platform: "X", identifier: "alexhandle"))
+        XCTAssertThrowsError(try store.addIdentity(person: sam, platform: "Messages", identifier: "alex rivera"))
+        XCTAssertThrowsError(try store.addIdentity(person: sam, platform: "X", identifier: "@"))
         XCTAssertThrowsError(try store.addIdentity(person: sam, platform: "X", identifier: "   "))
     }
 }

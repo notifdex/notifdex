@@ -4,26 +4,26 @@ import SwiftUI
 import NotifdexCore
 import NotifdexMac
 
-private struct NoteDraft: Identifiable {
+struct NoteDraft: Identifiable {
     let id = UUID()
     let personID: String?
     let personName: String?
     let noteID: String?
 }
 
-private struct FolderDraft: Identifiable {
+struct FolderDraft: Identifiable {
     let id = UUID()
     let folderID: String?
 }
 
-private enum NoteCollection: String, CaseIterable, Identifiable {
+enum NoteCollection: String, CaseIterable, Identifiable {
     case mine = "My Notes"
     case people = "People Notes"
 
     var id: Self { self }
 }
 
-private enum NoteFolderFilter: Hashable {
+enum NoteFolderFilter: Hashable {
     case all
     case unfiled
     case folder(String)
@@ -42,12 +42,12 @@ private enum NoteFolderFilter: Hashable {
     }
 }
 
-private struct TemplateRemoval {
+struct TemplateRemoval {
     let personID: String
     let definition: RelationshipTemplate
 }
 
-private enum WorkflowMode: String, CaseIterable, Hashable, Identifiable {
+enum WorkflowMode: String, CaseIterable, Hashable, Identifiable {
     case inbox = "Inbox"
     case today = "Today"
     case people = "People"
@@ -80,13 +80,13 @@ private enum WorkflowMode: String, CaseIterable, Hashable, Identifiable {
     }
 }
 
-private struct HideRulePreview: Identifiable {
+struct HideRulePreview: Identifiable {
     let id = UUID()
     let match: InboxRuleMatch
     let count: Int
 }
 
-private enum InboxHide: Equatable {
+enum InboxHide: Equatable {
     case alert(Int64)
     case rule(InboxRuleMatch)
 
@@ -116,7 +116,7 @@ private enum InboxHide: Equatable {
 }
 
 @MainActor
-private final class WorkflowModel: ObservableObject {
+final class WorkflowModel: ObservableObject {
     @Published var mode: WorkflowMode = .inbox
     @Published var app: String?
     @Published var search = ""
@@ -133,7 +133,7 @@ private final class WorkflowModel: ObservableObject {
     @Published var hoveringDivider = false
     @Published var draggingDivider = false
     @Published var name = ""
-    @Published var identityApp = "X"
+    @Published var identityApp = "Messages"
     @Published var identifier = ""
     @Published var due = Date()
     @Published var matchPreview: PersonMatchPreview?
@@ -164,6 +164,8 @@ private final class WorkflowModel: ObservableObject {
     @Published private(set) var loadedQuery: InboxQuery?
     @Published private var loadedAlert: InboxEntry?
     @Published private(set) var people: [PersonRecord] = []
+    @Published private(set) var allIdentities: [String: [PersonIdentity]] = [:]
+    @Published private(set) var inlineMatchPreview: PersonMatchPreview?
     @Published private(set) var workspaces: [WorkspaceRecord] = []
     @Published private(set) var personWorkspaceIDs: Set<String> = []
     @Published private var workspacePeople: [PersonRecord] = []
@@ -173,6 +175,27 @@ private final class WorkflowModel: ObservableObject {
     @Published private(set) var busy = false
     @Published private(set) var error: String?
     @Published private(set) var sheetError: String?
+    @Published private(set) var popoverError: String?
+
+    // Contact UX popover & inline edit state
+    @Published var showingNewPersonPopover = false
+    @Published var showingPeopleNewPersonPopover = false
+    @Published var showingExistingPersonPopover = false
+    @Published var showingContactCardPopover = false
+    @Published var showingPeopleSwitcherPopover = false
+    @Published var newPersonLinkingAlertID: Int64?
+    @Published var newPersonWorkspaceID: String?
+    @Published var newPersonPlatform = "Messages"
+    @Published var newPersonHandle = ""
+    @Published var newPersonRememberMatch = false
+    @Published var personSearchQuery = ""
+    @Published var showingAddHandleInline = false
+    @Published var renamingPersonID: String?
+    @Published var renamePersonDraft = ""
+    @Published var personToDelete: PersonRecord?
+    @Published var dismissedSuggestionAlertIDs: Set<Int64> = []
+    @Published var dismissedRuleBannerAlertIDs: Set<Int64> = []
+    @Published var dismissedHandleBannerAlertIDs: Set<Int64> = []
 
     private let worker: CaptureWorker
     private var generation = 0
@@ -236,6 +259,7 @@ private final class WorkflowModel: ObservableObject {
                 alert = try store.selectedInboxEntry(selected, in: query)
             }
             let allPeople = try store.people()
+            let allIdentities = try store.allIdentitiesByPerson()
             let scopedPeople = try query.workspaceID.map { try store.people(in: $0) } ?? allPeople
             let visiblePerson = scopedPeople.first { $0.id == person }?.id
             let card = isPeople ? visiblePerson : alert?.personID
@@ -246,10 +270,15 @@ private final class WorkflowModel: ObservableObject {
             let matches = try card.map { try store.personMatchRules(for: $0) } ?? []
             let notes = try card.map { try store.personNotes(for: $0) } ?? []
             let assignment = try (isPeople ? card : nil).flatMap { try store.templateAssignment(for: $0) }
-            let membership = try (isPeople ? card : nil).map { try store.workspaceIDs(for: $0) } ?? []
+            let membership = try card.map { try store.workspaceIDs(for: $0) } ?? []
+            let inlineMatch: PersonMatchPreview? = {
+                guard let alert, alert.personID != nil, alert.personRuleID == nil else { return nil }
+                return try? store.previewPersonMatch(for: alert.id)
+            }()
             let workspaceState = (options: try store.workspaces(), people: scopedPeople, memberships: membership)
+            let contactExtras = (allIdentities: allIdentities, inlineMatch: inlineMatch)
             return (entries, allPeople, card, identities, timeline, try store.inboxFilters(),
-                    matches, notes, alert, assignment, workspaceState)
+                    matches, notes, alert, assignment, workspaceState, contactExtras)
         }, completion: { [weak self] result in
             guard let self, self.generation == request, self.mode == mode, self.query == query,
                   self.selected == selected else { return }
@@ -269,6 +298,8 @@ private final class WorkflowModel: ObservableObject {
                 self.workspaces = value.10.options
                 self.workspacePeople = value.10.people
                 self.personWorkspaceIDs = value.10.memberships
+                self.allIdentities = value.11.allIdentities
+                self.inlineMatchPreview = value.11.inlineMatch
                 if isPeople, person != nil, value.2 == nil { self.person = nil }
                 if isPeople, query.workspaceID != nil, selected != nil, value.8 == nil { self.selected = nil }
                 if keepsOpenDetail, selected != nil, value.8 == nil { self.selected = nil }
@@ -289,20 +320,29 @@ private final class WorkflowModel: ObservableObject {
 
     func loadMore() { limit = min(1000, limit + 50) }
 
-    func edit(_ operation: @escaping (CaptureStore) throws -> Void, inSheet: Bool = false, then: (() -> Void)? = nil) {
+    func edit(
+        _ operation: @escaping (CaptureStore) throws -> Void,
+        inSheet: Bool = false,
+        inPopover: Bool = false,
+        then: (() -> Void)? = nil
+    ) {
         guard !busy else { return }
         busy = true
-        if inSheet { sheetError = nil } else { error = nil }
+        if inSheet { sheetError = nil }
+        else if inPopover { popoverError = nil }
+        else { error = nil }
         worker.withStore(operation) { [weak self] result in
             guard let self else { return }
             self.busy = false
             switch result {
             case .success:
                 if inSheet { self.sheetError = nil }
+                if inPopover { self.popoverError = nil }
                 then?()
                 self.load(query: self.query)
             case .failure(let error):
                 if inSheet { self.sheetError = String(describing: error) }
+                else if inPopover { self.popoverError = String(describing: error) }
                 else { self.error = String(describing: error) }
             }
         }
@@ -530,11 +570,175 @@ private final class WorkflowModel: ObservableObject {
         }
     }
 
-    func addIdentity(to person: String) {
+    func closeContactPopovers() {
+        showingNewPersonPopover = false
+        showingPeopleNewPersonPopover = false
+        showingExistingPersonPopover = false
+        showingContactCardPopover = false
+        showingPeopleSwitcherPopover = false
+        popoverError = nil
+    }
+
+    func openNewPersonPopover(for alert: InboxEntry?, inPeopleBar: Bool = false) {
+        closeContactPopovers()
+        if let alert {
+            newPersonLinkingAlertID = alert.id
+            newPersonPlatform = ContactSuggestions.defaultPlatform(for: alert.app)
+            let trimmedTitle = alert.title.trimmingCharacters(in: .whitespacesAndNewlines)
+            if ContactSuggestions.looksLikeIdentifier(trimmedTitle) {
+                name = ""
+                newPersonHandle = trimmedTitle
+            } else {
+                name = trimmedTitle
+                newPersonHandle = ""
+            }
+            newPersonWorkspaceID = alert.workspaceID
+            newPersonRememberMatch = alert.app != "Unknown app" && !trimmedTitle.isEmpty
+        } else {
+            newPersonLinkingAlertID = nil
+            name = ""
+            newPersonPlatform = "Messages"
+            newPersonHandle = ""
+            newPersonWorkspaceID = mode == .people ? workspaceID : nil
+            newPersonRememberMatch = false
+        }
+        if inPeopleBar {
+            showingPeopleNewPersonPopover = true
+        } else {
+            showingNewPersonPopover = true
+        }
+    }
+
+    func openExistingPersonPopover(prefillQuery: String = "") {
+        closeContactPopovers()
+        personSearchQuery = prefillQuery
+        showingExistingPersonPopover = true
+    }
+
+    func openContactCardPopover(for alert: InboxEntry) {
+        closeContactPopovers()
+        identityApp = ContactSuggestions.defaultPlatform(for: alert.app)
+        identifier = ""
+        showingAddHandleInline = false
+        renamingPersonID = nil
+        showingContactCardPopover = true
+    }
+
+    func openPeopleSwitcherPopover() {
+        closeContactPopovers()
+        personSearchQuery = ""
+        showingPeopleSwitcherPopover = true
+    }
+
+    func submitNewPersonPopover() {
+        let trimmedName = name
+        let linkingID = newPersonLinkingAlertID
+        let workspace = newPersonWorkspaceID
+        let platform = newPersonPlatform
+        let handle = newPersonHandle.trimmingCharacters(in: .whitespacesAndNewlines)
+        let remember = newPersonRememberMatch
+        let isPeopleMode = mode == .people
+        var createdPersonID: String?
+        edit({ store in
+            createdPersonID = try store.createPerson(
+                name: trimmedName,
+                linking: linkingID,
+                workspace: workspace,
+                identity: handle.isEmpty ? nil : (platform: platform, identifier: handle),
+                rememberMatch: remember
+            )
+        }, inPopover: true) { [weak self] in
+            guard let self else { return }
+            self.name = ""
+            self.newPersonHandle = ""
+            self.closeContactPopovers()
+            if isPeopleMode, let createdPersonID {
+                self.person = createdPersonID
+                self.selected = nil
+            }
+        }
+    }
+
+    func quickCreatePerson(named personName: String, linking alert: InboxEntry) {
+        let trimmedTitle = alert.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let identity: (platform: String, identifier: String)? = ContactSuggestions.looksLikeIdentifier(trimmedTitle)
+            ? (platform: ContactSuggestions.defaultPlatform(for: alert.app), identifier: trimmedTitle)
+            : nil
+        edit({ store in
+            _ = try store.createPerson(
+                name: personName,
+                linking: alert.id,
+                workspace: alert.workspaceID,
+                identity: identity,
+                rememberMatch: false
+            )
+        }, inPopover: true) { [weak self] in
+            self?.closeContactPopovers()
+        }
+    }
+
+    func linkAlert(_ alertID: Int64, to personID: String?) {
+        edit({ try $0.link(alertID, to: personID) }) { [weak self] in
+            self?.closeContactPopovers()
+        }
+    }
+
+    func saveObservedHandle(for alert: InboxEntry, personID: String) {
+        let platform = ContactSuggestions.defaultPlatform(for: alert.app)
+        let handle = alert.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        edit({ try $0.addIdentity(person: personID, platform: platform, identifier: handle) }) { [weak self] in
+            self?.dismissedHandleBannerAlertIDs.insert(alert.id)
+        }
+    }
+
+    func startRename(personID: String, currentName: String) {
+        renamingPersonID = personID
+        renamePersonDraft = currentName
+        popoverError = nil
+    }
+
+    func cancelRename() {
+        renamingPersonID = nil
+        renamePersonDraft = ""
+    }
+
+    func commitRename() {
+        guard let personID = renamingPersonID else { return }
+        let updatedName = renamePersonDraft
+        let inPopover = showingContactCardPopover
+        edit({ try $0.renamePerson(personID, to: updatedName) }, inPopover: inPopover) { [weak self] in
+            self?.renamingPersonID = nil
+            self?.renamePersonDraft = ""
+        }
+    }
+
+    func confirmDeletePerson(_ record: PersonRecord) {
+        edit({ try $0.deletePerson(record.id) }) { [weak self] in
+            guard let self else { return }
+            if self.person == record.id {
+                self.person = nil
+                self.selected = nil
+            }
+            self.personToDelete = nil
+            self.closeContactPopovers()
+        }
+    }
+
+    func jumpToPerson(_ id: String) {
+        closeContactPopovers()
+        workspaceID = nil
+        person = id
+        selected = nil
+        mode = .people
+    }
+
+    func addIdentity(to person: String, collapseAfter: Bool = false) {
         let platform = identityApp
         let identifier = identifier
-        edit({ try $0.addIdentity(person: person, platform: platform, identifier: identifier) }) { [weak self] in
+        let inPopover = showingContactCardPopover
+        edit({ try $0.addIdentity(person: person, platform: platform, identifier: identifier) }, inPopover: inPopover) { [weak self] in
             self?.identifier = ""
+            if collapseAfter { self?.showingAddHandleInline = false }
         }
     }
 }
@@ -689,6 +893,15 @@ struct WorkflowView<AppsContent: View, RecoveryContent: View>: View {
         } message: { removal in
             Text("Removing \(removal.definition.name) clears this person's stage and milestones.")
         }
+        .alert("Delete person?", isPresented: Binding(
+            get: { model.personToDelete != nil },
+            set: { if !$0 { model.personToDelete = nil } }
+        ), presenting: model.personToDelete) { person in
+            Button("Cancel", role: .cancel) {}
+            Button("Delete person", role: .destructive) { model.confirmDeletePerson(person) }
+        } message: { person in
+            Text("Deleting \(person.name) removes their handles, matching rules, and person notes. Captured notifications stay in your inbox as unlinked alerts.")
+        }
         .task(id: model.query) {
             let query = model.query
             do { try await Task.sleep(for: .milliseconds(150)) } catch { return }
@@ -703,6 +916,12 @@ struct WorkflowView<AppsContent: View, RecoveryContent: View>: View {
         .onChange(of: model.selected) { _, _ in
             model.name = ""
             model.identifier = ""
+            model.closeContactPopovers()
+            model.showingAddHandleInline = false
+            model.cancelRename()
+            if let alert = model.alert {
+                model.identityApp = ContactSuggestions.defaultPlatform(for: alert.app)
+            }
             let defaultDue = Calendar.current.date(byAdding: .day, value: 1, to: .now) ?? .now
             model.due = model.alert?.dueAt.map { Date(timeIntervalSince1970: $0) } ?? defaultDue
             if ready {
@@ -728,6 +947,9 @@ struct WorkflowView<AppsContent: View, RecoveryContent: View>: View {
             model.search = ""
             model.identifier = ""
             model.name = ""
+            model.closeContactPopovers()
+            model.showingAddHandleInline = false
+            model.cancelRename()
             model.resetLimit()
             if ready, previous.isLibrary || next.isLibrary { model.load(query: model.query) }
         }
@@ -1304,6 +1526,7 @@ struct WorkflowView<AppsContent: View, RecoveryContent: View>: View {
                 .fixedSize()
             }
             if model.mode == .people {
+                let activePerson = model.visiblePeople.first(where: { $0.id == model.person })
                 Picker("Workspace", selection: $model.workspaceID) {
                     Text("All People").tag(nil as String?)
                     ForEach(model.workspaces) { workspace in
@@ -1319,14 +1542,31 @@ struct WorkflowView<AppsContent: View, RecoveryContent: View>: View {
                 }
                 .help("Create a workspace")
                 .disabled(!ready || model.busy)
-                Picker("Person", selection: $model.person) {
-                    Text("Choose a person").tag(nil as String?)
-                    ForEach(model.visiblePeople) { person in Text(person.name).tag(Optional(person.id)) }
+                Button {
+                    model.openPeopleSwitcherPopover()
+                } label: {
+                    HStack(spacing: 6) {
+                        if let activePerson {
+                            PersonMonogram(name: activePerson.name, size: 18, tokens: tokens, prominent: true)
+                            Text(activePerson.name)
+                                .lineLimit(1)
+                        } else {
+                            Image(systemName: "person.2")
+                                .font(.system(size: 11))
+                                .foregroundStyle(.secondary)
+                            Text("Choose a person")
+                                .foregroundStyle(.secondary)
+                        }
+                        Image(systemName: "chevron.up.chevron.down")
+                            .font(.system(size: 9.5, weight: .medium))
+                            .foregroundStyle(.secondary)
+                    }
                 }
-                .frame(maxWidth: 180)
-                .onChange(of: model.person) { _, _ in
-                    model.selected = nil
-                    model.identifier = ""
+                .buttonStyle(NotifdexGlassButtonStyle(emphasis: .regular))
+                .disabled(!ready || model.busy)
+                .help("Search and switch people")
+                .popover(isPresented: $model.showingPeopleSwitcherPopover, arrowEdge: .bottom) {
+                    SearchablePersonPopoverView(model: model, purpose: .switchPerson, tokens: tokens, ready: ready)
                 }
                 Menu("Templates") {
                     Button("Apply Founder Outreach") {
@@ -1335,6 +1575,17 @@ struct WorkflowView<AppsContent: View, RecoveryContent: View>: View {
                 }
                 .fixedSize()
                 .disabled(!ready || model.busy || model.person == nil || model.cardID != model.person)
+                Button {
+                    model.openNewPersonPopover(for: nil, inPeopleBar: true)
+                } label: {
+                    Label("New Person", systemImage: "person.badge.plus")
+                }
+                .buttonStyle(NotifdexGlassButtonStyle(emphasis: .prominent))
+                .disabled(!ready || model.busy)
+                .help("Create a new person card")
+                .popover(isPresented: $model.showingPeopleNewPersonPopover, arrowEdge: .bottom) {
+                    NewPersonPopoverView(model: model, tokens: tokens, ready: ready)
+                }
             }
             Spacer(minLength: 8)
             if includeSearch {
@@ -1451,10 +1702,24 @@ struct WorkflowView<AppsContent: View, RecoveryContent: View>: View {
                     .lineLimit(2)
                     .foregroundStyle(entry.isRead ? Color.secondary.opacity(0.68) : Color.primary.opacity(0.76))
             }
-            HStack(spacing: 10) {
+            HStack(spacing: 8) {
                 Text(entry.app)
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
+                if entry.personID != nil, !entry.personName.isEmpty {
+                    let trimmedTitle = entry.title.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if entry.personName.caseInsensitiveCompare(trimmedTitle) != .orderedSame {
+                        Text("· \(entry.personName)")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(themeTokens.accent)
+                            .lineLimit(1)
+                    } else {
+                        Image(systemName: "person.fill")
+                            .font(.system(size: 9.5))
+                            .foregroundStyle(themeTokens.accent.opacity(0.75))
+                            .accessibilityLabel("Linked to \(entry.personName)")
+                    }
+                }
                 Spacer()
                 if entry.saved {
                     Image(systemName: "bookmark.fill")
@@ -1544,10 +1809,24 @@ struct WorkflowView<AppsContent: View, RecoveryContent: View>: View {
     }
 
     private func alertDetail(_ alert: InboxEntry) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text(alert.title.isEmpty ? "Notification" : alert.title)
-                .font(.system(size: 20, weight: .regular, design: .serif))
-            Text(alert.app).font(.caption).foregroundStyle(.secondary)
+        let tokens = themeTokens
+        return VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .top, spacing: 10) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(alert.title.isEmpty ? "Notification" : alert.title)
+                        .font(.system(size: 20, weight: .regular, design: .serif))
+                    Text("\(alert.app) · \(Date(timeIntervalSince1970: alert.capturedAt).formatted(date: .abbreviated, time: .shortened))")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer(minLength: 8)
+                if let personID = alert.personID {
+                    linkedContactPill(personID: personID, personName: alert.personName, alert: alert, tokens: tokens)
+                }
+            }
+
+            alertContactBanners(alert, tokens: tokens)
+
             if !alert.subtitle.isEmpty { Text(alert.subtitle).textSelection(.enabled) }
             Text(alert.body.isEmpty ? "No preview was captured." : alert.body)
                 .textSelection(.enabled)
@@ -1569,50 +1848,34 @@ struct WorkflowView<AppsContent: View, RecoveryContent: View>: View {
                 }
                 .fixedSize()
             }
-            Divider()
-            Text("Context").font(.headline)
-            if !model.workspaces.isEmpty {
-                Picker("Alert workspace", selection: Binding(
-                    get: { alert.workspaceID },
-                    set: { workspace in model.edit { try $0.setAlertWorkspace(alert.id, to: workspace) } }
-                )) {
-                    Text("Unassigned").tag(nil as String?)
-                    ForEach(model.workspaces) { workspace in Text(workspace.name).tag(Optional(workspace.id)) }
+            if !model.workspaces.isEmpty || model.mode == .hidden {
+                Divider()
+                Text("Context").font(.headline)
+                if !model.workspaces.isEmpty {
+                    Picker("Alert workspace", selection: Binding(
+                        get: { alert.workspaceID },
+                        set: { workspace in model.edit { try $0.setAlertWorkspace(alert.id, to: workspace) } }
+                    )) {
+                        Text("Unassigned").tag(nil as String?)
+                        ForEach(model.workspaces) { workspace in Text(workspace.name).tag(Optional(workspace.id)) }
+                    }
+                    .help("Route this alert independently of the person's workspace memberships.")
                 }
-                .help("Route this alert independently of the person's workspace memberships.")
-            }
-            if model.mode == .hidden {
-                if alert.individuallyHidden {
-                    Button("Undo individual hide") { model.restore(.alert(alert.id)) }
-                }
-                if alert.titleFiltered {
-                    Button("Remove matching title rule") {
-                        model.restore(.rule(InboxRuleMatch(app: alert.app, field: .title, text: alert.title)))
+                if model.mode == .hidden {
+                    if alert.individuallyHidden {
+                        Button("Undo individual hide") { model.restore(.alert(alert.id)) }
+                    }
+                    if alert.titleFiltered {
+                        Button("Remove matching title rule") {
+                            model.restore(.rule(InboxRuleMatch(app: alert.app, field: .title, text: alert.title)))
+                        }
+                    }
+                    if alert.bodyFiltered {
+                        Button("Remove matching body rule") {
+                            model.restore(.rule(InboxRuleMatch(app: alert.app, field: .body, text: alert.body)))
+                        }
                     }
                 }
-                if alert.bodyFiltered {
-                    Button("Remove matching body rule") {
-                        model.restore(.rule(InboxRuleMatch(app: alert.app, field: .body, text: alert.body)))
-                    }
-                }
-            }
-            Menu(alert.personID == nil ? "Link to person" : "Change linked person") {
-                ForEach(model.people) { person in
-                    Button(person.name) { model.edit { try $0.link(alert.id, to: person.id) } }
-                }
-                if alert.personID != nil {
-                    Button("Unlink and skip matching rules") { model.edit { try $0.link(alert.id, to: nil) } }
-                }
-            }
-            .disabled(model.people.isEmpty && alert.personID == nil)
-            if alert.personID == nil {
-                newPerson(linking: alert.id)
-            } else if alert.personRuleID != nil {
-                Label("Linked by a matching rule", systemImage: "link")
-                    .font(.caption).foregroundStyle(.secondary)
-            } else if alert.app != "Unknown app", !alert.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-                      !model.matchRules.contains(where: { $0.app == alert.app && $0.title == alert.title }) {
-                Button("Remember this match…") { model.reviewMatch(for: alert) }
             }
             Divider()
             Text("Follow-up").font(.headline)
@@ -1638,6 +1901,283 @@ struct WorkflowView<AppsContent: View, RecoveryContent: View>: View {
                     Button("Mark done") { model.edit { try $0.complete(alert.id) } }
                 }
             }
+        }
+    }
+
+    private func linkedContactPill(
+        personID: String,
+        personName: String,
+        alert: InboxEntry,
+        tokens: ThemeTokens
+    ) -> some View {
+        Button {
+            if model.showingContactCardPopover {
+                model.showingContactCardPopover = false
+            } else {
+                model.openContactCardPopover(for: alert)
+            }
+        } label: {
+            HStack(spacing: 6) {
+                PersonMonogram(name: personName, size: 20, tokens: tokens, prominent: true)
+                Text(personName)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.leading, 4)
+            .padding(.trailing, 9)
+            .padding(.vertical, 4)
+            .background {
+                Capsule(style: .continuous)
+                    .fill(model.showingContactCardPopover ? tokens.selectionFill : tokens.subtleFill)
+                    .overlay {
+                        Capsule(style: .continuous)
+                            .strokeBorder(model.showingContactCardPopover ? tokens.accent.opacity(0.6) : tokens.hairline, lineWidth: 0.75)
+                    }
+            }
+        }
+        .buttonStyle(.plain)
+        .help("View or update \(personName)")
+        .accessibilityLabel("Contact card for \(personName)")
+        .popover(isPresented: $model.showingContactCardPopover, arrowEdge: .bottom) {
+            ContactCardPopoverView(
+                model: model,
+                personID: personID,
+                personName: personName,
+                alert: alert,
+                tokens: tokens,
+                ready: ready
+            )
+        }
+        .popover(isPresented: $model.showingExistingPersonPopover, arrowEdge: .bottom) {
+            SearchablePersonPopoverView(
+                model: model,
+                purpose: .linkAlert(alert),
+                tokens: tokens,
+                ready: ready
+            )
+        }
+    }
+
+    @ViewBuilder
+    private func alertContactBanners(_ alert: InboxEntry, tokens: ThemeTokens) -> some View {
+        if alert.personID == nil {
+            let suggestion = model.dismissedSuggestionAlertIDs.contains(alert.id)
+                ? nil
+                : ContactSuggestions.suggest(
+                    for: alert,
+                    people: model.people,
+                    identitiesByPerson: model.allIdentities
+                )
+            switch suggestion {
+            case .single(let match):
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(alignment: .top, spacing: 9) {
+                        PersonMonogram(name: match.person.name, size: 28, tokens: tokens, prominent: true)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Possible match: \(match.person.name)")
+                                .font(.system(size: 12.5, weight: .semibold))
+                            Text(suggestionReasonText(match))
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer(minLength: 4)
+                        Button {
+                            model.dismissedSuggestionAlertIDs.insert(alert.id)
+                        } label: {
+                            Image(systemName: "xmark")
+                                .font(.system(size: 10, weight: .medium))
+                                .foregroundStyle(.secondary)
+                                .padding(4)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Dismiss suggestion")
+                    }
+                    HStack(spacing: 8) {
+                        Button("Link to \(match.person.name)") {
+                            model.linkAlert(alert.id, to: match.person.id)
+                        }
+                        .buttonStyle(NotifdexGlassButtonStyle(emphasis: .prominent))
+                        Button("Choose another…") {
+                            model.openExistingPersonPopover()
+                        }
+                        .buttonStyle(NotifdexGlassButtonStyle(emphasis: .regular))
+                        .popover(isPresented: $model.showingExistingPersonPopover, arrowEdge: .bottom) {
+                            SearchablePersonPopoverView(model: model, purpose: .linkAlert(alert), tokens: tokens, ready: ready)
+                        }
+                        Button("New person…") {
+                            model.openNewPersonPopover(for: alert)
+                        }
+                        .buttonStyle(NotifdexGlassButtonStyle(emphasis: .subtle))
+                        .popover(isPresented: $model.showingNewPersonPopover, arrowEdge: .bottom) {
+                            NewPersonPopoverView(model: model, tokens: tokens, ready: ready)
+                        }
+                    }
+                }
+                .padding(10)
+                .notifdexSurface(.card)
+                .overlay {
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .strokeBorder(tokens.accent.opacity(0.35), lineWidth: 0.75)
+                        .allowsHitTesting(false)
+                }
+
+            case .ambiguous(let candidates):
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(alignment: .top, spacing: 9) {
+                        Image(systemName: "person.2.circle.fill")
+                            .font(.system(size: 22))
+                            .foregroundStyle(tokens.accent)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("\(candidates.count) people named “\(alert.title)”")
+                                .font(.system(size: 12.5, weight: .semibold))
+                            Text("Choose which person sent this \(alert.app) alert.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer(minLength: 4)
+                        Button {
+                            model.dismissedSuggestionAlertIDs.insert(alert.id)
+                        } label: {
+                            Image(systemName: "xmark")
+                                .font(.system(size: 10, weight: .medium))
+                                .foregroundStyle(.secondary)
+                                .padding(4)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Dismiss suggestion")
+                    }
+                    HStack(spacing: 8) {
+                        Button("Choose person…") {
+                            model.openExistingPersonPopover(prefillQuery: alert.title)
+                        }
+                        .buttonStyle(NotifdexGlassButtonStyle(emphasis: .prominent))
+                        .popover(isPresented: $model.showingExistingPersonPopover, arrowEdge: .bottom) {
+                            SearchablePersonPopoverView(model: model, purpose: .linkAlert(alert), tokens: tokens, ready: ready)
+                        }
+                        Button("New person…") {
+                            model.openNewPersonPopover(for: alert)
+                        }
+                        .buttonStyle(NotifdexGlassButtonStyle(emphasis: .regular))
+                        .popover(isPresented: $model.showingNewPersonPopover, arrowEdge: .bottom) {
+                            NewPersonPopoverView(model: model, tokens: tokens, ready: ready)
+                        }
+                    }
+                }
+                .padding(10)
+                .notifdexSurface(.card)
+
+            case nil:
+                HStack(spacing: 8) {
+                    Image(systemName: "person.crop.circle.badge.questionmark")
+                        .font(.system(size: 15))
+                        .foregroundStyle(.secondary)
+                    Text("Not linked to a person")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Spacer(minLength: 6)
+                    Button("New Person…") {
+                        model.openNewPersonPopover(for: alert)
+                    }
+                    .buttonStyle(NotifdexGlassButtonStyle(emphasis: .prominent))
+                    .popover(isPresented: $model.showingNewPersonPopover, arrowEdge: .bottom) {
+                        NewPersonPopoverView(model: model, tokens: tokens, ready: ready)
+                    }
+                    Button("Add to Existing…") {
+                        model.openExistingPersonPopover()
+                    }
+                    .buttonStyle(NotifdexGlassButtonStyle(emphasis: .regular))
+                    .popover(isPresented: $model.showingExistingPersonPopover, arrowEdge: .bottom) {
+                        SearchablePersonPopoverView(model: model, purpose: .linkAlert(alert), tokens: tokens, ready: ready)
+                    }
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 8)
+                .notifdexSurface(.card)
+            }
+        } else if let personID = alert.personID {
+            let trimmedTitle = alert.title.trimmingCharacters(in: .whitespacesAndNewlines)
+            let identities = model.cardID == personID ? model.identities : (model.allIdentities[personID] ?? [])
+            if ContactSuggestions.looksLikeIdentifier(trimmedTitle),
+               !ContactSuggestions.hasMatchingHandle(trimmedTitle, app: alert.app, in: identities),
+               !model.dismissedHandleBannerAlertIDs.contains(alert.id) {
+                let platform = ContactSuggestions.defaultPlatform(for: alert.app)
+                VStack(alignment: .leading, spacing: 7) {
+                    Text("Add “\(trimmedTitle)” as a \(platform) handle for \(alert.personName)?")
+                        .font(.caption.weight(.medium))
+                    HStack(spacing: 8) {
+                        Button("Add handle") {
+                            model.saveObservedHandle(for: alert, personID: personID)
+                        }
+                        .buttonStyle(NotifdexGlassButtonStyle(emphasis: .prominent))
+                        Button("Dismiss") {
+                            model.dismissedHandleBannerAlertIDs.insert(alert.id)
+                        }
+                        .buttonStyle(NotifdexGlassButtonStyle(emphasis: .subtle))
+                    }
+                }
+                .padding(10)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .notifdexSurface(.card)
+            }
+
+            if alert.personRuleID != nil {
+                Label("Linked by a matching rule", systemImage: "link")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } else if let preview = model.inlineMatchPreview,
+                      preview.observationID == alert.id,
+                      !model.dismissedRuleBannerAlertIDs.contains(alert.id) {
+                VStack(alignment: .leading, spacing: 7) {
+                    Text("Always link \(preview.app) alerts from “\(preview.title)” to \(preview.personName)?")
+                        .font(.caption.weight(.medium))
+                    Text(preview.existingCount > 0
+                         ? "\(preview.existingCount) existing unlinked \(preview.existingCount == 1 ? "alert also matches" : "alerts also match")."
+                         : "Applies to future alerts with this exact app and title.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    HStack(spacing: 8) {
+                        if preview.existingCount > 0 {
+                            Button("Existing & future") {
+                                model.confirmMatch(preview, includeExisting: true)
+                            }
+                            .buttonStyle(NotifdexGlassButtonStyle(emphasis: .prominent))
+                            Button("Future only") {
+                                model.confirmMatch(preview, includeExisting: false)
+                            }
+                            .buttonStyle(NotifdexGlassButtonStyle(emphasis: .regular))
+                        } else {
+                            Button("Always link") {
+                                model.confirmMatch(preview, includeExisting: false)
+                            }
+                            .buttonStyle(NotifdexGlassButtonStyle(emphasis: .prominent))
+                        }
+                        Button("Not now") {
+                            model.dismissedRuleBannerAlertIDs.insert(alert.id)
+                        }
+                        .buttonStyle(NotifdexGlassButtonStyle(emphasis: .subtle))
+                    }
+                }
+                .padding(10)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .notifdexSurface(.card)
+            }
+        }
+    }
+
+    private func suggestionReasonText(_ match: PersonSuggestion) -> String {
+        switch match.reason {
+        case .savedHandle(let platform):
+            return "Matches saved \(platform) handle"
+        case .displayName:
+            let platforms = Array(Set((model.allIdentities[match.person.id] ?? []).map(\.platform))).sorted()
+            if platforms.isEmpty {
+                return "Matches existing display name"
+            }
+            return "Same display name · Saved on \(platforms.joined(separator: ", "))"
         }
     }
 
@@ -1773,27 +2313,123 @@ struct WorkflowView<AppsContent: View, RecoveryContent: View>: View {
     }
 
     private func personCard(id: String, name: String, showRecentActivity: Bool) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Label(name, systemImage: "person.crop.circle").font(.title3)
+        let tokens = themeTokens
+        let cardIdentities = model.cardID == id ? model.identities : []
+        let isRenaming = model.renamingPersonID == id && !model.showingContactCardPopover
+        return VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .center, spacing: 10) {
+                PersonMonogram(name: name, size: 32, tokens: tokens, prominent: true)
+                if isRenaming {
+                    TextField("Display name", text: $model.renamePersonDraft)
+                        .textFieldStyle(.roundedBorder)
+                        .onSubmit { model.commitRename() }
+                    Button("Save") { model.commitRename() }
+                        .buttonStyle(NotifdexGlassButtonStyle(emphasis: .prominent))
+                        .disabled(model.renamePersonDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    Button("Cancel") { model.cancelRename() }
+                        .buttonStyle(NotifdexGlassButtonStyle(emphasis: .subtle))
+                } else {
+                    Text(name)
+                        .font(.system(size: 18, weight: .regular, design: .serif))
+                        .lineLimit(1)
+                    Spacer(minLength: 4)
+                    if showRecentActivity {
+                        Button {
+                            model.jumpToPerson(id)
+                        } label: {
+                            HStack(spacing: 4) {
+                                Text("Open in People")
+                                Image(systemName: "arrow.right")
+                                    .font(.system(size: 10, weight: .medium))
+                            }
+                        }
+                        .buttonStyle(NotifdexGlassButtonStyle(emphasis: .subtle))
+                    } else {
+                        Menu {
+                            Button("Rename…") { model.startRename(personID: id, currentName: name) }
+                            Divider()
+                            Button("Delete person…", role: .destructive) {
+                                model.personToDelete = PersonRecord(id: id, name: name)
+                            }
+                        } label: {
+                            Image(systemName: "ellipsis.circle")
+                                .font(.system(size: 14))
+                                .foregroundStyle(.secondary)
+                        }
+                        .menuStyle(.borderlessButton)
+                        .fixedSize()
+                        .help("Rename or delete person")
+                    }
+                }
+            }
             if model.mode == .people, model.cardID == id {
                 workspaceMembershipMenu(for: id)
             }
-            ForEach(model.cardID == id ? model.identities : []) { identity in
-                HStack {
-                    Text("\(identity.platform) · \(identity.identifier)").textSelection(.enabled)
-                    Spacer()
-                    Button("Remove") { model.edit { try $0.removeIdentity(identity.id, person: id) } }
+            if !showRecentActivity || !cardIdentities.isEmpty {
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack {
+                        Text("Handles").font(.headline)
+                        Spacer()
+                        if !showRecentActivity {
+                            Button {
+                                let next = !model.showingAddHandleInline
+                                model.showingAddHandleInline = next
+                                if next {
+                                    model.identityApp = ContactSuggestions.defaultPlatform(for: model.alert?.app ?? "Messages")
+                                    model.identifier = ""
+                                }
+                            } label: {
+                                Text(model.showingAddHandleInline ? "Cancel" : "+ Add handle")
+                                    .font(.caption.weight(.medium))
+                                    .foregroundStyle(tokens.accent)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    if cardIdentities.isEmpty && !model.showingAddHandleInline {
+                        Text("No handles saved yet.").font(.caption).foregroundStyle(.secondary)
+                    }
+                    ForEach(cardIdentities) { identity in
+                        HStack(spacing: 8) {
+                            Text("\(identity.platform) · \(identity.identifier)")
+                                .font(.callout)
+                                .textSelection(.enabled)
+                            Spacer()
+                            Button {
+                                model.edit { try $0.removeIdentity(identity.id, person: id) }
+                            } label: {
+                                Image(systemName: "xmark")
+                                    .font(.system(size: 10, weight: .medium))
+                                    .foregroundStyle(.secondary)
+                            }
+                            .buttonStyle(.plain)
+                            .help("Remove handle")
+                            .accessibilityLabel("Remove \(identity.platform) handle")
+                        }
+                        .padding(.horizontal, 9)
+                        .padding(.vertical, 5)
+                        .notifdexSurface(.pill)
+                    }
+                    if !showRecentActivity && model.showingAddHandleInline {
+                        HStack(spacing: 6) {
+                            Picker("App", selection: $model.identityApp) {
+                                ForEach(ContactSuggestions.supportedPlatforms, id: \.self) { Text($0) }
+                            }
+                            .labelsHidden()
+                            .fixedSize()
+                            TextField("Handle or address", text: $model.identifier)
+                                .textFieldStyle(.roundedBorder)
+                                .onSubmit {
+                                    if !model.identifier.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                                        model.addIdentity(to: id, collapseAfter: true)
+                                    }
+                                }
+                            Button("Add") { model.addIdentity(to: id, collapseAfter: true) }
+                                .buttonStyle(NotifdexGlassButtonStyle(emphasis: .prominent))
+                                .disabled(model.identifier.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        }
+                    }
                 }
-            }
-            HStack {
-                Picker("App", selection: $model.identityApp) {
-                    ForEach(["X", "Gmail", "Messages", "LinkedIn", "WhatsApp", "Slack", "Discord"], id: \.self) { Text($0) }
-                }
-                .labelsHidden()
-                .fixedSize()
-                TextField("Handle or address", text: $model.identifier)
-                Button("Add") { model.addIdentity(to: id) }
-                    .disabled(model.identifier.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
             if model.cardID == id && !model.matchRules.isEmpty {
                 Text("Matching rules").font(.headline)

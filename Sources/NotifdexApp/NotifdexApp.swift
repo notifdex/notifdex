@@ -132,25 +132,60 @@ final class AppModel: ObservableObject {
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    static weak var shared: AppDelegate?
+    private var appCenterController: AppCenterWindowController?
+
+    func showAppCenter() {
+        NSApp.setActivationPolicy(.regular)
+        let controller = appCenterController ?? AppCenterWindowController(
+            model: AppModel.shared,
+            appearance: AppModel.shared.appearance
+        )
+        appCenterController = controller
+        controller.showAppCenter()
+    }
+
+    private func ensureCloseWindowShortcut() {
+        guard let mainMenu = NSApp.mainMenu else { return }
+        let hasCloseShortcut = mainMenu.items.contains { topItem in
+            topItem.submenu?.items.contains {
+                $0.keyEquivalent.lowercased() == "w" && $0.action == #selector(NSWindow.performClose(_:))
+            } ?? false
+        }
+        guard !hasCloseShortcut else { return }
+
+        let fileMenuItem = NSMenuItem(title: "File", action: nil, keyEquivalent: "")
+        let fileMenu = NSMenu(title: "File")
+        let closeItem = NSMenuItem(
+            title: "Close Window",
+            action: #selector(NSWindow.performClose(_:)),
+            keyEquivalent: "w"
+        )
+        fileMenu.addItem(closeItem)
+        fileMenuItem.submenu = fileMenu
+
+        let insertIndex = min(1, mainMenu.items.count)
+        mainMenu.insertItem(fileMenuItem, at: insertIndex)
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
+        Self.shared = self
         smokeTrace("application did finish launching")
         AppIconCatalog.applyDockIcon()
+        ensureCloseWindowShortcut()
         if CommandLine.arguments.contains("--smoke-test") {
-            DispatchQueue.main.async {
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
                 NSApp.setActivationPolicy(.accessory)
-                let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 240, height: 120),
-                                      styleMask: [.titled, .closable], backing: .buffered, defer: false)
-                window.isReleasedWhenClosed = false
-                window.contentView = AppCenterPresenceView()
-                window.makeKeyAndOrderFront(nil)
+                self.showAppCenter()
                 if NSApp.activationPolicy() == .regular { smokeTrace("window entered app switcher") }
-                window.close()
+                self.appCenterController?.window?.close()
                 if NSApp.activationPolicy() == .accessory { smokeTrace("closed window returned to menu bar") }
             }
             DispatchQueue.main.asyncAfter(deadline: .now() + 2) { NSApp.terminate(nil) }
         } else {
-            DispatchQueue.main.async {
-                NSApp.activate(ignoringOtherApps: true)
+            DispatchQueue.main.async { [weak self] in
+                self?.showAppCenter()
             }
         }
     }
@@ -159,13 +194,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         guard !CommandLine.arguments.contains("--smoke-test") else { return false }
-        if let window = AppCenterPresenceView.appCenterWindow {
-            NSApp.setActivationPolicy(.regular)
-            window.makeKeyAndOrderFront(nil)
-            NSApp.activate(ignoringOtherApps: true)
-            return false
-        }
-        return true
+        showAppCenter()
+        return false
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
@@ -194,11 +224,6 @@ struct NotifdexApp: App {
     }
 
     var body: some Scene {
-        Window("Notifdex · App Center", id: "app-center") {
-            AppCenter(model: model, appearance: appearance)
-        }
-        .windowToolbarStyle(.unifiedCompact)
-        .defaultSize(width: 780, height: 620)
         MenuBarExtra {
             MenuContent(model: model)
         } label: {
@@ -335,16 +360,13 @@ struct NotifdexLauncher {
 @MainActor
 struct MenuContent: View {
     @ObservedObject var model: AppModel
-    @Environment(\.openWindow) private var openWindow
 
     var body: some View {
         Text(model.state.status)
         Text("\(model.state.total) saved observations")
         Divider()
         Button("App Center…") {
-            NSApp.setActivationPolicy(.regular)
-            openWindow(id: "app-center")
-            NSApp.activate(ignoringOtherApps: true)
+            AppDelegate.shared?.showAppCenter()
         }
         Toggle("Pause collection", isOn: model.pauseBinding)
             .disabled(!model.state.ready || model.saving)
@@ -363,15 +385,8 @@ struct AppCenter: View {
     @ObservedObject var model: AppModel
     @ObservedObject var appearance: AppearanceSettings
 
-    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
-    @Environment(\.colorSchemeContrast) private var contrast
-
     private var config: AppearanceConfiguration {
         appearance.activeConfiguration
-    }
-
-    private var wantsTransparentWindow: Bool {
-        config.requestsTransparentWindow && !reduceTransparency && contrast != .increased
     }
 
     var body: some View {
@@ -385,14 +400,7 @@ struct AppCenter: View {
             appsView: { appsView },
             recoveryView: { recoveryView }
         )
-        .frame(minWidth: 660, minHeight: 520)
-        .notifdexSurface(.window)
-        .background {
-            if !CommandLine.arguments.contains("--smoke-test") {
-                AppCenterPresence(transparentWindow: wantsTransparentWindow)
-                    .allowsHitTesting(false)
-            }
-        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .environment(\.notifdexAppearanceConfig, config)
         .fileImporter(isPresented: $appearance.showingBackdropImporter, allowedContentTypes: [.image]) { result in
             appearance.importBackdrop(result)

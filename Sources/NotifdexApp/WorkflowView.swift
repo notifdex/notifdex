@@ -575,44 +575,6 @@ struct WorkflowView<AppsContent: View, RecoveryContent: View>: View {
         self.recoveryView = recoveryView
     }
 
-    @ToolbarContentBuilder
-    private var brandToolbarItem: some ToolbarContent {
-        #if compiler(>=6.2)
-        if #available(macOS 26.0, *) {
-            ToolbarItem(placement: .navigation) {
-                brandToolbarContent
-            }
-            .sharedBackgroundVisibility(.hidden)
-        } else {
-            ToolbarItem(placement: .navigation) {
-                brandToolbarContent
-            }
-        }
-        #else
-        ToolbarItem(placement: .navigation) {
-            brandToolbarContent
-        }
-        #endif
-    }
-
-    private var brandToolbarContent: some View {
-        HStack(spacing: 8) {
-            if let icon = AppIconCatalog.appIconImage {
-                Image(nsImage: icon)
-                    .resizable()
-                    .interpolation(.high)
-                    .scaledToFit()
-                    .frame(width: 20, height: 20)
-                    .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
-            }
-            Text("Notifdex")
-                .font(.system(size: 15, weight: .regular, design: .serif))
-                .tracking(-0.2)
-                .foregroundStyle(.primary)
-        }
-        .padding(.leading, 4)
-    }
-
     private var themeTokens: ThemeTokens {
         ThemeTokens(theme: appearanceConfig.colorTheme, dark: colorScheme == .dark)
     }
@@ -661,9 +623,6 @@ struct WorkflowView<AppsContent: View, RecoveryContent: View>: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 }
             }
-        }
-        .toolbar {
-            brandToolbarItem
         }
         .sheet(item: $model.matchPreview) { preview in
             matchReview(preview)
@@ -1949,7 +1908,6 @@ private struct ResizeCursorArea: NSViewRepresentable {
 
     func updateNSView(_ view: ResizeCursorNSView, context: Context) {
         view.onHoverChange = onHoverChange
-        view.window?.invalidateCursorRects(for: view)
     }
 }
 
@@ -1957,6 +1915,19 @@ private struct ResizeCursorArea: NSViewRepresentable {
 private final class ResizeCursorNSView: NSView {
     var onHoverChange: ((Bool) -> Void)?
     private var trackingAreaRef: NSTrackingArea?
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        window?.invalidateCursorRects(for: self)
+    }
+
+    override func setFrameSize(_ newSize: NSSize) {
+        let changed = newSize != frame.size
+        super.setFrameSize(newSize)
+        if changed {
+            window?.invalidateCursorRects(for: self)
+        }
+    }
 
     override func hitTest(_ point: NSPoint) -> NSView? {
         // Keep SwiftUI's high-priority DragGesture as the sole mouse-down receiver

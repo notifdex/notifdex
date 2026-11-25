@@ -32,11 +32,19 @@ class AppCenterLayoutContractTests(unittest.TestCase):
 
     def test_app_center_uses_native_window_sizing(self):
         source = (APP_DIR / "NotifdexApp.swift").read_text()
-        presence = (APP_DIR / "AppCenterPresence.swift").read_text()
+        controller_path = APP_DIR / "AppCenterWindowController.swift"
+        self.assertTrue(controller_path.is_file(), "Expected dedicated native AppKit AppCenterWindowController.swift")
+        controller = controller_path.read_text()
         self.assertNotIn('Menu("Window Size")', source)
         self.assertNotIn(".windowStyle(.hiddenTitleBar)", source)
-        self.assertIn(".defaultSize(width: 780, height: 620)", source)
-        self.assertIn("window.titlebarAppearsTransparent = true", presence)
+        # Native AppKit window controller owns App Center (Safari/Mail architecture), never SwiftUI Window scene.
+        self.assertNotIn('Window("Notifdex · App Center"', source)
+        self.assertIn("AppCenterWindowController", source)
+        self.assertIn("class AppCenterWindowController: NSWindowController", controller)
+        self.assertIn("window.titlebarAppearsTransparent = true", controller)
+        self.assertIn("sizingOptions = []", controller)
+        self.assertIn("contentLayoutGuide", controller)
+        self.assertIn("WindowPlacementGeometry", controller)
 
     def test_inbox_detail_defaults_to_the_available_maximum_and_can_resize(self):
         workflow = (APP_DIR / "WorkflowView.swift").read_text()
@@ -92,30 +100,32 @@ class AppCenterLayoutContractTests(unittest.TestCase):
         self.assertTrue((icons_dir / "AppIcon.png").is_file(), "Missing bundled AppIcon.png")
         studio = (APP_DIR / "AppearanceStudioView.swift").read_text()
         workflow = (APP_DIR / "WorkflowView.swift").read_text()
-        presence = (APP_DIR / "AppCenterPresence.swift").read_text()
+        controller_path = APP_DIR / "AppCenterWindowController.swift"
+        self.assertTrue(controller_path.is_file(), "Expected dedicated native AppKit AppCenterWindowController.swift")
+        controller = controller_path.read_text()
         chrome_core = Path(__file__).resolve().parents[1] / "Sources" / "NotifdexCore" / "WindowChromeLayout.swift"
         self.assertTrue(chrome_core.is_file(), "Expected platform-independent WindowChromeLayout specification in NotifdexCore")
         self.assertIn("ForEach(MenuBarIconStyle.allCases)", studio)
-        self.assertIn("AppIconCatalog.appIconImage", workflow)
-        # Single titlebar owner: native SwiftUI .toolbar + .unifiedCompact (~38pt), NEVER manual empty NSToolbar + .ignoresSafeArea.
-        self.assertIn(".toolbar {", workflow)
-        self.assertIn("ToolbarItem(placement: .navigation)", workflow)
-        self.assertIn(".sharedBackgroundVisibility(.hidden)", workflow)
-        self.assertIn("window.toolbarStyle = .unifiedCompact", presence)
-        self.assertNotIn("window.toolbar = toolbar", presence)
+        self.assertIn("AppIconCatalog.appIconImage", controller)
+        # Single titlebar owner: native AppKit NSToolbar + .unifiedCompact (~38-40pt), NEVER SwiftUI .toolbar fighting NSWindow.
+        self.assertNotIn(".toolbar {", workflow)
+        self.assertIn("window.toolbarStyle = .unifiedCompact", controller)
+        self.assertIn("item.isBordered = false", controller)
+        self.assertIn("item.isNavigational = true", controller)
         self.assertNotIn(".ignoresSafeArea(.container, edges: .top)", workflow)
-        # Cross-monitor drag stability: AppCenterPresence must use WindowChromeSyncState so SwiftUI updates never mutate NSWindow chrome mid-drag.
-        self.assertIn("WindowChromeSyncState", presence)
-        self.assertIn("NSWindow.willMoveNotification", presence)
-        self.assertIn("didDrag:", presence)
+        # Cross-monitor drag stability: native AppKit titlebar pass-through + WindowChromeSyncState + offscreen recovery.
+        self.assertIn("WindowChromeSyncState", controller)
+        self.assertIn("WindowPlacementGeometry", controller)
+        self.assertIn("didChangeScreenParametersNotification", controller)
+        self.assertIn("point.y >= window.contentLayoutRect.maxY", controller)
+        self.assertIn("NSApp.setActivationPolicy(.regular)", controller)
         # Status & Appearance controls stay anchored in the LHS sidebar footer (with compact-header fallback).
         self.assertIn("sidebarFooter", workflow)
         self.assertNotIn("ToolbarItemGroup(placement: .primaryAction)", workflow)
-        # Native macOS titlebar double-click (Zoom / Minimize per AppleActionOnDoubleClick) must remain active.
-        self.assertIn("addLocalMonitorForEvents(matching: .leftMouseUp)", presence)
-        self.assertIn("TitlebarDoubleClickAction", presence)
-        self.assertIn("performZoom", presence)
-        self.assertIn("miniaturize", presence)
+        # Native macOS titlebar double-click (Zoom / Minimize per AppleActionOnDoubleClick) remains supported.
+        self.assertIn("TitlebarDoubleClickAction", controller)
+        self.assertIn("performZoom", controller)
+        self.assertIn("miniaturize", controller)
         # LHS sidebar uses legible >=14pt typography and main panel does not repeat the active mode title.
         self.assertIn("WindowChromeState.sidebarLabelFontSize", workflow)
         self.assertNotIn("Text(model.mode.rawValue)", workflow)

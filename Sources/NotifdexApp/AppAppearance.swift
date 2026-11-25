@@ -565,6 +565,35 @@ private struct AppWindowBackdrop: View {
     }
 }
 
+/// Full-bleed edge-to-edge window backdrop hosted beneath the native AppKit titlebar
+/// inside a non-interactive container so titlebar mouse events hit `NSThemeFrame` directly.
+@MainActor
+struct AppCenterWindowBackdropView: View {
+    @ObservedObject var appearance: AppearanceSettings
+    let onTransparencyChange: (Bool) -> Void
+
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    @Environment(\.colorSchemeContrast) private var contrast
+
+    private var config: AppearanceConfiguration {
+        appearance.activeConfiguration
+    }
+
+    private var wantsTransparentWindow: Bool {
+        config.requestsTransparentWindow && !reduceTransparency && contrast != .increased
+    }
+
+    var body: some View {
+        Color.clear
+            .notifdexSurface(.window)
+            .environment(\.notifdexAppearanceConfig, config)
+            .onAppear { onTransparencyChange(wantsTransparentWindow) }
+            .onChange(of: wantsTransparentWindow) { _, transparent in
+                onTransparencyChange(transparent)
+            }
+    }
+}
+
 private struct AppSurfaceModifier: ViewModifier {
     let surface: AppearanceSurface
 

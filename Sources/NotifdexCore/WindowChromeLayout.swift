@@ -11,10 +11,21 @@ public enum AppWindowWidthClass: String, Equatable, Sendable {
     }
 }
 
+public enum AppWindowOwner: String, Equatable, Sendable {
+    case appKitWindowController
+    case swiftUIWindowScene
+}
+
 public enum AppTitlebarOwner: String, Equatable, Sendable {
+    case appKitToolbar
     case swiftUIToolbar
     case manualView
     case both
+}
+
+public enum AppTitlebarHitTarget: String, Equatable, Sendable {
+    case nativeThemeFrame
+    case swiftUIHostingView
 }
 
 public enum AppTitlebarStyle: String, Equatable, Sendable {
@@ -96,17 +107,25 @@ public struct WindowChromeMutationPlan: Equatable, Sendable {
     public var applyStructuralChrome: Bool
     public var applyTransparency: Bool
     public var transparentWindow: Bool
+    public var shouldCheckBoundsRecovery: Bool
 
     public static let noOp = WindowChromeMutationPlan(
         applyStructuralChrome: false,
         applyTransparency: false,
-        transparentWindow: true
+        transparentWindow: true,
+        shouldCheckBoundsRecovery: false
     )
 
-    public init(applyStructuralChrome: Bool, applyTransparency: Bool, transparentWindow: Bool) {
+    public init(
+        applyStructuralChrome: Bool,
+        applyTransparency: Bool,
+        transparentWindow: Bool,
+        shouldCheckBoundsRecovery: Bool = false
+    ) {
         self.applyStructuralChrome = applyStructuralChrome
         self.applyTransparency = applyTransparency
         self.transparentWindow = transparentWindow
+        self.shouldCheckBoundsRecovery = shouldCheckBoundsRecovery
     }
 
     public var mutatesWindow: Bool {
@@ -114,8 +133,248 @@ public struct WindowChromeMutationPlan: Equatable, Sendable {
     }
 }
 
+/// Platform-independent 2D point or size in global AppKit screen coordinates (bottom-left origin).
+public struct WindowPoint: Equatable, Sendable {
+    public var x: Double
+    public var y: Double
+
+    public init(x: Double, y: Double) {
+        self.x = x
+        self.y = y
+    }
+}
+
+/// Pure hit-testing policy deciding whether a window-local mouse-down belongs to the
+/// draggable titlebar strip (excluding window content, traffic lights/controls, resize
+/// borders, and native full-screen mode).
+public enum TitlebarDragZone {
+    public static func isInDraggableTitlebar(
+        point: WindowPoint,
+        windowSize: WindowPoint,
+        contentMaxY: Double,
+        hitInteractiveControl: Bool,
+        isFullScreen: Bool,
+        topResizeInset: Double = 5,
+        horizontalEdgeInset: Double = 8,
+        fallbackTitlebarHeight: Double = AppTitlebarStyle.unifiedCompact.nominalHeight
+    ) -> Bool {
+        guard !isFullScreen,
+              !hitInteractiveControl,
+              windowSize.x > horizontalEdgeInset * 2,
+              windowSize.y > topResizeInset else {
+            return false
+        }
+        guard point.x >= horizontalEdgeInset,
+              point.x <= windowSize.x - horizontalEdgeInset,
+              point.y <= windowSize.y - topResizeInset else {
+            return false
+        }
+        return TitlebarDoubleClickAction.isPointInTitlebar(
+            locationY: point.y,
+            windowHeight: windowSize.y,
+            contentMaxY: contentMaxY,
+            fallbackTitlebarHeight: fallbackTitlebarHeight
+        )
+    }
+}
+
+/// Deterministic anchor-based titlebar drag session matching `spec/WindowDrag.tla`.
+///
+/// Computes every dragged origin directly from `(startOrigin, startMouse)` so horizontal
+/// motion across any number of monitors has zero snapping and zero cumulative drift
+/// (`origin.x == startOrigin.x + (mouse.x - startMouse.x)`), while clamping only Y
+/// against the active display's menu-bar ceiling (`visibleFrame.maxY`) and keeping the
+/// titlebar above the lowest connected display floor.
+public struct TitlebarDragSession: Equatable, Sendable {
+    public let startMouse: WindowPoint
+    public let startOrigin: WindowPoint
+    public let windowSize: WindowPoint
+    public let titlebarHeight: Double
+    public let dragActivationDistance: Double
+    public private(set) var didMove: Bool = false
+
+    public init(
+        startMouse: WindowPoint,
+        startOrigin: WindowPoint,
+        windowSize: WindowPoint,
+        titlebarHeight: Double = AppTitlebarStyle.unifiedCompact.nominalHeight,
+        dragActivationDistance: Double = 2.0
+    ) {
+        self.startMouse = startMouse
+        self.startOrigin = startOrigin
+        self.windowSize = windowSize
+        self.titlebarHeight = titlebarHeight
+        self.dragActivationDistance = dragActivationDistance
+    }
+
+    public mutating func updatedOrigin(
+        for currentMouse: WindowPoint,
+        visibleScreens: [WindowRect]
+    ) -> WindowPoint? {
+        let dx = currentMouse.x - startMouse.x
+        let dy = currentMouse.y - startMouse.y
+
+        if !didMove {
+            if hypot(dx, dy) < dragActivationDistance {
+                return nil
+            }
+            didMove = true
+        }
+
+        let nextX = startOrigin.x + dx
+        var nextY = startOrigin.y + dy
+
+        if !visibleScreens.isEmpty {
+            let activeScreen = screen(for: currentMouse, in: visibleScreens)
+            let maxOriginY = activeScreen.maxY - windowSize.y
+            if nextY > maxOriginY {
+                nextY = maxOriginY
+            }
+            if let lowestMinY = visibleScreens.map(\.minY).min() {
+                let minOriginY = lowestMinY + titlebarHeight - windowSize.y
+                if nextY < minOriginY {
+                    nextY = minOriginY
+                }
+            }
+        }
+
+        return WindowPoint(x: nextX, y: nextY)
+    }
+
+    private func screen(for point: WindowPoint, in screens: [WindowRect]) -> WindowRect {
+        if let containing = screens.first(where: {
+            point.x >= $0.minX && point.x <= $0.maxX && point.y >= $0.minY && point.y <= $0.maxY
+        }) {
+            return containing
+        }
+        return screens.min { lhs, rhs in
+            squaredDistance(from: point, to: lhs) < squaredDistance(from: point, to: rhs)
+        } ?? screens[0]
+    }
+
+    private func squaredDistance(from point: WindowPoint, to rect: WindowRect) -> Double {
+        let clampedX = min(max(point.x, rect.minX), rect.maxX)
+        let clampedY = min(max(point.y, rect.minY), rect.maxY)
+        let dx = point.x - clampedX
+        let dy = point.y - clampedY
+        return dx * dx + dy * dy
+    }
+}
+
+/// Platform-independent rectangle in global AppKit screen coordinates (bottom-left origin).
+public struct WindowRect: Equatable, Sendable {
+    public var x: Double
+    public var y: Double
+    public var width: Double
+    public var height: Double
+
+    public init(x: Double, y: Double, width: Double, height: Double) {
+        self.x = x
+        self.y = y
+        self.width = width
+        self.height = height
+    }
+
+    public var minX: Double { x }
+    public var maxX: Double { x + width }
+    public var minY: Double { y }
+    public var maxY: Double { y + height }
+    public var midX: Double { x + width / 2 }
+    public var midY: Double { y + height / 2 }
+
+    public func intersection(_ other: WindowRect) -> WindowRect? {
+        let left = max(minX, other.minX)
+        let right = min(maxX, other.maxX)
+        let bottom = max(minY, other.minY)
+        let top = min(maxY, other.maxY)
+        guard right > left, top > bottom else { return nil }
+        return WindowRect(x: left, y: bottom, width: right - left, height: top - bottom)
+    }
+}
+
+/// Pure multi-monitor placement and offscreen-titlebar recovery policy matching `spec/WindowDrag.tla`.
+///
+/// Key invariants:
+/// - Never mutates window frames while `isDragging == true`.
+/// - Never snaps a window horizontally when straddling two connected displays with a reachable titlebar.
+/// - Recovers an unreachable/offscreen titlebar onto the nearest connected display's visible frame.
+public enum WindowPlacementGeometry {
+    public static func titlebarBand(
+        for frame: WindowRect,
+        titlebarHeight: Double = AppTitlebarStyle.unifiedCompact.nominalHeight
+    ) -> WindowRect {
+        let height = min(max(0, titlebarHeight), max(0, frame.height))
+        return WindowRect(
+            x: frame.minX,
+            y: frame.maxY - height,
+            width: max(0, frame.width),
+            height: height
+        )
+    }
+
+    public static func hasReachableTitlebar(
+        frame: WindowRect,
+        visibleScreens: [WindowRect],
+        titlebarHeight: Double = AppTitlebarStyle.unifiedCompact.nominalHeight,
+        minimumVisibleWidth: Double = 120,
+        minimumVisibleHeight: Double = 20
+    ) -> Bool {
+        guard frame.width > 0, frame.height > 0, !visibleScreens.isEmpty else { return false }
+        let band = titlebarBand(for: frame, titlebarHeight: titlebarHeight)
+        let requiredWidth = min(minimumVisibleWidth, band.width)
+        let requiredHeight = min(minimumVisibleHeight, band.height)
+        return visibleScreens.contains { screen in
+            guard let overlap = band.intersection(screen) else { return false }
+            return overlap.width >= requiredWidth && overlap.height >= requiredHeight
+        }
+    }
+
+    public static func recoveredFrame(
+        for frame: WindowRect,
+        visibleScreens: [WindowRect],
+        isDragging: Bool,
+        titlebarHeight: Double = AppTitlebarStyle.unifiedCompact.nominalHeight,
+        minimumVisibleWidth: Double = 120,
+        minimumVisibleHeight: Double = 20
+    ) -> WindowRect? {
+        guard !isDragging, !visibleScreens.isEmpty else { return nil }
+        if hasReachableTitlebar(
+            frame: frame,
+            visibleScreens: visibleScreens,
+            titlebarHeight: titlebarHeight,
+            minimumVisibleWidth: minimumVisibleWidth,
+            minimumVisibleHeight: minimumVisibleHeight
+        ) {
+            return nil
+        }
+
+        let target = nearestScreen(to: frame, in: visibleScreens)
+        let clampedWidth = min(max(1, frame.width), target.width)
+        let clampedHeight = min(max(1, frame.height), target.height)
+        let clampedX = min(max(frame.minX, target.minX), target.maxX - clampedWidth)
+        let clampedY = min(max(frame.minY, target.minY), target.maxY - clampedHeight)
+        return WindowRect(x: clampedX, y: clampedY, width: clampedWidth, height: clampedHeight)
+    }
+
+    private static func nearestScreen(to frame: WindowRect, in screens: [WindowRect]) -> WindowRect {
+        let centerX = frame.midX
+        let centerY = frame.midY
+        return screens.min { lhs, rhs in
+            squaredDistance(fromX: centerX, y: centerY, to: lhs) < squaredDistance(fromX: centerX, y: centerY, to: rhs)
+        } ?? screens[0]
+    }
+
+    private static func squaredDistance(fromX x: Double, y: Double, to rect: WindowRect) -> Double {
+        let clampedX = min(max(x, rect.minX), rect.maxX)
+        let clampedY = min(max(y, rect.minY), rect.maxY)
+        let dx = x - clampedX
+        let dy = y - clampedY
+        return dx * dx + dy * dy
+    }
+}
+
 /// Deterministic state machine guarding `NSWindow` chrome mutations across SwiftUI
-/// updates and cross-monitor drags (mirrors `spec/WindowChrome.tla`).
+/// updates and cross-monitor drags (mirrors `spec/WindowChrome.tla` and `spec/WindowDrag.tla`).
 public struct WindowChromeSyncState: Equatable, Sendable {
     public private(set) var attachedWindowID: ObjectIdentifier?
     public private(set) var chromeApplied: Bool = false
@@ -124,6 +383,7 @@ public struct WindowChromeSyncState: Equatable, Sendable {
     public private(set) var isDragging: Bool = false
     public private(set) var draggedSinceMouseDown: Bool = false
     public private(set) var pendingChromeSync: Bool = false
+    public private(set) var pendingBoundsRecovery: Bool = false
 
     public init() {}
 
@@ -138,6 +398,7 @@ public struct WindowChromeSyncState: Equatable, Sendable {
         chromeApplied = true
         appliedTransparentWindow = transparentWindow
         pendingChromeSync = false
+        pendingBoundsRecovery = false
         return WindowChromeMutationPlan(
             applyStructuralChrome: true,
             applyTransparency: true,
@@ -152,6 +413,7 @@ public struct WindowChromeSyncState: Equatable, Sendable {
         isDragging = false
         draggedSinceMouseDown = false
         pendingChromeSync = false
+        pendingBoundsRecovery = false
     }
 
     public mutating func mouseDown() {
@@ -161,6 +423,17 @@ public struct WindowChromeSyncState: Equatable, Sendable {
     public mutating func beginDrag() {
         isDragging = true
         draggedSinceMouseDown = true
+    }
+
+    /// Returns `true` when it is safe to check/recover offscreen window bounds immediately,
+    /// or `false` when a drag is active (deferring recovery until `endDrag()`).
+    public mutating func noteDisplayReconfiguration() -> Bool {
+        if isDragging {
+            pendingBoundsRecovery = true
+            return false
+        }
+        pendingBoundsRecovery = false
+        return true
     }
 
     public mutating func requestSync(transparentWindow: Bool) -> WindowChromeMutationPlan {
@@ -191,14 +464,21 @@ public struct WindowChromeSyncState: Equatable, Sendable {
 
     public mutating func endDrag() -> WindowChromeMutationPlan {
         let wasDragging = isDragging
+        let shouldRecoverBounds = pendingBoundsRecovery || wasDragging
         isDragging = false
+        pendingBoundsRecovery = false
         guard wasDragging, attachedWindowID != nil else { return .noOp }
 
         let needsStructural = !chromeApplied
         let needsTransparency = appliedTransparentWindow != desiredTransparentWindow
         pendingChromeSync = false
         guard needsStructural || needsTransparency else {
-            return .noOp
+            return WindowChromeMutationPlan(
+                applyStructuralChrome: false,
+                applyTransparency: false,
+                transparentWindow: desiredTransparentWindow,
+                shouldCheckBoundsRecovery: shouldRecoverBounds
+            )
         }
 
         chromeApplied = true
@@ -206,7 +486,8 @@ public struct WindowChromeSyncState: Equatable, Sendable {
         return WindowChromeMutationPlan(
             applyStructuralChrome: needsStructural,
             applyTransparency: needsTransparency,
-            transparentWindow: desiredTransparentWindow
+            transparentWindow: desiredTransparentWindow,
+            shouldCheckBoundsRecovery: shouldRecoverBounds
         )
     }
 }
@@ -259,7 +540,10 @@ public struct WindowChromeState: Equatable, Sendable {
 
     public var widthClass: AppWindowWidthClass
     public var activeDestination: AppNavigationDestination
+    public var windowOwner: AppWindowOwner
     public var toolbarOwner: AppTitlebarOwner
+    public var titlebarHitTarget: AppTitlebarHitTarget
+    public var hostingSizingIsolated: Bool
     public var toolbarStyle: AppTitlebarStyle
     public var brandInToolbar: Bool
     public var brandToolbarPillHidden: Bool
@@ -278,7 +562,10 @@ public struct WindowChromeState: Equatable, Sendable {
     public init(
         widthClass: AppWindowWidthClass = .wide,
         activeDestination: AppNavigationDestination = .inbox,
-        toolbarOwner: AppTitlebarOwner = .swiftUIToolbar,
+        windowOwner: AppWindowOwner = .appKitWindowController,
+        toolbarOwner: AppTitlebarOwner = .appKitToolbar,
+        titlebarHitTarget: AppTitlebarHitTarget = .nativeThemeFrame,
+        hostingSizingIsolated: Bool = true,
         toolbarStyle: AppTitlebarStyle = .unifiedCompact,
         brandInToolbar: Bool = true,
         brandToolbarPillHidden: Bool = true,
@@ -294,7 +581,10 @@ public struct WindowChromeState: Equatable, Sendable {
     ) {
         self.widthClass = widthClass
         self.activeDestination = activeDestination
+        self.windowOwner = windowOwner
         self.toolbarOwner = toolbarOwner
+        self.titlebarHitTarget = titlebarHitTarget
+        self.hostingSizingIsolated = hostingSizingIsolated
         self.toolbarStyle = toolbarStyle
         self.brandInToolbar = brandInToolbar
         self.brandToolbarPillHidden = brandToolbarPillHidden
@@ -307,6 +597,13 @@ public struct WindowChromeState: Equatable, Sendable {
         self.doubleClickAction = doubleClickAction
         self.zoomed = zoomed
         self.minimized = minimized
+    }
+
+    public var usesNativeAppKitWindowDrag: Bool {
+        windowOwner == .appKitWindowController
+            && toolbarOwner == .appKitToolbar
+            && titlebarHitTarget == .nativeThemeFrame
+            && hostingSizingIsolated
     }
 
     public var titlebarHeight: Double {

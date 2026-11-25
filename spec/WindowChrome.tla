@@ -4,11 +4,13 @@ EXTENDS Naturals
 CONSTANTS Modes, PrimaryModes, LibraryModes, SystemModes, Screens, MaxTitlebarHeight
 
 WidthClasses == {"wide", "compact"}
-ToolbarOwners == {"swiftui_toolbar", "manual_view", "both"}
+WindowOwners == {"appkit_window_controller", "swiftui_window_scene"}
+ToolbarOwners == {"appkit_toolbar", "swiftui_toolbar", "manual_view", "both"}
+TitlebarHitTargets == {"native_theme_frame", "swiftui_hosting_view"}
 ToolbarStyles == {"unifiedCompact", "unified"}
 DoubleClickPrefs == {"maximize", "minimize", "none"}
 
-VARIABLES widthClass, activeMode, toolbarOwner, toolbarStyle,
+VARIABLES widthClass, activeMode, windowOwner, toolbarOwner, titlebarHitTarget, toolbarStyle,
           brandInToolbar, brandPillHidden,
           statusInSidebarFooter, appearanceInSidebarFooter,
           statusInCompactHeader, appearanceInCompactHeader,
@@ -19,7 +21,7 @@ VARIABLES widthClass, activeMode, toolbarOwner, toolbarStyle,
           pendingChromeSync, chromeMutatedDuringDrag,
           action
 
-vars == <<widthClass, activeMode, toolbarOwner, toolbarStyle,
+vars == <<widthClass, activeMode, windowOwner, toolbarOwner, titlebarHitTarget, toolbarStyle,
           brandInToolbar, brandPillHidden,
           statusInSidebarFooter, appearanceInSidebarFooter,
           statusInCompactHeader, appearanceInCompactHeader,
@@ -65,7 +67,9 @@ SidebarSectionsPartitionModes ==
 Init ==
     /\ widthClass = "wide"
     /\ activeMode \in PrimaryModes
-    /\ toolbarOwner = "swiftui_toolbar"
+    /\ windowOwner = "appkit_window_controller"
+    /\ toolbarOwner = "appkit_toolbar"
+    /\ titlebarHitTarget = "native_theme_frame"
     /\ toolbarStyle = "unifiedCompact"
     /\ brandInToolbar = TRUE
     /\ brandPillHidden = TRUE
@@ -93,7 +97,7 @@ ResizeWindow(w) ==
     /\ w \in WidthClasses
     /\ widthClass' = w
     /\ action' = "resize"
-    /\ UNCHANGED <<activeMode, toolbarOwner, toolbarStyle, brandInToolbar, brandPillHidden,
+    /\ UNCHANGED <<activeMode, windowOwner, toolbarOwner, titlebarHitTarget, toolbarStyle, brandInToolbar, brandPillHidden,
                    statusInSidebarFooter, appearanceInSidebarFooter,
                    statusInCompactHeader, appearanceInCompactHeader,
                    statusPopoverOpen, appearancePopoverOpen,
@@ -106,7 +110,7 @@ SelectMode(m) ==
     /\ m \in Modes
     /\ activeMode' = m
     /\ action' = "select_mode"
-    /\ UNCHANGED <<widthClass, toolbarOwner, toolbarStyle, brandInToolbar, brandPillHidden,
+    /\ UNCHANGED <<widthClass, windowOwner, toolbarOwner, titlebarHitTarget, toolbarStyle, brandInToolbar, brandPillHidden,
                    statusInSidebarFooter, appearanceInSidebarFooter,
                    statusInCompactHeader, appearanceInCompactHeader,
                    statusPopoverOpen, appearancePopoverOpen,
@@ -120,7 +124,7 @@ ToggleStatusPopover ==
     /\ statusPopoverOpen' = ~statusPopoverOpen
     /\ appearancePopoverOpen' = IF statusPopoverOpen' THEN FALSE ELSE appearancePopoverOpen
     /\ action' = "toggle_status"
-    /\ UNCHANGED <<widthClass, activeMode, toolbarOwner, toolbarStyle, brandInToolbar, brandPillHidden,
+    /\ UNCHANGED <<widthClass, activeMode, windowOwner, toolbarOwner, titlebarHitTarget, toolbarStyle, brandInToolbar, brandPillHidden,
                    statusInSidebarFooter, appearanceInSidebarFooter,
                    statusInCompactHeader, appearanceInCompactHeader,
                    doubleClickPref, zoomed, minimized,
@@ -133,7 +137,7 @@ ToggleAppearancePopover ==
     /\ appearancePopoverOpen' = ~appearancePopoverOpen
     /\ statusPopoverOpen' = IF appearancePopoverOpen' THEN FALSE ELSE statusPopoverOpen
     /\ action' = "toggle_appearance"
-    /\ UNCHANGED <<widthClass, activeMode, toolbarOwner, toolbarStyle, brandInToolbar, brandPillHidden,
+    /\ UNCHANGED <<widthClass, activeMode, windowOwner, toolbarOwner, titlebarHitTarget, toolbarStyle, brandInToolbar, brandPillHidden,
                    statusInSidebarFooter, appearanceInSidebarFooter,
                    statusInCompactHeader, appearanceInCompactHeader,
                    doubleClickPref, zoomed, minimized,
@@ -147,7 +151,7 @@ BeginWindowDrag ==
     /\ dragging' = TRUE
     /\ draggedSinceMouseDown' = FALSE
     /\ action' = "begin_drag"
-    /\ UNCHANGED <<widthClass, activeMode, toolbarOwner, toolbarStyle, brandInToolbar, brandPillHidden,
+    /\ UNCHANGED <<widthClass, activeMode, windowOwner, toolbarOwner, titlebarHitTarget, toolbarStyle, brandInToolbar, brandPillHidden,
                    statusInSidebarFooter, appearanceInSidebarFooter,
                    statusInCompactHeader, appearanceInCompactHeader,
                    statusPopoverOpen, appearancePopoverOpen,
@@ -161,7 +165,7 @@ MoveAcrossMonitor(s) ==
     /\ screen' = s
     /\ draggedSinceMouseDown' = TRUE
     /\ action' = "move_across_monitor"
-    /\ UNCHANGED <<widthClass, activeMode, toolbarOwner, toolbarStyle, brandInToolbar, brandPillHidden,
+    /\ UNCHANGED <<widthClass, activeMode, windowOwner, toolbarOwner, titlebarHitTarget, toolbarStyle, brandInToolbar, brandPillHidden,
                    statusInSidebarFooter, appearanceInSidebarFooter,
                    statusInCompactHeader, appearanceInCompactHeader,
                    statusPopoverOpen, appearancePopoverOpen,
@@ -179,7 +183,7 @@ ChangeTransparency(t) ==
           ELSE /\ appliedTransparent' = t
                /\ pendingChromeSync' = FALSE
     /\ action' = "change_transparency"
-    /\ UNCHANGED <<widthClass, activeMode, toolbarOwner, toolbarStyle, brandInToolbar, brandPillHidden,
+    /\ UNCHANGED <<widthClass, activeMode, windowOwner, toolbarOwner, titlebarHitTarget, toolbarStyle, brandInToolbar, brandPillHidden,
                    statusInSidebarFooter, appearanceInSidebarFooter,
                    statusInCompactHeader, appearanceInCompactHeader,
                    statusPopoverOpen, appearancePopoverOpen,
@@ -196,7 +200,7 @@ SwiftUIUpdateTick ==
                /\ pendingChromeSync' = FALSE
                /\ chromeMutatedDuringDrag' = chromeMutatedDuringDrag
     /\ action' = "swiftui_update_tick"
-    /\ UNCHANGED <<widthClass, activeMode, toolbarOwner, toolbarStyle, brandInToolbar, brandPillHidden,
+    /\ UNCHANGED <<widthClass, activeMode, windowOwner, toolbarOwner, titlebarHitTarget, toolbarStyle, brandInToolbar, brandPillHidden,
                    statusInSidebarFooter, appearanceInSidebarFooter,
                    statusInCompactHeader, appearanceInCompactHeader,
                    statusPopoverOpen, appearancePopoverOpen,
@@ -211,7 +215,7 @@ EndWindowDrag ==
     /\ appliedTransparent' = desiredTransparent
     /\ pendingChromeSync' = FALSE
     /\ action' = "end_drag"
-    /\ UNCHANGED <<widthClass, activeMode, toolbarOwner, toolbarStyle, brandInToolbar, brandPillHidden,
+    /\ UNCHANGED <<widthClass, activeMode, windowOwner, toolbarOwner, titlebarHitTarget, toolbarStyle, brandInToolbar, brandPillHidden,
                    statusInSidebarFooter, appearanceInSidebarFooter,
                    statusInCompactHeader, appearanceInCompactHeader,
                    statusPopoverOpen, appearancePopoverOpen,
@@ -226,7 +230,7 @@ DoubleClickEmptyTitlebar ==
     /\ zoomed' = IF doubleClickPref = "maximize" THEN ~zoomed ELSE zoomed
     /\ minimized' = IF doubleClickPref = "minimize" THEN TRUE ELSE minimized
     /\ action' = "double_click_empty_titlebar"
-    /\ UNCHANGED <<widthClass, activeMode, toolbarOwner, toolbarStyle, brandInToolbar, brandPillHidden,
+    /\ UNCHANGED <<widthClass, activeMode, windowOwner, toolbarOwner, titlebarHitTarget, toolbarStyle, brandInToolbar, brandPillHidden,
                    statusInSidebarFooter, appearanceInSidebarFooter,
                    statusInCompactHeader, appearanceInCompactHeader,
                    statusPopoverOpen, appearancePopoverOpen, doubleClickPref,
@@ -237,7 +241,7 @@ DoubleClickEmptyTitlebar ==
 DoubleClickTitlebarControl ==
     /\ ~minimized
     /\ action' = "double_click_control"
-    /\ UNCHANGED <<widthClass, activeMode, toolbarOwner, toolbarStyle, brandInToolbar, brandPillHidden,
+    /\ UNCHANGED <<widthClass, activeMode, windowOwner, toolbarOwner, titlebarHitTarget, toolbarStyle, brandInToolbar, brandPillHidden,
                    statusInSidebarFooter, appearanceInSidebarFooter,
                    statusInCompactHeader, appearanceInCompactHeader,
                    statusPopoverOpen, appearancePopoverOpen,
@@ -250,7 +254,7 @@ Deminiaturize ==
     /\ minimized
     /\ minimized' = FALSE
     /\ action' = "deminiaturize"
-    /\ UNCHANGED <<widthClass, activeMode, toolbarOwner, toolbarStyle, brandInToolbar, brandPillHidden,
+    /\ UNCHANGED <<widthClass, activeMode, windowOwner, toolbarOwner, titlebarHitTarget, toolbarStyle, brandInToolbar, brandPillHidden,
                    statusInSidebarFooter, appearanceInSidebarFooter,
                    statusInCompactHeader, appearanceInCompactHeader,
                    statusPopoverOpen, appearancePopoverOpen,
@@ -278,7 +282,9 @@ Spec == Init /\ [][Next]_vars
 TypeOK ==
     /\ widthClass \in WidthClasses
     /\ activeMode \in Modes
+    /\ windowOwner \in WindowOwners
     /\ toolbarOwner \in ToolbarOwners
+    /\ titlebarHitTarget \in TitlebarHitTargets
     /\ toolbarStyle \in ToolbarStyles
     /\ brandInToolbar \in BOOLEAN
     /\ brandPillHidden \in BOOLEAN
@@ -300,8 +306,12 @@ TypeOK ==
     /\ pendingChromeSync \in BOOLEAN
     /\ chromeMutatedDuringDrag \in BOOLEAN
 
+NativeAppKitWindowOwnership ==
+    /\ windowOwner = "appkit_window_controller"
+    /\ titlebarHitTarget = "native_theme_frame"
+
 SingleTitlebarOwner ==
-    toolbarOwner = "swiftui_toolbar"
+    toolbarOwner = "appkit_toolbar"
 
 TitlebarHeightBounded ==
     TitlebarHeight <= MaxTitlebarHeight

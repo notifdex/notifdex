@@ -26,6 +26,7 @@ run_tlc PeopleWorkspaces.cfg PeopleWorkspaces.tla
 run_tlc Notebook.cfg Notebook.tla
 run_tlc Appearance.cfg Appearance.tla
 run_tlc WindowChrome.cfg WindowChrome.tla
+run_tlc WindowDrag.cfg WindowDrag.tla
 
 # Verify every .cfg file in spec/ was checked so new models can never silently skip CI.
 for cfg in *.cfg; do

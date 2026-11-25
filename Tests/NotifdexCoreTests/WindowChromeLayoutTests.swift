@@ -5,7 +5,11 @@ final class WindowChromeLayoutTests: XCTestCase {
     func testProductionTitlebarMatchesCompactHeightAndKeepsControlsReachable() {
         var chrome = WindowChromeState.production
 
-        XCTAssertEqual(chrome.toolbarOwner, .swiftUIToolbar)
+        XCTAssertEqual(chrome.windowOwner, .appKitWindowController)
+        XCTAssertEqual(chrome.toolbarOwner, .appKitToolbar)
+        XCTAssertEqual(chrome.titlebarHitTarget, .nativeThemeFrame)
+        XCTAssertTrue(chrome.hostingSizingIsolated)
+        XCTAssertTrue(chrome.usesNativeAppKitWindowDrag)
         XCTAssertEqual(chrome.toolbarStyle, .unifiedCompact)
         XCTAssertEqual(chrome.titlebarHeight, 38)
         XCTAssertTrue(chrome.isHeightBounded, "Titlebar must stay <= 44pt like Chrome/Antigravity")
@@ -220,6 +224,211 @@ final class WindowChromeLayoutTests: XCTestCase {
 
         chrome.toggleAppearancePopover()
         XCTAssertFalse(chrome.appearancePopoverOpen)
+    }
+
+    func testSwiftUIWindowSceneRegressionIsRejectedByNativeWindowDragPolicy() {
+        let brokenScene = WindowChromeState(
+            windowOwner: .swiftUIWindowScene,
+            toolbarOwner: .swiftUIToolbar,
+            titlebarHitTarget: .swiftUIHostingView,
+            hostingSizingIsolated: false
+        )
+        XCTAssertFalse(brokenScene.usesNativeAppKitWindowDrag)
+    }
+
+    func testMultiMonitorPlacementNeverSnapsDuringDragOrValidStraddleAndRecoversOffscreen() {
+        // Matches a 3x 1920x1080 side-by-side monitor setup where monitor 0 has a 30pt menu bar.
+        let screens = [
+            WindowRect(x: 0, y: 0, width: 1920, height: 1050),
+            WindowRect(x: 1920, y: 0, width: 1920, height: 1080),
+            WindowRect(x: 3840, y: 0, width: 1920, height: 1080),
+        ]
+
+        // 1. Straddling monitor 0 and monitor 1 is completely valid and must NEVER snap.
+        let straddling01 = WindowRect(x: 1500, y: 200, width: 780, height: 620)
+        XCTAssertTrue(WindowPlacementGeometry.hasReachableTitlebar(frame: straddling01, visibleScreens: screens))
+        XCTAssertNil(WindowPlacementGeometry.recoveredFrame(for: straddling01, visibleScreens: screens, isDragging: false))
+
+        // 2. Straddling monitor 1 and monitor 2 must NEVER snap.
+        let straddling12 = WindowRect(x: 3500, y: 200, width: 780, height: 620)
+        XCTAssertTrue(WindowPlacementGeometry.hasReachableTitlebar(frame: straddling12, visibleScreens: screens))
+        XCTAssertNil(WindowPlacementGeometry.recoveredFrame(for: straddling12, visibleScreens: screens, isDragging: false))
+
+        // 3. Even if completely offscreen, active drags must NEVER trigger programmatic setFrame.
+        let offscreenRight = WindowRect(x: 5900, y: 200, width: 780, height: 620)
+        XCTAssertFalse(WindowPlacementGeometry.hasReachableTitlebar(frame: offscreenRight, visibleScreens: screens))
+        XCTAssertNil(
+            WindowPlacementGeometry.recoveredFrame(for: offscreenRight, visibleScreens: screens, isDragging: true),
+            "Active drags must never be interrupted by programmatic frame recovery"
+        )
+
+        // 4. Once idle (or after a monitor disconnect), an offscreen window recovers onto the nearest display.
+        let recoveredRight = WindowPlacementGeometry.recoveredFrame(for: offscreenRight, visibleScreens: screens, isDragging: false)
+        XCTAssertEqual(recoveredRight, WindowRect(x: 4980, y: 200, width: 780, height: 620))
+        if let recoveredRight {
+            XCTAssertTrue(WindowPlacementGeometry.hasReachableTitlebar(frame: recoveredRight, visibleScreens: screens))
+        }
+
+        // 5. Window pushed above the menu bar so its titlebar is unreachable recovers beneath visible maxY.
+        let aboveMenuBar = WindowRect(x: 200, y: 500, width: 780, height: 620)
+        XCTAssertFalse(WindowPlacementGeometry.hasReachableTitlebar(frame: aboveMenuBar, visibleScreens: screens))
+        let recoveredTop = WindowPlacementGeometry.recoveredFrame(for: aboveMenuBar, visibleScreens: screens, isDragging: false)
+        XCTAssertEqual(recoveredTop, WindowRect(x: 200, y: 430, width: 780, height: 620))
+
+        // 6. Disconnecting external monitors strands a monitor-2 window offscreen; idle recovery brings it onto monitor 0.
+        let singleScreen = [WindowRect(x: 0, y: 0, width: 1920, height: 1050)]
+        let strandedOnDisconnected = WindowRect(x: 4100, y: 220, width: 780, height: 620)
+        let recoveredSingle = WindowPlacementGeometry.recoveredFrame(
+            for: strandedOnDisconnected,
+            visibleScreens: singleScreen,
+            isDragging: false
+        )
+        XCTAssertEqual(recoveredSingle, WindowRect(x: 1140, y: 220, width: 780, height: 620))
+    }
+
+    func testDisplayReconfigurationDuringDragDefersBoundsRecoveryUntilIdle() {
+        final class FakeWindowToken {}
+        let token = FakeWindowToken()
+        var sync = WindowChromeSyncState()
+        _ = sync.attach(windowID: ObjectIdentifier(token), transparentWindow: true)
+
+        sync.mouseDown()
+        sync.beginDrag()
+        XCTAssertFalse(
+            sync.noteDisplayReconfiguration(),
+            "Display reconfiguration mid-drag must defer bounds recovery until drag ends"
+        )
+        XCTAssertTrue(sync.pendingBoundsRecovery)
+
+        let endPlan = sync.endDrag()
+        XCTAssertFalse(sync.isDragging)
+        XCTAssertFalse(sync.pendingBoundsRecovery)
+        XCTAssertTrue(endPlan.shouldCheckBoundsRecovery)
+
+        // When idle, display reconfiguration checks bounds immediately.
+        XCTAssertTrue(sync.noteDisplayReconfiguration())
+        XCTAssertFalse(sync.pendingBoundsRecovery)
+        withExtendedLifetime(token) {}
+    }
+
+    func testTitlebarDragZoneExcludesBodyControlsResizeEdgesAndFullScreen() {
+        let size = WindowPoint(x: 780, y: 620)
+        let contentMaxY = 580.0
+
+        // Empty titlebar middle is draggable.
+        XCTAssertTrue(
+            TitlebarDragZone.isInDraggableTitlebar(
+                point: WindowPoint(x: 350, y: 600),
+                windowSize: size,
+                contentMaxY: contentMaxY,
+                hitInteractiveControl: false,
+                isFullScreen: false
+            )
+        )
+        // Below titlebar (main content body) is NOT draggable.
+        XCTAssertFalse(
+            TitlebarDragZone.isInDraggableTitlebar(
+                point: WindowPoint(x: 350, y: 579),
+                windowSize: size,
+                contentMaxY: contentMaxY,
+                hitInteractiveControl: false,
+                isFullScreen: false
+            )
+        )
+        // Traffic light or toolbar button (interactive control) is NOT draggable.
+        XCTAssertFalse(
+            TitlebarDragZone.isInDraggableTitlebar(
+                point: WindowPoint(x: 40, y: 600),
+                windowSize: size,
+                contentMaxY: contentMaxY,
+                hitInteractiveControl: true,
+                isFullScreen: false
+            )
+        )
+        // Top resize edge (top 5pt) and left/right resize edges (8pt) stay reserved for resizing.
+        XCTAssertFalse(
+            TitlebarDragZone.isInDraggableTitlebar(
+                point: WindowPoint(x: 350, y: 618),
+                windowSize: size,
+                contentMaxY: contentMaxY,
+                hitInteractiveControl: false,
+                isFullScreen: false
+            )
+        )
+        XCTAssertFalse(
+            TitlebarDragZone.isInDraggableTitlebar(
+                point: WindowPoint(x: 4, y: 600),
+                windowSize: size,
+                contentMaxY: contentMaxY,
+                hitInteractiveControl: false,
+                isFullScreen: false
+            )
+        )
+        XCTAssertFalse(
+            TitlebarDragZone.isInDraggableTitlebar(
+                point: WindowPoint(x: 776, y: 600),
+                windowSize: size,
+                contentMaxY: contentMaxY,
+                hitInteractiveControl: false,
+                isFullScreen: false
+            )
+        )
+        // Native macOS full-screen windows are never dragged.
+        XCTAssertFalse(
+            TitlebarDragZone.isInDraggableTitlebar(
+                point: WindowPoint(x: 350, y: 600),
+                windowSize: size,
+                contentMaxY: contentMaxY,
+                hitInteractiveControl: false,
+                isFullScreen: true
+            )
+        )
+    }
+
+    func testTitlebarDragSessionTracks1To1AcrossThreeMonitorsWithZeroCumulativeDrift() {
+        // Exact 3x 1920x1080 monitor layout: Monitor 0 has 30pt menu bar; Monitors 1 & 2 have full 1080 height.
+        let screens = [
+            WindowRect(x: 0, y: 0, width: 1920, height: 1050),
+            WindowRect(x: 1920, y: 0, width: 1920, height: 1080),
+            WindowRect(x: 3840, y: 0, width: 1920, height: 1080),
+        ]
+        let startOrigin = WindowPoint(x: 1920, y: 0)
+        let startMouse = WindowPoint(x: 2420, y: 1030)
+        var session = TitlebarDragSession(
+            startMouse: startMouse,
+            startOrigin: startOrigin,
+            windowSize: WindowPoint(x: 1920, y: 1050)
+        )
+
+        // Sub-threshold 1pt click jitter does not move the window.
+        XCTAssertNil(session.updatedOrigin(for: WindowPoint(x: 2421, y: 1030), visibleScreens: screens))
+        XCTAssertFalse(session.didMove)
+
+        // Repeated sweeping drags across Monitor 2 -> Monitor 0 -> Monitor 1 -> Monitor 2 must have 0.0 cumulative drift.
+        let horizontalOffsets: [Double] = [-100, -500, -1200, -1920, -900, 0, 800, 1600, 1920, 400, -1400, 0]
+        for dx in horizontalOffsets {
+            let mouse = WindowPoint(x: startMouse.x + dx, y: startMouse.y)
+            let updated = session.updatedOrigin(for: mouse, visibleScreens: screens)
+            XCTAssertEqual(updated, WindowPoint(x: startOrigin.x + dx, y: 0))
+            XCTAssertTrue(session.didMove)
+        }
+
+        // Dragging upward on Monitor 2 (visible maxY 1080) works up to 1080, then clamps beneath Monitor 0's 1050 menu bar.
+        let liftedOnMonitor2 = session.updatedOrigin(
+            for: WindowPoint(x: startMouse.x, y: startMouse.y + 25),
+            visibleScreens: screens
+        )
+        XCTAssertEqual(liftedOnMonitor2, WindowPoint(x: 1920, y: 25))
+
+        let slidOntoMonitor0MenuBar = session.updatedOrigin(
+            for: WindowPoint(x: 900, y: startMouse.y + 25),
+            visibleScreens: screens
+        )
+        XCTAssertEqual(
+            slidOntoMonitor0MenuBar,
+            WindowPoint(x: startOrigin.x + (900 - startMouse.x), y: 0),
+            "Crossing onto Monitor 0 must clamp Y beneath the 1050 menu bar without snapping X"
+        )
     }
 
     func testSidebarSectionsAccountForEveryDestinationWithoutDuplicates() {

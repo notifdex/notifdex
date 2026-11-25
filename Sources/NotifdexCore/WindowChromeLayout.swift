@@ -71,11 +71,13 @@ public enum TitlebarDoubleClickAction: String, Equatable, Sendable {
         windowHeight: Double,
         contentMaxY: Double,
         hitInteractiveControl: Bool,
+        didDrag: Bool = false,
         systemSetting: String?,
         fallbackTitlebarHeight: Double = AppTitlebarStyle.unifiedCompact.nominalHeight
     ) -> TitlebarDoubleClickAction {
         guard clickCount == 2,
               !hitInteractiveControl,
+              !didDrag,
               isPointInTitlebar(
                   locationY: locationY,
                   windowHeight: windowHeight,
@@ -85,6 +87,127 @@ public enum TitlebarDoubleClickAction: String, Equatable, Sendable {
             return .none
         }
         return resolved(systemSetting: systemSetting)
+    }
+}
+
+/// Minimal mutation plan returned by `WindowChromeSyncState` so AppKit never receives
+/// redundant structural chrome writes during idle updates or mid-drag monitor transitions.
+public struct WindowChromeMutationPlan: Equatable, Sendable {
+    public var applyStructuralChrome: Bool
+    public var applyTransparency: Bool
+    public var transparentWindow: Bool
+
+    public static let noOp = WindowChromeMutationPlan(
+        applyStructuralChrome: false,
+        applyTransparency: false,
+        transparentWindow: true
+    )
+
+    public init(applyStructuralChrome: Bool, applyTransparency: Bool, transparentWindow: Bool) {
+        self.applyStructuralChrome = applyStructuralChrome
+        self.applyTransparency = applyTransparency
+        self.transparentWindow = transparentWindow
+    }
+
+    public var mutatesWindow: Bool {
+        applyStructuralChrome || applyTransparency
+    }
+}
+
+/// Deterministic state machine guarding `NSWindow` chrome mutations across SwiftUI
+/// updates and cross-monitor drags (mirrors `spec/WindowChrome.tla`).
+public struct WindowChromeSyncState: Equatable, Sendable {
+    public private(set) var attachedWindowID: ObjectIdentifier?
+    public private(set) var chromeApplied: Bool = false
+    public private(set) var appliedTransparentWindow: Bool?
+    public private(set) var desiredTransparentWindow: Bool = true
+    public private(set) var isDragging: Bool = false
+    public private(set) var draggedSinceMouseDown: Bool = false
+    public private(set) var pendingChromeSync: Bool = false
+
+    public init() {}
+
+    public mutating func attach(windowID: ObjectIdentifier, transparentWindow: Bool) -> WindowChromeMutationPlan {
+        desiredTransparentWindow = transparentWindow
+        if attachedWindowID == windowID && chromeApplied {
+            return requestSync(transparentWindow: transparentWindow)
+        }
+        attachedWindowID = windowID
+        isDragging = false
+        draggedSinceMouseDown = false
+        chromeApplied = true
+        appliedTransparentWindow = transparentWindow
+        pendingChromeSync = false
+        return WindowChromeMutationPlan(
+            applyStructuralChrome: true,
+            applyTransparency: true,
+            transparentWindow: transparentWindow
+        )
+    }
+
+    public mutating func detach() {
+        attachedWindowID = nil
+        chromeApplied = false
+        appliedTransparentWindow = nil
+        isDragging = false
+        draggedSinceMouseDown = false
+        pendingChromeSync = false
+    }
+
+    public mutating func mouseDown() {
+        draggedSinceMouseDown = false
+    }
+
+    public mutating func beginDrag() {
+        isDragging = true
+        draggedSinceMouseDown = true
+    }
+
+    public mutating func requestSync(transparentWindow: Bool) -> WindowChromeMutationPlan {
+        desiredTransparentWindow = transparentWindow
+        guard attachedWindowID != nil else { return .noOp }
+
+        if isDragging {
+            pendingChromeSync = (appliedTransparentWindow != transparentWindow) || !chromeApplied
+            return .noOp
+        }
+
+        let needsStructural = !chromeApplied
+        let needsTransparency = appliedTransparentWindow != transparentWindow
+        guard needsStructural || needsTransparency else {
+            pendingChromeSync = false
+            return .noOp
+        }
+
+        chromeApplied = true
+        appliedTransparentWindow = transparentWindow
+        pendingChromeSync = false
+        return WindowChromeMutationPlan(
+            applyStructuralChrome: needsStructural,
+            applyTransparency: needsTransparency,
+            transparentWindow: transparentWindow
+        )
+    }
+
+    public mutating func endDrag() -> WindowChromeMutationPlan {
+        let wasDragging = isDragging
+        isDragging = false
+        guard wasDragging, attachedWindowID != nil else { return .noOp }
+
+        let needsStructural = !chromeApplied
+        let needsTransparency = appliedTransparentWindow != desiredTransparentWindow
+        pendingChromeSync = false
+        guard needsStructural || needsTransparency else {
+            return .noOp
+        }
+
+        chromeApplied = true
+        appliedTransparentWindow = desiredTransparentWindow
+        return WindowChromeMutationPlan(
+            applyStructuralChrome: needsStructural,
+            applyTransparency: needsTransparency,
+            transparentWindow: desiredTransparentWindow
+        )
     }
 }
 
@@ -139,6 +262,7 @@ public struct WindowChromeState: Equatable, Sendable {
     public var toolbarOwner: AppTitlebarOwner
     public var toolbarStyle: AppTitlebarStyle
     public var brandInToolbar: Bool
+    public var brandToolbarPillHidden: Bool
     public var statusInSidebarFooter: Bool
     public var appearanceInSidebarFooter: Bool
     public var statusInCompactHeader: Bool
@@ -157,6 +281,7 @@ public struct WindowChromeState: Equatable, Sendable {
         toolbarOwner: AppTitlebarOwner = .swiftUIToolbar,
         toolbarStyle: AppTitlebarStyle = .unifiedCompact,
         brandInToolbar: Bool = true,
+        brandToolbarPillHidden: Bool = true,
         statusInSidebarFooter: Bool = true,
         appearanceInSidebarFooter: Bool = true,
         statusInCompactHeader: Bool = true,
@@ -172,6 +297,7 @@ public struct WindowChromeState: Equatable, Sendable {
         self.toolbarOwner = toolbarOwner
         self.toolbarStyle = toolbarStyle
         self.brandInToolbar = brandInToolbar
+        self.brandToolbarPillHidden = brandToolbarPillHidden
         self.statusInSidebarFooter = statusInSidebarFooter
         self.appearanceInSidebarFooter = appearanceInSidebarFooter
         self.statusInCompactHeader = statusInCompactHeader
@@ -200,6 +326,10 @@ public struct WindowChromeState: Equatable, Sendable {
 
     public var brandVisible: Bool {
         brandInToolbar && !controlsOccluded
+    }
+
+    public var hasBrandToolbarBubble: Bool {
+        !brandToolbarPillHidden
     }
 
     public var statusReachable: Bool {

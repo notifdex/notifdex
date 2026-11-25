@@ -197,6 +197,7 @@ struct NotifdexApp: App {
         Window("Notifdex · App Center", id: "app-center") {
             AppCenter(model: model, appearance: appearance)
         }
+        .windowToolbarStyle(.unifiedCompact)
         .defaultSize(width: 780, height: 620)
         MenuBarExtra {
             MenuContent(model: model)

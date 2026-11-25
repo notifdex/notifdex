@@ -451,10 +451,18 @@ struct VisualEffectBackdrop: NSViewRepresentable {
     }
 
     func updateNSView(_ view: NSVisualEffectView, context: Context) {
-        view.material = material
-        view.blendingMode = blendingMode
-        view.state = .active
-        view.alphaValue = alpha
+        if view.material != material {
+            view.material = material
+        }
+        if view.blendingMode != blendingMode {
+            view.blendingMode = blendingMode
+        }
+        if view.state != .active {
+            view.state = .active
+        }
+        if abs(view.alphaValue - alpha) > 0.001 {
+            view.alphaValue = alpha
+        }
     }
 }
 

@@ -11,6 +11,8 @@ final class WindowChromeLayoutTests: XCTestCase {
         XCTAssertTrue(chrome.isHeightBounded, "Titlebar must stay <= 44pt like Chrome/Antigravity")
         XCTAssertFalse(chrome.controlsOccluded)
         XCTAssertTrue(chrome.brandVisible)
+        XCTAssertTrue(chrome.brandToolbarPillHidden, "Brand ToolbarItem must hide macOS 26 glass pill bubble")
+        XCTAssertFalse(chrome.hasBrandToolbarBubble)
         XCTAssertTrue(chrome.statusInSidebarFooter)
         XCTAssertTrue(chrome.appearanceInSidebarFooter)
         XCTAssertTrue(chrome.statusReachable)
@@ -115,6 +117,73 @@ final class WindowChromeLayoutTests: XCTestCase {
             ),
             .none
         )
+        // Releasing a cross-monitor drag (even with clickCount == 2) never zooms or minimizes.
+        XCTAssertEqual(
+            TitlebarDoubleClickAction.actionForClick(
+                clickCount: 2,
+                locationY: 600,
+                windowHeight: 620,
+                contentMaxY: 582,
+                hitInteractiveControl: false,
+                didDrag: true,
+                systemSetting: "Maximize"
+            ),
+            .none
+        )
+    }
+
+    func testWindowChromeSyncIsIdempotentWhenIdleAndDefersMutationsDuringCrossMonitorDrag() {
+        final class FakeWindowToken {}
+        let windowA = ObjectIdentifier(FakeWindowToken())
+        let windowB = ObjectIdentifier(FakeWindowToken())
+
+        var sync = WindowChromeSyncState()
+
+        // First attach applies structural chrome and transparency once.
+        let initial = sync.attach(windowID: windowA, transparentWindow: true)
+        XCTAssertTrue(initial.applyStructuralChrome)
+        XCTAssertTrue(initial.applyTransparency)
+        XCTAssertTrue(initial.transparentWindow)
+
+        // Repeated SwiftUI updateNSView calls with unchanged state must be no-ops.
+        let idleTick = sync.requestSync(transparentWindow: true)
+        XCTAssertFalse(idleTick.mutatesWindow, "Idle SwiftUI ticks must not rewrite NSWindow chrome")
+
+        // Changing appearance while idle updates transparency only, never structural chrome.
+        let solidSwitch = sync.requestSync(transparentWindow: false)
+        XCTAssertFalse(solidSwitch.applyStructuralChrome)
+        XCTAssertTrue(solidSwitch.applyTransparency)
+        XCTAssertFalse(solidSwitch.transparentWindow)
+
+        // During a cross-monitor drag, SwiftUI updateNSView ticks must NEVER mutate NSWindow chrome.
+        sync.mouseDown()
+        sync.beginDrag()
+        XCTAssertTrue(sync.isDragging)
+        XCTAssertTrue(sync.draggedSinceMouseDown)
+
+        let dragTickSame = sync.requestSync(transparentWindow: false)
+        XCTAssertFalse(dragTickSame.mutatesWindow)
+        XCTAssertFalse(sync.pendingChromeSync)
+
+        let dragTickChanged = sync.requestSync(transparentWindow: true)
+        XCTAssertFalse(dragTickChanged.mutatesWindow, "Must defer transparency mutation until drag finishes")
+        XCTAssertTrue(sync.pendingChromeSync)
+
+        // Ending the drag flushes the deferred transparency change without re-running structural chrome.
+        let flush = sync.endDrag()
+        XCTAssertFalse(sync.isDragging)
+        XCTAssertFalse(sync.pendingChromeSync)
+        XCTAssertFalse(flush.applyStructuralChrome)
+        XCTAssertTrue(flush.applyTransparency)
+        XCTAssertTrue(flush.transparentWindow)
+
+        // Subsequent idle tick is again a no-op.
+        XCTAssertFalse(sync.requestSync(transparentWindow: true).mutatesWindow)
+
+        // Attaching a brand-new NSWindow configures structural chrome once for that window.
+        let reattach = sync.attach(windowID: windowB, transparentWindow: true)
+        XCTAssertTrue(reattach.applyStructuralChrome)
+        XCTAssertTrue(reattach.applyTransparency)
     }
 
     func testWindowChromeDoubleClickStateTransitions() {

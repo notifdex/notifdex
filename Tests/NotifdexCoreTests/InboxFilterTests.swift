@@ -58,6 +58,12 @@ final class InboxFilterTests: XCTestCase {
         XCTAssertEqual(InboxDestination.webURL(for: "X")?.host, "x.com")
         XCTAssertEqual(InboxDestination.webURL(for: "Gmail")?.host, "mail.google.com")
         XCTAssertEqual(InboxDestination.nativeURL(for: "WhatsApp")?.scheme, "whatsapp")
+        XCTAssertEqual(InboxDestination.bundleIdentifier(for: "Messages"), "com.apple.MobileSMS")
+        XCTAssertTrue(InboxDestination.canOpen("Messages"))
+        XCTAssertTrue(InboxDestination.canOpen("WhatsApp"))
+        XCTAssertTrue(InboxDestination.canOpen("Gmail"))
+        XCTAssertFalse(InboxDestination.canOpen("https://example.com"))
+        XCTAssertNil(InboxDestination.webURL(for: "Messages"))
         XCTAssertNil(InboxDestination.webURL(for: "https://example.com"))
     }
 }

@@ -119,3 +119,11 @@ class AppCenterLayoutContractTests(unittest.TestCase):
         # LHS sidebar uses legible >=14pt typography and main panel does not repeat the active mode title.
         self.assertIn("WindowChromeState.sidebarLabelFontSize", workflow)
         self.assertNotIn("Text(model.mode.rawValue)", workflow)
+
+    def test_open_in_messages_uses_bundle_id_and_can_open_guard(self):
+        inbox_core = (Path(__file__).resolve().parents[1] / "Sources" / "NotifdexCore" / "Inbox.swift").read_text()
+        workflow = (APP_DIR / "WorkflowView.swift").read_text()
+        self.assertIn('case "Messages": "com.apple.MobileSMS"', inbox_core)
+        self.assertIn("static func canOpen(", inbox_core)
+        self.assertIn("if InboxDestination.canOpen(alert.app)", workflow)
+        self.assertIn("InboxDestination.bundleIdentifier(for: alert.app)", workflow)

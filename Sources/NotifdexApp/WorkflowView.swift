@@ -442,6 +442,20 @@ private final class WorkflowModel: ObservableObject {
 
     func open(_ alert: InboxEntry) {
         let workspace = NSWorkspace.shared
+        if let bundleID = InboxDestination.bundleIdentifier(for: alert.app),
+           let appURL = workspace.urlForApplication(withBundleIdentifier: bundleID) {
+            let configuration = NSWorkspace.OpenConfiguration()
+            configuration.activates = true
+            let appName = alert.app
+            workspace.openApplication(at: appURL, configuration: configuration) { [weak self] _, openError in
+                if openError != nil {
+                    onAppMainLoop {
+                        self?.error = "Could not open \(appName)."
+                    }
+                }
+            }
+            return
+        }
         if let url = InboxDestination.nativeURL(for: alert.app),
            workspace.urlForApplication(toOpen: url) != nil, workspace.open(url) { return }
         if let url = InboxDestination.webURL(for: alert.app), workspace.open(url) { return }
@@ -1538,7 +1552,7 @@ struct WorkflowView<AppsContent: View, RecoveryContent: View>: View {
             Text(alert.body.isEmpty ? "No preview was captured." : alert.body)
                 .textSelection(.enabled)
             HStack {
-                if InboxDestination.webURL(for: alert.app) != nil {
+                if InboxDestination.canOpen(alert.app) {
                     Button("Open in \(alert.app)") { model.open(alert) }
                         .help("Open the app or its inbox")
                 }

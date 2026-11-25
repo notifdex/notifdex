@@ -1,3 +1,4 @@
+import re
 import subprocess
 import tempfile
 import unittest
@@ -96,6 +97,18 @@ class ReleaseAndHomebrewContractTests(unittest.TestCase):
             'rm -rf "$RUNNER_TEMP/tap-ssh"',
         ):
             self.assertIn(required, workflow)
+
+        # GitHub Actions rejects references to `secrets.*` inside step/job `if:` expressions.
+        invalid_if_lines = [
+            f"line {idx}: {line.strip()}"
+            for idx, line in enumerate(workflow.splitlines(), start=1)
+            if re.match(r"^\s*if\s*:", line) and "secrets." in line
+        ]
+        self.assertEqual(
+            invalid_if_lines,
+            [],
+            f"Workflow must not reference secrets.* in if: expressions: {invalid_if_lines}",
+        )
 
     def test_release_guide_and_gitignore_guard_signing_credentials(self):
         guide = RELEASE_GUIDE.read_text(encoding="utf-8")

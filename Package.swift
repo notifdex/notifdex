@@ -24,7 +24,7 @@ let package = Package(
             path: ".",
             exclude: ["AGENTS.md", "LICENSE", "README.md", "Resources", "Sources/CSQLite", "Sources/NotifdexMac",
                       "Sources/NotifdexCapture", "Sources/NotifdexApp", "Tests", "contract-tests", "dist",
-                      "infra", "spec", "tools", "docs", "website"],
+                      "infra", "ios", "spec", "tools", "docs", "website"],
             sources: [
                 "Sources/NotifdexCore/AppearancePreferences.swift",
                 "Sources/NotifdexCore/AppSettings.swift",

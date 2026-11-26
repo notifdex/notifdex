@@ -19,6 +19,7 @@ Notifdex is a local-first macOS notification inbox and relationship notebook. It
 | Accessibility adapter, parser and recovery | [NotificationReader.swift](Sources/NotifdexMac/NotificationReader.swift), [NotificationTree.swift](Sources/NotifdexMac/NotificationTree.swift), [Observation.swift](Sources/NotifdexCore/Observation.swift), [CaptureWorker.swift](Sources/NotifdexMac/CaptureWorker.swift), [RecoveryAutomation.swift](Sources/NotifdexMac/RecoveryAutomation.swift) |
 | Storage, settings and relationship templates | [CaptureStore.swift](Sources/NotifdexCore/CaptureStore.swift), [AppSettings.swift](Sources/NotifdexCore/AppSettings.swift), [data model](docs/data-model.md), [templates](templates/README.md) |
 | Command-line collector | [NotifdexCapture/main.swift](Sources/NotifdexCapture/main.swift), [README](README.md#try-capture-on-the-mac) |
+| iOS companion prototype (iOS 27 Shortcuts → AppIntent → SQLite) | [ios/README.md](ios/README.md), [ios/NotifdexiOS.xcodeproj](ios/NotifdexiOS.xcodeproj), [CaptureNotificationIntent.swift](ios/NotifdexiOS/Intents/CaptureNotificationIntent.swift), [IOSCapture.tla](spec/IOSCapture.tla) |
 | Public website (`notifdex.com`) | [website/src/](website/src/), [website/README.md](website/README.md), [website/scripts/check.mjs](website/scripts/check.mjs), [website-ci.yml](.github/workflows/website-ci.yml) |
 | Cloudflare infrastructure (OpenTofu + R2 state) | [infra/cloudflare/](infra/cloudflare/), [infra/cloudflare/README.md](infra/cloudflare/README.md), [cloudflare-infra.yml](.github/workflows/cloudflare-infra.yml) |
 | Signed macOS releases, notarization & Homebrew tap | [docs/operations.md](docs/operations.md), [docs/release-signing.md](docs/release-signing.md), [tools/build-app.sh](tools/build-app.sh), [tools/render-homebrew-cask.sh](tools/render-homebrew-cask.sh), [release-macos.yml](.github/workflows/release-macos.yml) |
@@ -66,6 +67,7 @@ npm --prefix website run build && npm --prefix website run check
 ```
 
 - Run `swift test`, the Python contract suite, and all TLC configurations (`spec/*.cfg`) for foundation, durability, recovery, or window-chrome changes. Model stateful durability, recovery, or window-chrome changes in TLA+ before implementation.
+- For iOS companion changes (`ios/`), keep `ios/` isolated from `Package.swift` / macOS CLT builds, verify `spec/IOSCapture.tla`, and run `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild -project ios/NotifdexiOS.xcodeproj -scheme NotifdexiOS -destination "platform=iOS Simulator,name=iPhone 17" test`. See [ios/README.md](ios/README.md) for device install and Shortcuts setup steps.
 - For website changes, run `npm --prefix website run build && npm --prefix website run check`, verify `contract-tests/test_website_and_infra_contract.py`, and preview locally with `npm --prefix website run preview` (`http://127.0.0.1:4173`).
 - For Cloudflare OpenTofu changes (`infra/cloudflare/`), follow the PR validate → manual `plan` → protected `cloudflare-prod` `apply` workflow in [docs/operations.md](docs/operations.md) and [infra/cloudflare/README.md](infra/cloudflare/README.md).
 

@@ -114,6 +114,9 @@ class AppCenterLayoutContractTests(unittest.TestCase):
         self.assertIn("item.isNavigational = true", controller)
         self.assertNotIn(".ignoresSafeArea(.container, edges: .top)", workflow)
         # Cross-monitor drag stability: native AppKit titlebar pass-through + deterministic anchor tracking + offscreen recovery.
+        self.assertIn("window.isMovable = false", controller)
+        self.assertIn("window.isMovableByWindowBackground = false", controller)
+        self.assertIn("!event.modifierFlags.contains(.control)", controller)
         self.assertIn("WindowChromeSyncState", controller)
         self.assertIn("WindowPlacementGeometry", controller)
         self.assertIn("TitlebarDragSession", controller)
@@ -126,6 +129,16 @@ class AppCenterLayoutContractTests(unittest.TestCase):
         self.assertIn("didChangeScreenParametersNotification", controller)
         self.assertIn("point.y >= window.contentLayoutRect.maxY", controller)
         self.assertIn("NSApp.setActivationPolicy(.regular)", controller)
+        spec_dir = Path(__file__).resolve().parents[1] / "spec"
+        window_drag_tla = (spec_dir / "WindowDrag.tla").read_text()
+        window_drag_cfg = (spec_dir / "WindowDrag.cfg").read_text()
+        self.assertIn('dragEngine = "direct_anchor_tracking"', window_drag_tla)
+        self.assertIn("ZeroCumulativeDragDrift", window_drag_tla)
+        self.assertIn("NoCompetingSystemDragGesture", window_drag_tla)
+        self.assertIn("ResignKeyMidDrag", window_drag_tla)
+        self.assertIn("ZeroCumulativeDragDrift", window_drag_cfg)
+        self.assertIn("NoCompetingSystemDragGesture", window_drag_cfg)
+        self.assertIn("NoChromeMutationDuringDrag", window_drag_cfg)
         # Status & Appearance controls stay anchored in the LHS sidebar footer (with compact-header fallback).
         self.assertIn("sidebarFooter", workflow)
         self.assertNotIn("ToolbarItemGroup(placement: .primaryAction)", workflow)

@@ -186,3 +186,31 @@ to expand or collapse it. The app filter and search work in either layout.
 Click the flag next to an alert to find it again in **Flagged**. Removing
 the flag drops it from that view. A hidden alert keeps its flag and returns
 to Flagged when all reasons for hiding it are removed.
+
+## Multi-monitor window dragging & macOS SkyLight invariants
+
+App Center is owned by a native AppKit `NSWindowController` (`AppCenterWindowController.swift`)
+with a single `.unifiedCompact` `NSToolbar` and `NSHostingView.sizingOptions = []` pinned to
+`window.contentLayoutGuide`.
+
+On macOS 27.2, transparent custom-chrome windows (`isOpaque = false`, `backgroundColor = .clear`,
+`titlebarAppearsTransparent = true`, `titleVisibility = .hidden`) fall off WindowServer's opaque
+server-side drag path (which Safari uses) onto a broken client-initiated drag trait gesture
+(`WindowServer: no client initiated window drag trait gesture to activate for mouse` paired with
+`AppKit: Warning: Window move completed without beginning`), causing violent snapping and
+compounding cursor drift across multiple displays.
+
+To prevent regressions across future window, toolbar, or activation-policy changes:
+
+- Keep `window.isMovable = false` and `window.isMovableByWindowBackground = false` so the broken
+  SkyLight drag gesture never activates or competes.
+- Drive titlebar drags deterministically via `TitlebarDragZone` + `TitlebarDragSession` +
+  `NSWindow.trackEvents(matching: [.leftMouseDragged, .leftMouseUp], mode: .eventTracking)` +
+  `NSEvent.mouseLocation` + `window.setFrameOrigin(_:)` (never `performDrag(with:)` or
+  `performWindowDrag`), preserving `origin.x == startOrigin.x + (mouse.x - startMouse.x)` across
+  all displays and clamping only Y against the active screen's menu-bar ceiling and lowest display
+  floor.
+- Keep `spec/WindowDrag.tla` (`ZeroCumulativeDragDrift`, `NoCompetingSystemDragGesture`,
+  `NoChromeMutationDuringDrag`, `ResignKeyMidDrag`), `Tests/NotifdexCoreTests/WindowChromeLayoutTests.swift`,
+  and `contract-tests/test_app_center_layout_contract.py` green whenever touching window chrome or
+  lifecycle code.

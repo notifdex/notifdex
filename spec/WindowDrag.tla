@@ -25,7 +25,8 @@ VisiblePlacements == {"on_a", "on_b", "straddling"}
 MousePositions == 0..4
 OriginPositions == -2..6
 
-VARIABLES windowOwner, titlebarHitTarget, dragEngine, hostingSizingIsolated,
+VARIABLES windowOwner, titlebarHitTarget, dragEngine, systemDragGestureEnabled,
+          hostingSizingIsolated,
           windowOpen, activationPolicy, placement, dragging,
           startMouseX, startOriginX, mouseX, windowX,
           desiredTransparent, appliedTransparent,
@@ -33,7 +34,8 @@ VARIABLES windowOwner, titlebarHitTarget, dragEngine, hostingSizingIsolated,
           chromeMutatedDuringDrag,
           action
 
-vars == <<windowOwner, titlebarHitTarget, dragEngine, hostingSizingIsolated,
+vars == <<windowOwner, titlebarHitTarget, dragEngine, systemDragGestureEnabled,
+          hostingSizingIsolated,
           windowOpen, activationPolicy, placement, dragging,
           startMouseX, startOriginX, mouseX, windowX,
           desiredTransparent, appliedTransparent,
@@ -50,6 +52,7 @@ Init ==
     /\ windowOwner = "appkit_window_controller"
     /\ titlebarHitTarget = "native_theme_frame"
     /\ dragEngine = "direct_anchor_tracking"
+    /\ systemDragGestureEnabled = FALSE
     /\ hostingSizingIsolated = TRUE
     /\ windowOpen = FALSE
     /\ activationPolicy = "accessory"
@@ -76,7 +79,8 @@ OpenWindow ==
     /\ pendingChromeSync' = FALSE
     /\ pendingBoundsRecovery' = FALSE
     /\ action' = "open_window"
-    /\ UNCHANGED <<windowOwner, titlebarHitTarget, dragEngine, hostingSizingIsolated,
+    /\ UNCHANGED <<windowOwner, titlebarHitTarget, dragEngine, systemDragGestureEnabled,
+                   hostingSizingIsolated,
                    dragging, startMouseX, startOriginX, mouseX, desiredTransparent,
                    chromeMutatedDuringDrag>>
 
@@ -88,7 +92,8 @@ CloseWindow ==
     /\ pendingChromeSync' = FALSE
     /\ pendingBoundsRecovery' = FALSE
     /\ action' = "close_window"
-    /\ UNCHANGED <<windowOwner, titlebarHitTarget, dragEngine, hostingSizingIsolated,
+    /\ UNCHANGED <<windowOwner, titlebarHitTarget, dragEngine, systemDragGestureEnabled,
+                   hostingSizingIsolated,
                    placement, dragging, startMouseX, startOriginX, mouseX, windowX,
                    desiredTransparent, appliedTransparent,
                    chromeMutatedDuringDrag>>
@@ -103,7 +108,8 @@ BeginDrag(m) ==
     /\ startOriginX' = windowX
     /\ mouseX' = m
     /\ action' = "begin_drag"
-    /\ UNCHANGED <<windowOwner, titlebarHitTarget, dragEngine, hostingSizingIsolated,
+    /\ UNCHANGED <<windowOwner, titlebarHitTarget, dragEngine, systemDragGestureEnabled,
+                   hostingSizingIsolated,
                    windowOpen, activationPolicy, placement, windowX,
                    desiredTransparent, appliedTransparent,
                    pendingChromeSync, pendingBoundsRecovery,
@@ -120,7 +126,8 @@ DragTo(m) ==
        /\ placement' = PlacementForX(nextX)
     /\ pendingBoundsRecovery' = FALSE
     /\ action' = "drag_to"
-    /\ UNCHANGED <<windowOwner, titlebarHitTarget, dragEngine, hostingSizingIsolated,
+    /\ UNCHANGED <<windowOwner, titlebarHitTarget, dragEngine, systemDragGestureEnabled,
+                   hostingSizingIsolated,
                    windowOpen, activationPolicy, dragging,
                    startMouseX, startOriginX,
                    desiredTransparent, appliedTransparent,
@@ -135,7 +142,8 @@ SwiftUIWorkerTick ==
           ELSE /\ appliedTransparent' = desiredTransparent
                /\ pendingChromeSync' = FALSE
     /\ action' = "swiftui_worker_tick"
-    /\ UNCHANGED <<windowOwner, titlebarHitTarget, dragEngine, hostingSizingIsolated,
+    /\ UNCHANGED <<windowOwner, titlebarHitTarget, dragEngine, systemDragGestureEnabled,
+                   hostingSizingIsolated,
                    windowOpen, activationPolicy, placement, dragging,
                    startMouseX, startOriginX, mouseX, windowX,
                    desiredTransparent, pendingBoundsRecovery,
@@ -154,7 +162,8 @@ ChangeAppearanceTransparency(t) ==
                   ELSE /\ appliedTransparent' = appliedTransparent
                        /\ pendingChromeSync' = FALSE
     /\ action' = "change_transparency"
-    /\ UNCHANGED <<windowOwner, titlebarHitTarget, dragEngine, hostingSizingIsolated,
+    /\ UNCHANGED <<windowOwner, titlebarHitTarget, dragEngine, systemDragGestureEnabled,
+                   hostingSizingIsolated,
                    windowOpen, activationPolicy, placement, dragging,
                    startMouseX, startOriginX, mouseX, windowX,
                    pendingBoundsRecovery,
@@ -173,7 +182,8 @@ DisplayDisconnected ==
                        /\ pendingBoundsRecovery' = FALSE
                        /\ windowX' = 1
     /\ action' = "display_disconnected"
-    /\ UNCHANGED <<windowOwner, titlebarHitTarget, dragEngine, hostingSizingIsolated,
+    /\ UNCHANGED <<windowOwner, titlebarHitTarget, dragEngine, systemDragGestureEnabled,
+                   hostingSizingIsolated,
                    windowOpen, activationPolicy, dragging,
                    startMouseX, startOriginX, mouseX,
                    desiredTransparent, appliedTransparent, pendingChromeSync,
@@ -192,7 +202,27 @@ EndDrag ==
                /\ windowX' = windowX
     /\ pendingBoundsRecovery' = FALSE
     /\ action' = "end_drag"
-    /\ UNCHANGED <<windowOwner, titlebarHitTarget, dragEngine, hostingSizingIsolated,
+    /\ UNCHANGED <<windowOwner, titlebarHitTarget, dragEngine, systemDragGestureEnabled,
+                   hostingSizingIsolated,
+                   windowOpen, activationPolicy,
+                   startMouseX, startOriginX, mouseX,
+                   desiredTransparent, chromeMutatedDuringDrag>>
+
+ResignKeyMidDrag ==
+    /\ windowOpen
+    /\ dragging
+    /\ dragging' = FALSE
+    /\ appliedTransparent' = desiredTransparent
+    /\ pendingChromeSync' = FALSE
+    /\ IF pendingBoundsRecovery \/ placement = "offscreen"
+          THEN /\ placement' = "on_a"
+               /\ windowX' = 1
+          ELSE /\ placement' = placement
+               /\ windowX' = windowX
+    /\ pendingBoundsRecovery' = FALSE
+    /\ action' = "resign_key_mid_drag"
+    /\ UNCHANGED <<windowOwner, titlebarHitTarget, dragEngine, systemDragGestureEnabled,
+                   hostingSizingIsolated,
                    windowOpen, activationPolicy,
                    startMouseX, startOriginX, mouseX,
                    desiredTransparent, chromeMutatedDuringDrag>>
@@ -206,6 +236,7 @@ Next ==
     \/ \E t \in BOOLEAN : ChangeAppearanceTransparency(t)
     \/ DisplayDisconnected
     \/ EndDrag
+    \/ ResignKeyMidDrag
 
 Spec == Init /\ [][Next]_vars
 
@@ -213,6 +244,7 @@ TypeOK ==
     /\ windowOwner \in WindowOwners
     /\ titlebarHitTarget \in HitTargets
     /\ dragEngine \in DragEngines
+    /\ systemDragGestureEnabled \in BOOLEAN
     /\ hostingSizingIsolated \in BOOLEAN
     /\ windowOpen \in BOOLEAN
     /\ activationPolicy \in ActivationPolicies
@@ -233,6 +265,9 @@ NativeAppKitOwnership ==
     /\ titlebarHitTarget = "native_theme_frame"
     /\ dragEngine = "direct_anchor_tracking"
     /\ hostingSizingIsolated
+
+NoCompetingSystemDragGesture ==
+    ~systemDragGestureEnabled
 
 ActivationPolicyMatchesWindow ==
     /\ (windowOpen => activationPolicy = "regular")
@@ -257,7 +292,7 @@ DragStabilityProperty == [][
         (windowX' = windowX /\ placement' = placement)
     /\ (action' = "swiftui_worker_tick" /\ dragging) =>
         (appliedTransparent' = appliedTransparent)
-    /\ (action' = "end_drag" /\ ~pendingBoundsRecovery /\ placement \in VisiblePlacements) =>
+    /\ ((action' = "end_drag" \/ action' = "resign_key_mid_drag") /\ ~pendingBoundsRecovery /\ placement \in VisiblePlacements) =>
         (windowX' = windowX /\ placement' = placement)
     ]_vars
 =============================================================================

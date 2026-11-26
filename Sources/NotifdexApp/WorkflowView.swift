@@ -783,6 +783,14 @@ struct WorkflowView<AppsContent: View, RecoveryContent: View>: View {
         ThemeTokens(theme: appearanceConfig.colorTheme, dark: colorScheme == .dark)
     }
 
+    private func handlePlatforms(including selectedPlatform: String? = nil) -> [String] {
+        ContactSuggestions.availablePlatforms(
+            configuredApps: appModel.state.settings?.apps ?? [],
+            observedApps: apps,
+            selectedPlatform: selectedPlatform
+        )
+    }
+
     var body: some View {
         GeometryReader { geometry in
             let compact = geometry.size.width < 860
@@ -1543,7 +1551,12 @@ struct WorkflowView<AppsContent: View, RecoveryContent: View>: View {
                 .disabled(!ready || model.busy)
                 .help("Create a new person card")
                 .popover(isPresented: $model.showingPeopleNewPersonPopover, arrowEdge: .bottom) {
-                    NewPersonPopoverView(model: model, tokens: tokens, ready: ready)
+                    NewPersonPopoverView(
+                        model: model,
+                        platforms: handlePlatforms(including: model.newPersonPlatform),
+                        tokens: tokens,
+                        ready: ready
+                    )
                 }
             }
             Spacer(minLength: 8)
@@ -1907,6 +1920,7 @@ struct WorkflowView<AppsContent: View, RecoveryContent: View>: View {
                 personID: personID,
                 personName: personName,
                 alert: alert,
+                platforms: handlePlatforms(including: model.identityApp),
                 tokens: tokens,
                 ready: ready
             )
@@ -1972,7 +1986,12 @@ struct WorkflowView<AppsContent: View, RecoveryContent: View>: View {
                         }
                         .buttonStyle(NotifdexGlassButtonStyle(emphasis: .subtle))
                         .popover(isPresented: $model.showingNewPersonPopover, arrowEdge: .bottom) {
-                            NewPersonPopoverView(model: model, tokens: tokens, ready: ready)
+                            NewPersonPopoverView(
+                                model: model,
+                                platforms: handlePlatforms(including: model.newPersonPlatform),
+                                tokens: tokens,
+                                ready: ready
+                            )
                         }
                     }
                 }
@@ -2022,7 +2041,12 @@ struct WorkflowView<AppsContent: View, RecoveryContent: View>: View {
                         }
                         .buttonStyle(NotifdexGlassButtonStyle(emphasis: .regular))
                         .popover(isPresented: $model.showingNewPersonPopover, arrowEdge: .bottom) {
-                            NewPersonPopoverView(model: model, tokens: tokens, ready: ready)
+                            NewPersonPopoverView(
+                                model: model,
+                                platforms: handlePlatforms(including: model.newPersonPlatform),
+                                tokens: tokens,
+                                ready: ready
+                            )
                         }
                     }
                 }
@@ -2043,7 +2067,12 @@ struct WorkflowView<AppsContent: View, RecoveryContent: View>: View {
                     }
                     .buttonStyle(NotifdexGlassButtonStyle(emphasis: .prominent))
                     .popover(isPresented: $model.showingNewPersonPopover, arrowEdge: .bottom) {
-                        NewPersonPopoverView(model: model, tokens: tokens, ready: ready)
+                        NewPersonPopoverView(
+                            model: model,
+                            platforms: handlePlatforms(including: model.newPersonPlatform),
+                            tokens: tokens,
+                            ready: ready
+                        )
                     }
                     Button("Add to Existing…") {
                         model.openExistingPersonPopover()
@@ -2372,7 +2401,7 @@ struct WorkflowView<AppsContent: View, RecoveryContent: View>: View {
                     if !showRecentActivity && model.showingAddHandleInline {
                         HStack(spacing: 6) {
                             Picker("App", selection: $model.identityApp) {
-                                ForEach(ContactSuggestions.supportedPlatforms, id: \.self) { Text($0) }
+                                ForEach(handlePlatforms(including: model.identityApp), id: \.self) { Text($0).tag($0) }
                             }
                             .labelsHidden()
                             .fixedSize()

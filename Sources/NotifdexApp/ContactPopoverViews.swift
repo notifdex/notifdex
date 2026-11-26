@@ -30,17 +30,9 @@ struct PersonMonogram: View {
 @MainActor
 struct NewPersonPopoverView: View {
     @ObservedObject var model: WorkflowModel
+    let platforms: [String]
     let tokens: ThemeTokens
     let ready: Bool
-
-    private var platforms: [String] {
-        var list = ContactSuggestions.supportedPlatforms
-        let active = model.newPersonPlatform.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !active.isEmpty && !list.contains(active) {
-            list.insert(active, at: 0)
-        }
-        return list
-    }
 
     var body: some View {
         let linkingAlert = model.newPersonLinkingAlertID != nil
@@ -346,17 +338,9 @@ struct ContactCardPopoverView: View {
     let personID: String
     let personName: String
     let alert: InboxEntry
+    let platforms: [String]
     let tokens: ThemeTokens
     let ready: Bool
-
-    private var platforms: [String] {
-        var list = ContactSuggestions.supportedPlatforms
-        let active = model.identityApp.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !active.isEmpty && !list.contains(active) {
-            list.insert(active, at: 0)
-        }
-        return list
-    }
 
     private var identities: [PersonIdentity] {
         model.cardID == personID ? model.identities : (model.allIdentities[personID] ?? [])

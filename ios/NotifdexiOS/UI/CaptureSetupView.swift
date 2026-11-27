@@ -2,13 +2,26 @@ import SwiftUI
 
 struct CaptureSetupView: View {
     @ObservedObject var viewModel: AppViewModel
+    var embedded: Bool = false
     @State private var showingGuideSheet = false
     @State private var showingAddAppAlert = false
     @State private var customAppName = ""
 
     var body: some View {
-        NavigationStack {
-            List {
+        Group {
+            if embedded {
+                contentList
+            } else {
+                NavigationStack {
+                    contentList
+                        .navigationTitle("Capture")
+                }
+            }
+        }
+    }
+
+    private var contentList: some View {
+        List {
                 Section {
                     VStack(alignment: .leading, spacing: 10) {
                         HStack {
@@ -88,7 +101,6 @@ struct CaptureSetupView: View {
                     }
                 }
             }
-            .navigationTitle("Capture")
             .sheet(isPresented: $showingGuideSheet) {
                 ShortcutsGuideSheet(onOpenShortcuts: { viewModel.openShortcutsAutomations() })
             }
@@ -101,7 +113,6 @@ struct CaptureSetupView: View {
             } message: {
                 Text("Match the App label exposed by your iOS 27 Shortcuts Notification automation.")
             }
-        }
     }
 }
 

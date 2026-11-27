@@ -30,7 +30,7 @@ public final class NotificationStore: @unchecked Sendable {
             sqlite3_busy_timeout(db, 3000)
             try execute("PRAGMA foreign_keys = ON")
             try execute("PRAGMA journal_mode = WAL")
-            try execute("PRAGMA synchronous = FULL")
+            try execute("PRAGMA synchronous = NORMAL")
             try migrateIfNeeded()
         } catch {
             sqlite3_close(db)

@@ -1,8 +1,8 @@
 // swift-tools-version: 5.9
 import PackageDescription
 
-#if os(macOS)
-// The macOS SDK supplies SQLite headers and the library directly.
+#if os(macOS) || os(iOS)
+// Apple SDKs supply SQLite headers and the library directly.
 let sqlitePkgConfig: String? = nil
 #else
 let sqlitePkgConfig: String? = "sqlite3"
@@ -10,7 +10,7 @@ let sqlitePkgConfig: String? = "sqlite3"
 
 let package = Package(
     name: "Notifdex",
-    platforms: [.macOS(.v14)],
+    platforms: [.macOS(.v14), .iOS(.v17)],
     products: [
         .library(name: "NotifdexCore", targets: ["NotifdexCore"]),
         .executable(name: "notifdex-capture", targets: ["NotifdexCapture"]),
@@ -29,7 +29,9 @@ let package = Package(
                 "Sources/NotifdexCore/AppearancePreferences.swift",
                 "Sources/NotifdexCore/AppSettings.swift",
                 "Sources/NotifdexCore/CaptureStore.swift",
+                "Sources/NotifdexCore/CloudKitSyncTransport.swift",
                 "Sources/NotifdexCore/ContactSuggestions.swift",
+                "Sources/NotifdexCore/HybridSync.swift",
                 "Sources/NotifdexCore/Inbox.swift",
                 "Sources/NotifdexCore/InboxPresentation.swift",
                 "Sources/NotifdexCore/Observation.swift",
@@ -42,6 +44,7 @@ let package = Package(
                 .copy("Sources/NotifdexCore/person-notes.sql"), .copy("Sources/NotifdexCore/flags.sql"),
                 .copy("Sources/NotifdexCore/hide-rules.sql"), .copy("Sources/NotifdexCore/relationship-templates.sql"),
                 .copy("Sources/NotifdexCore/workspaces.sql"), .copy("Sources/NotifdexCore/notebook.sql"),
+                .copy("Sources/NotifdexCore/sync.sql"),
                 .copy("templates")
             ]
         ),

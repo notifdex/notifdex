@@ -35,15 +35,21 @@ public struct CaptureNotificationIntent: AppIntent {
         self.body = body
     }
 
-    public func perform() async throws -> some IntentResult & ReturnsValue<String> & ProvidesDialog {
-        let message = try Self.execute(
-            app: app,
-            title: title,
-            subtitle: subtitle,
-            body: body,
-            service: .shared
-        )
-        return .result(value: message, dialog: IntentDialog(stringLiteral: message))
+    public func perform() async throws -> some IntentResult & ReturnsValue<String> {
+        let appValue = app
+        let titleValue = title
+        let subtitleValue = subtitle
+        let bodyValue = body
+        let message = try await Task.detached(priority: .userInitiated) {
+            try Self.execute(
+                app: appValue,
+                title: titleValue,
+                subtitle: subtitleValue,
+                body: bodyValue,
+                service: .shared
+            )
+        }.value
+        return .result(value: message)
     }
 
     public static func execute(

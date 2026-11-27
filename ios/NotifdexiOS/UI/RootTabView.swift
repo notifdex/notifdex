@@ -6,30 +6,79 @@ struct RootTabView: View {
 
     enum Tab: Hashable {
         case inbox
-        case capture
-        case settings
+        case today
+        case people
+        case notes
+        case setup
     }
 
     var body: some View {
         TabView(selection: $selectedTab) {
-            InboxView(viewModel: viewModel, onOpenCapture: { selectedTab = .capture })
+            InboxView(viewModel: viewModel, onOpenCapture: { selectedTab = .setup })
                 .tabItem {
                     Label("Inbox", systemImage: "tray.full.fill")
                 }
                 .tag(Tab.inbox)
 
-            CaptureSetupView(viewModel: viewModel)
+            TodayView(viewModel: viewModel)
                 .tabItem {
-                    Label("Capture", systemImage: "bolt.badge.automatic.fill")
+                    Label("Today", systemImage: "calendar.badge.clock")
                 }
-                .tag(Tab.capture)
+                .badge(viewModel.followUps.count)
+                .tag(Tab.today)
 
-            SettingsView(viewModel: viewModel)
+            PeopleView(viewModel: viewModel)
                 .tabItem {
-                    Label("Settings", systemImage: "gearshape.fill")
+                    Label("People", systemImage: "person.2.fill")
                 }
-                .tag(Tab.settings)
+                .tag(Tab.people)
+
+            NotesView(viewModel: viewModel)
+                .tabItem {
+                    Label("Notes", systemImage: "note.text")
+                }
+                .tag(Tab.notes)
+
+            SetupHubView(viewModel: viewModel)
+                .tabItem {
+                    Label("Setup", systemImage: "bolt.badge.automatic.fill")
+                }
+                .tag(Tab.setup)
         }
         .tint(NotifdexTheme.prussian)
+    }
+}
+
+private struct SetupHubView: View {
+    @ObservedObject var viewModel: AppViewModel
+    @State private var section: SectionKind = .capture
+
+    enum SectionKind: String, CaseIterable, Identifiable {
+        case capture = "Capture"
+        case sync = "Sync & Status"
+        var id: String { rawValue }
+    }
+
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 0) {
+                Picker("Setup Section", selection: $section) {
+                    ForEach(SectionKind.allCases) { item in
+                        Text(item.rawValue).tag(item)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
+                .background(.bar)
+
+                if section == .capture {
+                    CaptureSetupView(viewModel: viewModel, embedded: true)
+                } else {
+                    SettingsView(viewModel: viewModel, embedded: true)
+                }
+            }
+            .navigationTitle(section == .capture ? "Capture" : "Sync & Status")
+        }
     }
 }

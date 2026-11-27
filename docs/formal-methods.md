@@ -283,3 +283,13 @@ The new contract test in `contract-tests/test_app_center_layout_contract.py` fai
 - `TitlebarHeightBounded`, `BrandAlwaysVisibleInTitlebar`, `NoBrandToolbarBubble`, `GlobalControlsAlwaysReachable`, `DoubleClickTitlebarBehavior`, `AtMostOneToolbarPopoverOpen`, `SidebarCompleteAndDisjoint`, `ActiveModeAlwaysIndicated`, and `NoDuplicateActiveModeHeading`: preserve the compact unified titlebar, native double-click Zoom/Minimize behavior, and sidebar layout invariants.
 
 Physical multi-monitor mouse dragging on macOS WindowServer (including across external displays with Spaces/tiling) cannot be fully decided by finite state models or unit tests alone and remains a hands-on Mac check after CI passes.
+
+### iOS 27 capture and hybrid macOS ↔ iOS CloudKit sync (#96)
+
+- `spec/IOSCapture.tla` (`spec/IOSCapture.cfg`) models the isolated iOS 27 Shortcuts AppIntent ingestion pipeline (`ios/NotifdexiOS/Core/CaptureService.swift` + `NotificationStore.swift`) and verifies `AcknowledgedIsDurable`, `DurableNeverDisappears`, `SkipAndFailNeverWrite`, and `ToggleNeverFabricatesVerification`.
+- `spec/HybridSync.tla` (`spec/HybridSync.cfg`) models opt-in pairing, one-tap revocation, filtered Mac → iOS projection (excluding hidden/muted alerts), monotonic LWW workflow sync, deletion tombstones, dirty-digest push skipping with transient push failure retry (`PushFail`), and macOS iPhone-forwarding outages (`SetMacForwarding`, `MacForwardingWarning`). It corresponds directly to `Sources/NotifdexCore/HybridSync.swift` and `CloudKitSyncTransport.swift`:
+  - `HiddenNeverLeaksToCloudOrIPhone`: hidden or rule-filtered alerts on Mac never enter the CloudKit batch or reach iPhone.
+  - `TombstoneBlocksResurrection` and `CloudStateMonotonic`: tombstoned deletions stay deleted across stale offline retries and workflow versions advance monotonically.
+  - `DirtyFlagProtectsUnpushedData`: failed pushes never clear the dirty digest, preventing silent data drops on retry.
+  - `LocalEvidenceNeverVanishes` and `UnpairedOrRevokedNeverSyncs`: local-only and revoked devices never push/pull cloud state and keep all local observations intact.
+  - `ForwardingHealthSoundness`: `MacForwardingHealthAnalyzer` never false-alarms when unpaired or when macOS Accessibility captured the alert locally, and whenever it flags degradation, the Mac already holds the alert via iOS hybrid sync.

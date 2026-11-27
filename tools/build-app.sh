@@ -6,6 +6,8 @@ notifdex_version="${NOTIFDEX_VERSION:-0.1.0}"
 notifdex_build_number="${NOTIFDEX_BUILD_NUMBER:-1}"
 notifdex_signing_identity="${NOTIFDEX_SIGNING_IDENTITY:-}"
 notifdex_expected_team_id="${NOTIFDEX_EXPECTED_TEAM_ID:-}"
+notifdex_provisioning_profile="${NOTIFDEX_PROVISIONING_PROFILE:-}"
+notifdex_entitlements="${NOTIFDEX_ENTITLEMENTS:-Resources/NotifdexMac.entitlements}"
 
 if [[ ! "$notifdex_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z.]+)?$ ]]; then
     echo "Invalid NOTIFDEX_VERSION: $notifdex_version" >&2
@@ -70,13 +72,25 @@ cat > "$notifdex_app_dir/Contents/Info.plist" <<PLIST
 PLIST
 
 if [[ -n "$notifdex_signing_identity" ]]; then
-    echo "Signing $notifdex_app_dir with Developer ID identity (hardened runtime + timestamp)"
+    codesign_extra_args=()
+    if [[ -n "$notifdex_provisioning_profile" ]]; then
+        if [[ ! -f "$notifdex_provisioning_profile" ]]; then
+            echo "Provisioning profile not found: $notifdex_provisioning_profile" >&2
+            exit 1
+        fi
+        cp "$notifdex_provisioning_profile" "$notifdex_app_dir/Contents/embedded.provisionprofile"
+        codesign_extra_args+=(--entitlements "$notifdex_entitlements")
+        echo "Signing $notifdex_app_dir with CloudKit provisioning profile + entitlements"
+    else
+        echo "Signing $notifdex_app_dir with Developer ID identity (hardened runtime + timestamp)"
+    fi
     codesign \
         --force \
         --options runtime \
         --timestamp \
         --sign "$notifdex_signing_identity" \
         --identifier com.notifdex.mac \
+        "${codesign_extra_args[@]}" \
         "$notifdex_app_dir"
     codesign --verify --deep --strict --verbose=2 "$notifdex_app_dir"
 

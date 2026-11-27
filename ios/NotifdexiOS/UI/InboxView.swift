@@ -1,28 +1,61 @@
+import NotifdexCore
 import SwiftUI
 
 struct InboxView: View {
     @ObservedObject var viewModel: AppViewModel
     let onOpenCapture: () -> Void
-    @State private var inspectedNotification: CapturedNotification?
+    @State private var inspectedItem: HybridInboxItem?
 
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
+                scopePicker
                 if !viewModel.availableAppsInInbox.isEmpty {
                     filterBar
                 }
 
-                if viewModel.notifications.isEmpty {
+                if viewModel.hybridItems.isEmpty {
                     emptyState
                 } else {
                     List {
-                        ForEach(viewModel.notifications) { item in
+                        ForEach(viewModel.hybridItems) { item in
                             Button {
-                                inspectedNotification = item
+                                inspectedItem = item
                             } label: {
-                                NotificationRowView(item: item)
+                                HybridInboxRowView(item: item)
                             }
                             .buttonStyle(.plain)
+                            .swipeActions(edge: .leading, allowsFullSwipe: true) {
+                                Button {
+                                    viewModel.toggleRead(item.primary)
+                                } label: {
+                                    Label(item.primary.isRead ? "Unread" : "Read",
+                                          systemImage: item.primary.isRead ? "envelope.badge" : "envelope.open")
+                                }
+                                .tint(NotifdexTheme.prussian)
+
+                                Button {
+                                    viewModel.toggleFlag(item.primary)
+                                } label: {
+                                    Label(item.primary.isFlagged ? "Unflag" : "Flag",
+                                          systemImage: item.primary.isFlagged ? "flag.slash" : "flag.fill")
+                                }
+                                .tint(NotifdexTheme.sienna)
+                            }
+                            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                Button(role: .destructive) {
+                                    viewModel.hideAlert(item.primary)
+                                } label: {
+                                    Label("Hide", systemImage: "eye.slash")
+                                }
+                                Button {
+                                    viewModel.toggleSaved(item.primary)
+                                } label: {
+                                    Label(item.primary.saved ? "Unsave" : "Save",
+                                          systemImage: item.primary.saved ? "bookmark.slash" : "bookmark.fill")
+                                }
+                                .tint(NotifdexTheme.celadon)
+                            }
                         }
                     }
                     .listStyle(.plain)
@@ -49,10 +82,23 @@ struct InboxView: View {
                     }
                 }
             }
-            .sheet(item: $inspectedNotification) { item in
-                NotificationDetailSheet(item: item)
+            .sheet(item: $inspectedItem) { item in
+                HybridNotificationDetailSheet(item: item, viewModel: viewModel)
             }
         }
+    }
+
+    private var scopePicker: some View {
+        Picker("Filter", selection: $viewModel.inboxFilter) {
+            ForEach(InboxTabFilter.allCases) { tab in
+                Text(tab.rawValue).tag(tab)
+            }
+        }
+        .pickerStyle(.segmented)
+        .padding(.horizontal, 16)
+        .padding(.top, 8)
+        .padding(.bottom, 6)
+        .background(.bar)
     }
 
     private var filterBar: some View {
@@ -60,7 +106,7 @@ struct InboxView: View {
             HStack(spacing: 8) {
                 FilterChip(
                     title: "All",
-                    count: viewModel.stats.totalCount,
+                    count: viewModel.coreAppCounts.values.reduce(0, +),
                     color: NotifdexTheme.prussian,
                     isSelected: viewModel.selectedAppFilter == nil
                 ) {
@@ -70,7 +116,7 @@ struct InboxView: View {
                 ForEach(viewModel.availableAppsInInbox, id: \.self) { app in
                     FilterChip(
                         title: app,
-                        count: viewModel.stats.countByApp[app] ?? 0,
+                        count: viewModel.coreAppCounts[app] ?? 0,
                         color: NotifdexTheme.color(for: app),
                         isSelected: viewModel.selectedAppFilter?.caseInsensitiveCompare(app) == .orderedSame
                     ) {
@@ -83,7 +129,7 @@ struct InboxView: View {
                 }
             }
             .padding(.horizontal, 16)
-            .padding(.vertical, 10)
+            .padding(.vertical, 8)
         }
         .background(.bar)
     }
@@ -91,25 +137,26 @@ struct InboxView: View {
     private var emptyState: some View {
         ContentUnavailableView {
             Label(
-                viewModel.searchText.isEmpty && viewModel.selectedAppFilter == nil
+                viewModel.searchText.isEmpty && viewModel.selectedAppFilter == nil && viewModel.inboxFilter == .all
                     ? "No Captured Notifications"
                     : "No Matching Alerts",
                 systemImage: "tray"
             )
         } description: {
-            if viewModel.searchText.isEmpty && viewModel.selectedAppFilter == nil {
-                Text("Connect an iOS 27 Shortcuts Notification automation for X, Gmail, or WeChat to capture alerts directly into Notifdex.")
+            if viewModel.searchText.isEmpty && viewModel.selectedAppFilter == nil && viewModel.inboxFilter == .all {
+                Text("Connect an iOS 27 Shortcuts Notification automation or pair iCloud Sync with your Mac to view alerts here.")
             } else {
-                Text("Try clearing your app filter or search text.")
+                Text("Try switching scopes or clearing your search filter.")
             }
         } actions: {
-            if viewModel.searchText.isEmpty && viewModel.selectedAppFilter == nil {
-                Button("Set Up Capture") {
+            if viewModel.inboxFilter == .all && viewModel.searchText.isEmpty && viewModel.selectedAppFilter == nil {
+                Button("Set Up Capture & Sync") {
                     onOpenCapture()
                 }
                 .buttonStyle(.borderedProminent)
             } else {
-                Button("Clear Filters") {
+                Button("Reset Filters") {
+                    viewModel.inboxFilter = .all
                     viewModel.selectedAppFilter = nil
                     viewModel.searchText = ""
                 }
@@ -150,115 +197,217 @@ private struct FilterChip: View {
     }
 }
 
-private struct NotificationRowView: View {
-    let item: CapturedNotification
+private struct HybridInboxRowView: View {
+    let item: HybridInboxItem
 
     var body: some View {
+        let entry = item.primary
         HStack(alignment: .top, spacing: 12) {
-            ZStack {
+            ZStack(alignment: .topTrailing) {
                 RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .fill(NotifdexTheme.color(for: item.appLabel).opacity(0.14))
+                    .fill(NotifdexTheme.color(for: entry.app).opacity(0.14))
                     .frame(width: 38, height: 38)
-                Image(systemName: NotifdexTheme.symbol(for: item.appLabel))
+                Image(systemName: NotifdexTheme.symbol(for: entry.app))
                     .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(NotifdexTheme.color(for: item.appLabel))
+                    .foregroundStyle(NotifdexTheme.color(for: entry.app))
+                    .frame(width: 38, height: 38)
+                if !entry.isRead {
+                    Circle()
+                        .fill(NotifdexTheme.prussian)
+                        .frame(width: 9, height: 9)
+                        .offset(x: 2, y: -2)
+                }
             }
 
             VStack(alignment: .leading, spacing: 4) {
-                HStack(alignment: .firstTextBaseline) {
-                    Text(item.appLabel)
+                HStack(spacing: 6) {
+                    Text(entry.app)
                         .font(.caption.weight(.semibold))
-                        .foregroundStyle(NotifdexTheme.color(for: item.appLabel))
+                        .foregroundStyle(NotifdexTheme.color(for: entry.app))
 
-                    if item.captureChannel == .manualTest {
-                        Text("TEST")
-                            .font(.caption2.weight(.bold))
+                    ForEach(item.provenanceBadges, id: \.self) { badge in
+                        Text(badge)
+                            .font(.caption2.weight(.medium))
                             .padding(.horizontal, 5)
                             .padding(.vertical, 1)
-                            .background(Capsule().fill(NotifdexTheme.sienna.opacity(0.18)))
-                            .foregroundStyle(NotifdexTheme.sienna)
+                            .background(Capsule().fill(Color(.secondarySystemFill)))
+                            .foregroundStyle(.secondary)
                     }
 
                     Spacer()
 
-                    Text(item.capturedDate, style: .relative)
+                    if entry.isFlagged {
+                        Image(systemName: "flag.fill")
+                            .font(.caption2)
+                            .foregroundStyle(NotifdexTheme.sienna)
+                    }
+                    if entry.saved {
+                        Image(systemName: "bookmark.fill")
+                            .font(.caption2)
+                            .foregroundStyle(NotifdexTheme.celadon)
+                    }
+
+                    Text(Date(timeIntervalSince1970: entry.capturedAt), style: .relative)
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                 }
 
-                Text(item.displayTitle)
-                    .font(.subheadline.weight(.semibold))
+                Text(entry.title.isEmpty ? entry.app : entry.title)
+                    .font(.subheadline.weight(entry.isRead ? .regular : .semibold))
                     .foregroundStyle(.primary)
                     .lineLimit(1)
 
-                if !item.subtitle.isEmpty && item.subtitle != item.displayTitle {
-                    Text(item.subtitle)
+                if !entry.subtitle.isEmpty {
+                    Text(entry.subtitle)
                         .font(.caption.weight(.medium))
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                 }
 
-                Text(item.displayPreview)
+                Text(entry.body.isEmpty ? "No message body exposed" : entry.body)
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .lineLimit(2)
+
+                if !entry.personName.isEmpty || entry.dueAt != nil {
+                    HStack(spacing: 8) {
+                        if !entry.personName.isEmpty {
+                            Label(entry.personName, systemImage: "person.fill")
+                                .font(.caption2)
+                                .foregroundStyle(NotifdexTheme.prussian)
+                        }
+                        if let dueAt = entry.dueAt, !entry.done {
+                            Label(Date(timeIntervalSince1970: dueAt).formatted(date: .abbreviated, time: .shortened),
+                                  systemImage: "calendar.badge.clock")
+                                .font(.caption2)
+                                .foregroundStyle(NotifdexTheme.sienna)
+                        }
+                    }
+                    .padding(.top, 2)
+                }
             }
         }
         .padding(.vertical, 4)
     }
 }
 
-private struct NotificationDetailSheet: View {
-    let item: CapturedNotification
+private struct HybridNotificationDetailSheet: View {
+    let item: HybridInboxItem
+    @ObservedObject var viewModel: AppViewModel
     @Environment(\.dismiss) private var dismiss
+    @State private var showingNewPerson = false
+    @State private var newPersonName = ""
+    @State private var followUpDate = Calendar.current.date(byAdding: .hour, value: 4, to: Date()) ?? Date()
+
+    private var entry: InboxEntry {
+        viewModel.hybridItems.first(where: { $0.id == item.id })?.primary ?? item.primary
+    }
 
     var body: some View {
         NavigationStack {
             List {
                 Section("Notification") {
-                    LabeledContent("App", value: item.appLabel)
-                    LabeledContent("Title", value: item.title.isEmpty ? "—" : item.title)
-                    LabeledContent("Subtitle", value: item.subtitle.isEmpty ? "—" : item.subtitle)
+                    LabeledContent("App", value: entry.app)
+                    LabeledContent("Title", value: entry.title.isEmpty ? "—" : entry.title)
+                    if !entry.subtitle.isEmpty {
+                        LabeledContent("Subtitle", value: entry.subtitle)
+                    }
                     VStack(alignment: .leading, spacing: 6) {
                         Text("Body")
                             .font(.caption)
                             .foregroundStyle(.secondary)
-                        Text(item.body.isEmpty ? "No message body exposed." : item.body)
+                        Text(entry.body.isEmpty ? "No message body exposed." : entry.body)
                             .font(.body)
                             .textSelection(.enabled)
                     }
                     .padding(.vertical, 4)
                 }
 
-                Section("Provenance & Identity") {
-                    LabeledContent("Captured", value: item.capturedDate.formatted(date: .abbreviated, time: .standard))
-                    LabeledContent("Origin", value: item.origin.displayLabel)
-                    LabeledContent("Channel", value: item.captureChannel.displayLabel)
-                    LabeledContent("Source ID", value: item.sourceID)
-                    LabeledContent("Capture UUID", value: item.captureUUID)
-                    LabeledContent("Dedup Key") {
-                        Text(String(item.sourceEventID.prefix(16)) + "…")
-                            .font(.caption.monospaced())
-                            .foregroundStyle(.secondary)
+                Section("Workflow Actions") {
+                    Button {
+                        viewModel.toggleRead(entry)
+                    } label: {
+                        Label(entry.isRead ? "Mark Unread" : "Mark Read",
+                              systemImage: entry.isRead ? "envelope.badge" : "envelope.open")
                     }
-                    if item.metadataJSON != "{}" {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("Metadata")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                            Text(item.metadataJSON)
-                                .font(.caption.monospaced())
-                                .textSelection(.enabled)
+
+                    Button {
+                        viewModel.toggleFlag(entry)
+                    } label: {
+                        Label(entry.isFlagged ? "Remove Flag" : "Flag Alert",
+                              systemImage: entry.isFlagged ? "flag.slash" : "flag.fill")
+                    }
+
+                    Button {
+                        viewModel.toggleSaved(entry)
+                    } label: {
+                        Label(entry.saved ? "Remove from Saved" : "Save Alert",
+                              systemImage: entry.saved ? "bookmark.slash" : "bookmark.fill")
+                    }
+
+                    DatePicker("Follow-up", selection: $followUpDate, displayedComponents: [.date, .hourAndMinute])
+                    Button {
+                        viewModel.scheduleFollowUp(entry, dueDate: followUpDate)
+                    } label: {
+                        Label("Schedule Follow-up", systemImage: "calendar.badge.plus")
+                    }
+
+                    Button(role: .destructive) {
+                        viewModel.hideAlert(entry)
+                        dismiss()
+                    } label: {
+                        Label("Hide Alert", systemImage: "eye.slash")
+                    }
+                }
+
+                Section("Person") {
+                    if !entry.personName.isEmpty {
+                        LabeledContent("Linked To", value: entry.personName)
+                        Button(role: .destructive) {
+                            viewModel.link(entry.id, to: nil)
+                        } label: {
+                            Label("Unlink Person", systemImage: "person.badge.minus")
+                        }
+                    } else {
+                        if !viewModel.people.isEmpty {
+                            Menu {
+                                ForEach(viewModel.people) { person in
+                                    Button(person.name) {
+                                        viewModel.link(entry.id, to: person.id)
+                                    }
+                                }
+                            } label: {
+                                Label("Link to Existing Person", systemImage: "person.crop.circle.badge.plus")
+                            }
+                        }
+                        Button {
+                            newPersonName = entry.title
+                            showingNewPerson = true
+                        } label: {
+                            Label("Create & Link Person", systemImage: "person.badge.plus")
                         }
                     }
                 }
+
+                Section("Provenance") {
+                    LabeledContent("Captured", value: Date(timeIntervalSince1970: entry.capturedAt).formatted(date: .abbreviated, time: .standard))
+                    LabeledContent("Sources", value: item.provenanceBadges.joined(separator: " · "))
+                    LabeledContent("Observations", value: "\(item.observationIDs.count)")
+                }
             }
-            .navigationTitle(item.appLabel)
+            .navigationTitle(entry.app)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Done") { dismiss() }
                 }
+            }
+            .alert("Create Person", isPresented: $showingNewPerson) {
+                TextField("Display Name", text: $newPersonName)
+                Button("Create & Link") {
+                    viewModel.createPerson(name: newPersonName, linking: entry.id)
+                }
+                Button("Cancel", role: .cancel) {}
             }
         }
     }

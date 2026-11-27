@@ -1,29 +1,29 @@
-# Notifdex iOS Companion — Phase 1 Notification Capture Prototype
+# Notifdex iOS Companion — Phase 1 & Phase 2 Hybrid Sync
 
-This directory holds an isolated native SwiftUI iOS application (`NotifdexiOS`) that proves the end-to-end iOS 27 notification capture pipeline on a physical iPhone without touching macOS builds or CI:
+This directory holds an isolated native SwiftUI iOS application (`NotifdexiOS`) that links the shared local Swift package `NotifdexCore` (`..`) while remaining excluded from macOS Command Line Tools builds (`"ios"` in `Package.swift` `exclude:`):
 
 ```text
 iOS 27 Notification Automation (Shortcuts)
   → Notifdex → Capture Notification (AppIntent, background + alwaysAllowed)
-  → CaptureService (normalization + dynamic per-app toggle & pause checks)
-  → NotificationStore (WAL SQLite, FileProtectionCompleteUntilFirstUserAuthentication)
-  → NotifdexiOS Inbox / Capture / Settings UI
+  → CaptureService (dedicated serial ingestQueue, dynamic per-app toggle & pause checks)
+  → Shared NotifdexCore CaptureStore (schema v12 WAL SQLite, synchronous = NORMAL on iOS,
+      FileProtectionCompleteUntilFirstUserAuthentication)
+  → Optional Opt-In CloudKit Private DB (iCloud.com.notifdex.shared, zone NotifdexSyncZone)
+  → NotifdexiOS 5-Tab App (Inbox, Today, People, Notes, Setup) & macOS App Center
 ```
 
 ## Architecture
 
-- **`ios/NotifdexiOS/Core/CaptureModels.swift`** — Schema-aligned record types (`CapturedNotification`, `IncomingNotificationPayload`, `CaptureOutcome`, `CaptureSettingsState`, `AppAutomationStatus`, `IntentExecutionLogEntry`). Each device uses a stable `source_id` (`<deviceUUID>:ios_shortcuts`), `capture_channel` (`ios_shortcuts` vs `manual_test`), and `origin` (`iphone`), aligning with `NotifdexCore`'s `observations` schema for Phase 2 hybrid sync.
-- **`ios/NotifdexiOS/Core/CaptureNormalizer.swift`** — Trims whitespace and Unicode directional marks (`U+061C`, `U+200E`, `U+200F`), safely normalizes optional `title`/`subtitle`/`body` (including app-only lock-screen redacted alerts), and generates deterministic SHA-256 deduplication keys.
-- **`ios/NotifdexiOS/Core/NotificationStore.swift`** — Durable SQLite repository (`WAL`, `synchronous = FULL`, `busy_timeout = 3000ms`) with `FileProtectionType.completeUntilFirstUserAuthentication` so background Shortcuts executions can commit while the iPhone screen is locked (after first boot unlock). Uses a transactional 60-second sliding-window deduplication check inside `BEGIN IMMEDIATE` so rapid retries across minute boundaries stay idempotent while later identical messages remain distinct.
-- **`ios/NotifdexiOS/Core/CaptureService.swift`** — Authoritative ingestion pipeline implementing the safety invariants modeled in [`spec/IOSCapture.tla`](../spec/IOSCapture.tla):
-  - Never returns `captured` unless SQLite committed durably (`AcknowledgedIsDurable`).
-  - Never fabricates Shortcuts verification from in-app toggles (`ToggleNeverFabricatesVerification`).
-  - Skips writes cleanly when globally paused or when an app is toggled off in Notifdex, without losing prior records (`SkipAndFailNeverWrite`, `DurableNeverDisappears`).
+- **`NotifdexCore` (shared Swift package)** — Schema v12 (`Sources/NotifdexCore/sync.sql`), `HybridSync.swift` (opt-in pairing/revocation, filtered Mac → iOS projection, monotonic LWW workflow sync, tombstones, `HybridInboxProjection` provenance collapsing, `MacForwardingHealthAnalyzer`), and `CloudKitSyncTransport.swift` (entitlement-guarded private CloudKit zone `NotifdexSyncZone`). Modeled in [`spec/HybridSync.tla`](../spec/HybridSync.tla).
+- **`ios/NotifdexiOS/Core/CaptureService.swift`** — Authoritative ingestion pipeline implementing [`spec/IOSCapture.tla`](../spec/IOSCapture.tla) on top of shared `NotifdexCore.CaptureStore` (with non-destructive migration of Phase 1 `ios-capture.db` rows). Uses a dedicated `.userInitiated` serial `ingestQueue` for writes and lock-free WAL reads for UI so Shortcuts bursts commit well below Apple's background timeout.
 - **`ios/NotifdexiOS/Intents/CaptureNotificationIntent.swift`** — Exposes **Notifdex → Capture Notification** inside Apple's Shortcuts app with explicit typed parameters (`app: String`, `title: String?`, `subtitle: String?`, `body: String?`), `supportedModes = .background`, and `authenticationPolicy = .alwaysAllowed`.
-- **`ios/NotifdexiOS/UI/`** — Native SwiftUI screens:
-  - **Inbox**: searchable, app-filterable list with color-coded badges and provenance detail sheet.
-  - **Capture**: X, Gmail, WeChat (+ custom apps), dynamic in-app toggles, honest 3-state status (*Active via Shortcuts*, *Selected · Awaiting Shortcut*, *Paused in Notifdex*), `shortcuts://automations` deep link, and setup guide.
-  - **Settings**: capture status, counts, last capture time, `source_id`, DB size, simulated test capture (`manual_test`), and bounded intent execution debug log.
+- **`ios/NotifdexiOS/UI/`** — Native SwiftUI 5-tab companion:
+  - **Inbox**: All / Unread / Flagged / Saved filters, provenance badges (`iPhone`, `iPhone via Mac`, `Mac`), swipe & detail workflow actions, Person linking, and follow-up scheduling.
+  - **Today**: Due / overdue follow-ups and completion controls.
+  - **People**: Relationship profiles, linked timelines, and shared People notes.
+  - **Notes**: Personal notes with one-level folders and Unfiled.
+  - **Setup & Settings**: Multi-app Shortcuts status, dynamic per-app toggles, opt-in CloudKit Sync (**Enable & Pair**, **Sync Now**, device list & one-tap **Revoke**), simulated test capture (`manual_test`), and bounded intent execution debug log.
+- **`ios/NotifdexiOS/NotifdexiOS.entitlements`** — Declares `CloudKit` and container `iCloud.com.notifdex.shared` (matched on macOS by `Resources/NotifdexMac.entitlements` when building with `NOTIFDEX_PROVISIONING_PROFILE`).
 
 ## Build, Test, and Run
 
@@ -77,7 +77,8 @@ After this one-time setup, toggling an app on/off or pausing inside Notifdex's *
 - **Forward-only capture:** Shortcuts triggers fire on newly arriving notifications only; previously delivered Notification Center history is not readable on iOS.
 - **Delivery latency variance:** Initial physical-device testing on iPhone 17 (iOS 27.2) observed an occasional ~3-minute delay on an early X alert (`10:52` sent → `10:55` intent execution) while subsequent Gmail and X alerts arrived near-instantly. Follow-up RCA is needed to isolate upstream push delivery vs iOS Shortcuts background scheduling.
 - **Lock-screen & hidden previews:** If iOS *Show Previews* is set to *When Unlocked* or *Never*, lock-screen alerts may omit body text. Check **Settings → Recent Intent Executions** after locked/unlocked trials to record exact OS behavior.
-- **No sync in Phase 1:** Data stays local in `Application Support/Notifdex/ios-capture.db`. Cross-device sync (Issue #74 / #10) is planned for Phase 2 after physical-device capture reliability is validated.
+- **Opt-in CloudKit Sync (Phase 2):** Private iCloud sync (`iCloud.com.notifdex.shared`, zone `NotifdexSyncZone`) is off by default until paired in **Settings** (iOS) and **Recovery → iOS & iCloud Sync** (macOS). Hidden/muted Mac alerts stay local and never sync to iCloud or iPhone.
+- **macOS `usernotificationsd -10814` forwarding drops (#98):** If macOS Notification Center stops showing forwarded alerts for an iPhone-only app (such as Gmail or X) while iOS Shortcuts still captures them, check **System Settings → Notifications → Allow notifications from iPhone**; updating the app in the iPhone App Store or **Offload & Reinstall** (preserving app data) forces `replicatord` → `appplaceholdersyncd` to emit a fresh remote placeholder record.
 
 ## Physical-Device Acceptance Checklist (iPhone 17 / iOS 27.2)
 
@@ -85,6 +86,8 @@ After this one-time setup, toggling an app on/off or pausing inside Notifdex's *
 - [x] Single combined multi-app Notification automation triggers **Notifdex → Capture Notification** for **Messages**, **X**, and **Gmail** and persists records into the Inbox.
 - [x] **Messages** and **X** transition from *Selected · Awaiting Shortcut* to **Active via Shortcuts** upon real delivery.
 - [x] Locked-screen delivery verified with **X** (persisted while locked via `.alwaysAllowed` + `FileProtectionCompleteUntilFirstUserAuthentication`).
-- [ ] Verify real notification capture for **WeChat**.
+- [x] Bidirectional CloudKit Private DB sync verified live between iPhone 17 (`com.notifdex.ios`) and signed Mac mini build (`com.notifdex.mac`, dirty-digest skip verified on second sync).
+- [x] Shortcuts burst timeout fixed (lock-free WAL UI reads + dedicated serial `ingestQueue` + `PRAGMA synchronous = NORMAL` on iOS; 25-alert concurrent burst XCTest completes in ~0.02s).
+- [ ] Verify real notification capture for **WeChat** via Shortcuts automation.
 - [ ] Verify dynamic toggle-off in **Capture** logs `SKIPPED` in **Settings → Recent Intent Executions** without deleting prior alerts.
 - [ ] Track/RCA occasional multi-minute trigger delay (observed once on early X alert: ~3 min lag; subsequent Gmail/X alerts were near-instant).

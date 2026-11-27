@@ -28,7 +28,7 @@ public struct AppCaptureSummary {
 
 /// Use one collector owner per database. SQLite transactions protect all durable writes.
 public final class CaptureStore {
-    private var database: OpaquePointer?
+    internal var database: OpaquePointer?
     private let transient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
 
     public init(path: String) throws {
@@ -40,19 +40,35 @@ public final class CaptureStore {
             throw StoreError(description: message)
         }
         do {
+            #if os(iOS)
+            let dbURL = URL(fileURLWithPath: path)
+            try? FileManager.default.setAttributes(
+                [.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication],
+                ofItemAtPath: dbURL.deletingLastPathComponent().path
+            )
+            try? FileManager.default.setAttributes(
+                [.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication],
+                ofItemAtPath: dbURL.path
+            )
+            #endif
             sqlite3_busy_timeout(database, 3000)
             try execute("PRAGMA foreign_keys = ON")
             try execute("PRAGMA journal_mode = WAL")
+            #if os(iOS)
+            // In WAL mode, NORMAL avoids per-intent flash fsync stalls that trigger iOS Shortcuts timeouts.
+            try execute("PRAGMA synchronous = NORMAL")
+            #else
             try execute("PRAGMA synchronous = FULL")
+            #endif
             let version = try scalar("PRAGMA user_version")
-            guard (0...11).contains(version) else {
+            guard (0...12).contains(version) else {
                 throw StoreError(description: "Unsupported database version \(version)")
             }
-            if version < 10 {
+            if version < 12 {
                 try transaction {
                     // Recheck under the write lock if another process opened concurrently.
                     let current = try scalar("PRAGMA user_version")
-                    guard (0...11).contains(current) else {
+                    guard (0...12).contains(current) else {
                         throw StoreError(description: "Unsupported database version \(current)")
                     }
                     if current == 0 {
@@ -87,7 +103,10 @@ public final class CaptureStore {
                     }
                     if current < 10 {
                         try execute(Self.schema(named: "notebook"))
-                        try execute("PRAGMA user_version = 10")
+                    }
+                    if current < 12 {
+                        try execute(Self.schema(named: "sync"))
+                        try execute("PRAGMA user_version = 12")
                     }
                 }
             }
@@ -260,13 +279,13 @@ public final class CaptureStore {
         return result
     }
 
-    private func columnString(_ statement: OpaquePointer, _ column: Int32) -> String {
+    internal func columnString(_ statement: OpaquePointer, _ column: Int32) -> String {
         guard let pointer = sqlite3_column_text(statement, column) else { return "" }
         let bytes = UnsafeBufferPointer(start: pointer, count: Int(sqlite3_column_bytes(statement, column)))
         return String(decoding: bytes, as: UTF8.self)
     }
 
-    private func transaction<T>(_ operation: () throws -> T) throws -> T {
+    internal func transaction<T>(_ operation: () throws -> T) throws -> T {
         try execute("BEGIN IMMEDIATE")
         do {
             let result = try operation()
@@ -278,12 +297,12 @@ public final class CaptureStore {
         }
     }
 
-    private func failure() -> StoreError {
+    internal func failure() -> StoreError {
         StoreError(description: String(cString: sqlite3_errmsg(database)))
     }
 
     // These bind parameters in SQL order. Text and numbers remain bound values.
-    private func prepare(_ sql: String, numbersFirst: [Double] = [],
+    internal func prepare(_ sql: String, numbersFirst: [Double] = [],
                          strings: [String?] = [], numbers: [Double] = []) throws -> OpaquePointer {
         var statement: OpaquePointer?
         guard sqlite3_prepare_v2(database, sql, -1, &statement, nil) == SQLITE_OK,
@@ -322,7 +341,7 @@ public final class CaptureStore {
         return statement
     }
 
-    private func execute(_ sql: String, numbersFirst: [Double] = [],
+    internal func execute(_ sql: String, numbersFirst: [Double] = [],
                          strings: [String?] = [], numbers: [Double] = []) throws {
         // sqlite3_exec handles the multi-statement initial schema only.
         if strings.isEmpty && numbersFirst.isEmpty && numbers.isEmpty {
@@ -334,7 +353,7 @@ public final class CaptureStore {
         guard sqlite3_step(statement) == SQLITE_DONE else { throw failure() }
     }
 
-    private func scalar(_ sql: String, strings: [String?] = []) throws -> Int {
+    internal func scalar(_ sql: String, strings: [String?] = []) throws -> Int {
         let statement = try prepare(sql, strings: strings)
         defer { sqlite3_finalize(statement) }
         guard sqlite3_step(statement) == SQLITE_ROW else { throw failure() }
@@ -343,7 +362,7 @@ public final class CaptureStore {
 }
 
 public extension CaptureStore {
-    private static let appCategory = "CASE WHEN o.app_label IN ('X', 'Twitter') THEN 'X' ELSE coalesce(nullif(o.app_label, ''), 'Unknown app') END"
+    internal static let appCategory = "CASE WHEN o.app_label IN ('X', 'Twitter') THEN 'X' ELSE coalesce(nullif(o.app_label, ''), 'Unknown app') END"
 
     private static let matchConflict = """
         EXISTS (
@@ -960,7 +979,7 @@ public extension CaptureStore {
         guard sqlite3_changes(database) == 1 else { throw StoreError(description: "This alert has no scheduled follow-up.") }
     }
 
-    private func readRows<T>(_ sql: String, strings: [String?] = [], numbers: [Double] = [],
+    internal func readRows<T>(_ sql: String, strings: [String?] = [], numbers: [Double] = [],
                              map: (OpaquePointer) -> T) throws -> [T] {
         let statement = try prepare(sql, strings: strings, numbers: numbers)
         defer { sqlite3_finalize(statement) }

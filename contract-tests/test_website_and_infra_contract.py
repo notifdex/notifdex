@@ -59,6 +59,20 @@ class WebsiteAndCloudflareInfraContractTests(unittest.TestCase):
         self.assertIn("https://*.notifdex.pages.dev/*", headers)
         self.assertIn("X-Robots-Tag: noindex, nofollow", headers)
 
+        privacy_html = (src_dir / "privacy.html").read_text(encoding="utf-8")
+        for required in (
+            "iCloud.com.notifdex.shared",
+            "Private Database",
+            "Off by default",
+            "Hidden",
+            "One-tap revocation",
+        ):
+            self.assertIn(required, privacy_html)
+
+        faq_html = (src_dir / "faq.html").read_text(encoding="utf-8")
+        self.assertIn("iOS companion", faq_html)
+        self.assertIn("iCloud.com.notifdex.shared", faq_html)
+
     def test_opentofu_versions_lockfile_and_r2_backend_contract(self):
         version_pin = (INFRA / ".opentofu-version").read_text(encoding="utf-8").strip()
         self.assertRegex(version_pin, r"^\d+\.\d+\.\d+$")

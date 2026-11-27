@@ -15,6 +15,36 @@ public final class CloudKitSyncTransport: SyncTransport, @unchecked Sendable {
     public static let recordType = "NotifdexSyncBatch"
     public static let databaseSubscriptionID = "notifdex-private-db-changes"
 
+    /// Identifies whether an incoming APNs remote notification payload belongs to Notifdex's
+    /// private CloudKit sync subscription so macOS/iOS app delegates can trigger an immediate pull.
+    public static func isSyncRemoteNotification(_ userInfo: [AnyHashable: Any]) -> Bool {
+        if let ckNotification = CKNotification(fromRemoteNotificationDictionary: userInfo) {
+            if ckNotification.subscriptionID == Self.databaseSubscriptionID {
+                return true
+            }
+            if ckNotification.notificationType == .database || ckNotification.notificationType == .recordZone {
+                return true
+            }
+        }
+        // Fallback inspection for synthetic test payloads containing the CloudKit `"ck"` dictionary.
+        if let ck = userInfo["ck"] as? [AnyHashable: Any] {
+            if let qry = ck["qry"] as? [AnyHashable: Any],
+               let sid = qry["sid"] as? String,
+               sid == Self.databaseSubscriptionID {
+                return true
+            }
+            if let met = ck["met"] as? [AnyHashable: Any],
+               let sid = met["sid"] as? String,
+               sid == Self.databaseSubscriptionID {
+                return true
+            }
+            if ck["fet"] != nil {
+                return true
+            }
+        }
+        return false
+    }
+
     public let containerIdentifier: String
     private let zoneID: CKRecordZone.ID
 

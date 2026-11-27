@@ -152,3 +152,36 @@ class IOSCaptureContractTests(unittest.TestCase):
         self.assertIn("var body: String?", intent_swift)
         self.assertIn("supportedModes: IntentModes = .background", intent_swift)
         self.assertIn("authenticationPolicy: IntentAuthenticationPolicy = .alwaysAllowed", intent_swift)
+
+    def test_ios_testflight_app_store_readiness_contract(self):
+        import plistlib
+        import struct
+
+        # AppIcon.png must be an opaque 1024x1024 PNG (color type 2 = RGB, no alpha channel).
+        icon_path = ROOT / "ios" / "NotifdexiOS" / "Assets.xcassets" / "AppIcon.appiconset" / "AppIcon.png"
+        self.assertTrue(icon_path.is_file(), "Missing iOS AppIcon.png")
+        raw = icon_path.read_bytes()
+        self.assertEqual(raw[:8], b"\x89PNG\r\n\x1a\n", "AppIcon.png must be a valid PNG")
+        width, height, _bit_depth, color_type = struct.unpack(">IIBB", raw[16:26])
+        self.assertEqual((width, height), (1024, 1024), "iOS AppIcon.png must be 1024x1024")
+        self.assertEqual(color_type, 2, "iOS AppIcon.png must be opaque RGB (no alpha channel) for App Store Connect")
+
+        # PrivacyInfo.xcprivacy must exist, declare no tracking, and be bundled in Resources.
+        privacy_path = ROOT / "ios" / "NotifdexiOS" / "PrivacyInfo.xcprivacy"
+        self.assertTrue(privacy_path.is_file(), "Missing ios/NotifdexiOS/PrivacyInfo.xcprivacy")
+        privacy = plistlib.loads(privacy_path.read_bytes())
+        self.assertFalse(privacy.get("NSPrivacyTracking", True))
+        self.assertEqual(privacy.get("NSPrivacyCollectedDataTypes"), [])
+
+        pbxproj = (ROOT / "ios" / "NotifdexiOS.xcodeproj" / "project.pbxproj").read_text(encoding="utf-8")
+        self.assertIn("PrivacyInfo.xcprivacy in Resources", pbxproj)
+
+        # Info.plist must declare remote-notification background mode and export compliance exemption.
+        info_plist = plistlib.loads((ROOT / "ios" / "NotifdexiOS" / "Info.plist").read_bytes())
+        self.assertIn("remote-notification", info_plist.get("UIBackgroundModes", []))
+        self.assertIs(info_plist.get("ITSAppUsesNonExemptEncryption"), False)
+
+        # Entitlements must include APNs environment alongside CloudKit container.
+        ent = plistlib.loads((ROOT / "ios" / "NotifdexiOS" / "NotifdexiOS.entitlements").read_bytes())
+        self.assertIn("aps-environment", ent)
+        self.assertIn("iCloud.com.notifdex.shared", ent.get("com.apple.developer.icloud-container-identifiers", []))

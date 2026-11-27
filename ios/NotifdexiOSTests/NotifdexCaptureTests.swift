@@ -419,4 +419,57 @@ final class NotifdexCaptureTests: XCTestCase {
         XCTAssertLessThan(elapsed, 2.0, "25 concurrent captures under UI contention took \(elapsed)s")
         XCTAssertEqual(try service.hybridInbox().count, 25)
     }
+
+    func testIOSHideAlertRestoreAndHideRulesRoundTrip() throws {
+        let store = try NotificationStore(databaseURL: dbURL)
+        let service = CaptureService(store: store)
+
+        _ = try CaptureNotificationIntent.execute(
+            app: "Gmail",
+            title: "Promo Bot",
+            subtitle: "",
+            body: "Flash sale 50% off",
+            receivedAt: Date(timeIntervalSince1970: 1_764_400_000),
+            service: service
+        )
+        _ = try CaptureNotificationIntent.execute(
+            app: "Gmail",
+            title: "Promo Bot",
+            subtitle: "",
+            body: "Another promo",
+            receivedAt: Date(timeIntervalSince1970: 1_764_400_100),
+            service: service
+        )
+        _ = try CaptureNotificationIntent.execute(
+            app: "X",
+            title: "Alice",
+            subtitle: "",
+            body: "Real message",
+            receivedAt: Date(timeIntervalSince1970: 1_764_400_200),
+            service: service
+        )
+
+        XCTAssertEqual(try service.hybridInbox().count, 3)
+
+        // Hide one alert individually -> moves to Hidden; restore brings it back.
+        let alice = try XCTUnwrap(try service.hybridInbox().first(where: { $0.primary.title == "Alice" }))
+        try service.hideAlert(alice.primary.id)
+        XCTAssertEqual(try service.hybridInbox().count, 2)
+        XCTAssertEqual(try service.hybridInbox(scope: .hidden(app: nil)).count, 1)
+
+        try service.restoreAlert(alice.primary.id)
+        XCTAssertEqual(try service.hybridInbox().count, 3)
+        XCTAssertEqual(try service.hybridInbox(scope: .hidden(app: nil)).count, 0)
+
+        // Add a title hide rule -> hides both Gmail Promo Bot alerts; removing restores both.
+        let rule = InboxRuleMatch(app: "Gmail", field: .title, text: "Promo Bot")
+        XCTAssertTrue(try service.addHideRule(rule))
+        XCTAssertEqual(try service.inboxFilters().count, 1)
+        XCTAssertEqual(try service.hybridInbox().count, 1)
+        XCTAssertEqual(try service.hybridInbox(scope: .hidden(app: nil)).count, 2)
+
+        try service.removeHideRule(rule)
+        XCTAssertEqual(try service.inboxFilters().count, 0)
+        XCTAssertEqual(try service.hybridInbox().count, 3)
+    }
 }

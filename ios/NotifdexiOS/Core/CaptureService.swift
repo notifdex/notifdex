@@ -244,6 +244,33 @@ public final class CaptureService: @unchecked Sendable {
         }
     }
 
+    public func restoreAlert(_ id: Int64) throws {
+        try ingestQueue.sync {
+            try coreStore.restoreAlert(id)
+            notifyChanged()
+        }
+    }
+
+    public func inboxFilters() throws -> [InboxFilter] {
+        try coreStore.inboxFilters()
+    }
+
+    @discardableResult
+    public func addHideRule(_ match: InboxRuleMatch) throws -> Bool {
+        try ingestQueue.sync {
+            let added = try coreStore.addHideRule(match)
+            notifyChanged()
+            return added
+        }
+    }
+
+    public func removeHideRule(_ match: InboxRuleMatch) throws {
+        try ingestQueue.sync {
+            try coreStore.removeHideRule(match)
+            notifyChanged()
+        }
+    }
+
     public func people() throws -> [PersonRecord] {
         try coreStore.people()
     }

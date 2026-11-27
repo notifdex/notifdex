@@ -24,4 +24,8 @@ infra/**/*.tfvars
 *.p8
 *.cer
 *.certSigningRequest
+*.provisionprofile
+*.mobileprovision
+*.xcarchive/
+*.ipa
 

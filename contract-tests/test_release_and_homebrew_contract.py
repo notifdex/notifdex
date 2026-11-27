@@ -118,8 +118,60 @@ class ReleaseAndHomebrewContractTests(unittest.TestCase):
         self.assertIn("brew upgrade --cask notifdex", guide)
 
         gitignore = GITIGNORE.read_text(encoding="utf-8")
-        for pattern in ("*.p12", "*.p8", "*.cer", "*.certSigningRequest"):
+        for pattern in (
+            "*.p12",
+            "*.p8",
+            "*.cer",
+            "*.certSigningRequest",
+            "*.provisionprofile",
+            "*.mobileprovision",
+        ):
             self.assertIn(pattern, gitignore)
+
+    def test_macos_developer_id_cloudkit_production_entitlements_and_workflow_wiring(self):
+        import plistlib
+
+        release_ent_path = ROOT / "Resources" / "NotifdexMacRelease.entitlements"
+        self.assertTrue(
+            release_ent_path.is_file(),
+            "Missing Resources/NotifdexMacRelease.entitlements for Developer ID Production CloudKit",
+        )
+        release_ent = plistlib.loads(release_ent_path.read_bytes())
+        self.assertEqual(release_ent.get("com.apple.application-identifier"), "HNH4DY9A2T.com.notifdex.mac")
+        self.assertEqual(release_ent.get("com.apple.developer.team-identifier"), "HNH4DY9A2T")
+        self.assertEqual(release_ent.get("com.apple.developer.icloud-container-environment"), "Production")
+        self.assertEqual(
+            release_ent.get("com.apple.developer.icloud-container-identifiers"),
+            ["iCloud.com.notifdex.shared"],
+        )
+        self.assertEqual(release_ent.get("com.apple.developer.icloud-services"), ["CloudKit"])
+
+        dev_ent = plistlib.loads((ROOT / "Resources" / "NotifdexMac.entitlements").read_bytes())
+        self.assertEqual(dev_ent.get("com.apple.developer.icloud-container-environment"), "Development")
+
+        script = BUILD_APP.read_text(encoding="utf-8")
+        for required in (
+            "NOTIFDEX_PROVISIONING_PROFILE",
+            "NOTIFDEX_ENTITLEMENTS",
+            "embedded.provisionprofile",
+            "security cms -D -i",
+            "com.apple.developer.icloud-container-environment",
+        ):
+            self.assertIn(required, script)
+
+        workflow = RELEASE_WORKFLOW.read_text(encoding="utf-8")
+        for required in (
+            "APPLE_MAC_CLOUDKIT_PROFILE_BASE64",
+            "Resources/NotifdexMacRelease.entitlements",
+            "NOTIFDEX_PROVISIONING_PROFILE",
+            "NOTIFDEX_ENTITLEMENTS",
+            "notifdex-mac-developer-id.provisionprofile",
+        ):
+            self.assertIn(required, workflow)
+
+        guide = RELEASE_GUIDE.read_text(encoding="utf-8")
+        self.assertIn("APPLE_MAC_CLOUDKIT_PROFILE_BASE64", guide)
+        self.assertIn("iCloud.com.notifdex.shared", guide)
 
 
 if __name__ == "__main__":

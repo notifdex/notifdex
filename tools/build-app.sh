@@ -73,13 +73,75 @@ PLIST
 
 if [[ -n "$notifdex_signing_identity" ]]; then
     codesign_extra_args=()
+    effective_entitlements=""
     if [[ -n "$notifdex_provisioning_profile" ]]; then
         if [[ ! -f "$notifdex_provisioning_profile" ]]; then
             echo "Provisioning profile not found: $notifdex_provisioning_profile" >&2
             exit 1
         fi
+        if [[ ! -f "$notifdex_entitlements" ]]; then
+            echo "Entitlements file not found: $notifdex_entitlements" >&2
+            exit 1
+        fi
+
+        effective_entitlements="$(mktemp -t notifdex-entitlements).plist"
+        profile_xml="$(mktemp -t notifdex-profile).plist"
+        trap 'rm -f "${effective_entitlements:-}" "${profile_xml:-}"' EXIT
+        security cms -D -i "$notifdex_provisioning_profile" > "$profile_xml"
+
+        python3 - "$profile_xml" "$notifdex_entitlements" "$effective_entitlements" <<'PY'
+import plistlib
+import sys
+
+profile_path, ent_path, out_path = sys.argv[1], sys.argv[2], sys.argv[3]
+profile = plistlib.loads(open(profile_path, "rb").read())
+profile_ent = profile.get("Entitlements", {})
+requested = plistlib.loads(open(ent_path, "rb").read())
+
+req_app_id = requested.get("com.apple.application-identifier")
+prof_app_id = profile_ent.get("com.apple.application-identifier")
+if req_app_id and prof_app_id and prof_app_id != req_app_id and not prof_app_id.endswith(".*"):
+    raise SystemExit(
+        f"Provisioning profile app ID ({prof_app_id}) does not match entitlements ({req_app_id})"
+    )
+
+req_env = requested.get("com.apple.developer.icloud-container-environment")
+prof_env = profile_ent.get("com.apple.developer.icloud-container-environment")
+if req_env:
+    allowed_envs = [prof_env] if isinstance(prof_env, str) else list(prof_env or [])
+    if req_env not in allowed_envs:
+        raise SystemExit(
+            f"Provisioning profile does not authorize CloudKit environment '{req_env}' (profile allows: {allowed_envs})"
+        )
+
+req_containers = requested.get("com.apple.developer.icloud-container-identifiers") or []
+prof_containers = profile_ent.get("com.apple.developer.icloud-container-identifiers")
+if req_containers:
+    allowed_containers = [prof_containers] if isinstance(prof_containers, str) else list(prof_containers or [])
+    if "*" not in allowed_containers:
+        missing = [c for c in req_containers if c not in allowed_containers]
+        if missing:
+            raise SystemExit(
+                f"Provisioning profile missing CloudKit container(s): {missing} (profile allows: {allowed_containers})"
+            )
+
+# Automatically include aps-environment if the provisioning profile explicitly grants it.
+prof_aps = profile_ent.get("aps-environment")
+if isinstance(prof_aps, str) and prof_aps and "aps-environment" not in requested:
+    requested["aps-environment"] = prof_aps
+
+with open(out_path, "wb") as f:
+    plistlib.dump(requested, f, fmt=plistlib.FMT_XML)
+
+print(
+    f"Verified provisioning profile '{profile.get('Name', 'unknown')}': "
+    f"app-id={prof_app_id}, icloud-env={req_env}, containers={req_containers}, "
+    f"aps={requested.get('aps-environment', 'none')}"
+)
+PY
+
         cp "$notifdex_provisioning_profile" "$notifdex_app_dir/Contents/embedded.provisionprofile"
-        codesign_extra_args+=(--entitlements "$notifdex_entitlements")
+        codesign_extra_args+=(--entitlements "$effective_entitlements")
         echo "Signing $notifdex_app_dir with CloudKit provisioning profile + entitlements"
     else
         echo "Signing $notifdex_app_dir with Developer ID identity (hardened runtime + timestamp)"
@@ -90,7 +152,7 @@ if [[ -n "$notifdex_signing_identity" ]]; then
         --timestamp \
         --sign "$notifdex_signing_identity" \
         --identifier com.notifdex.mac \
-        "${codesign_extra_args[@]}" \
+        ${codesign_extra_args[@]+"${codesign_extra_args[@]}"} \
         "$notifdex_app_dir"
     codesign --verify --deep --strict --verbose=2 "$notifdex_app_dir"
 

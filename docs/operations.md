@@ -45,6 +45,7 @@ Never commit `.p12`, `.p8`, `.cer`, `.certSigningRequest`, `backend.hcl`, `*.tfv
 | `APPLE_NOTARY_KEY_P8_BASE64` | `notifdex/notifdex` repo secret | Does not auto-expire | **Yes** (Apple only allows 1 download) | App Store Connect Team API Key (`.p8`, Developer role) |
 | `APPLE_NOTARY_KEY_ID` | `notifdex/notifdex` repo secret | Permanent (`8NM2DVP5V7`) | Note only (visible in ASC) | Key ID for `xcrun notarytool` |
 | `APPLE_NOTARY_ISSUER_ID` | `notifdex/notifdex` repo secret | Permanent | Note only (visible in ASC) | Team Issuer UUID for `xcrun notarytool` |
+| `APPLE_MAC_CLOUDKIT_PROFILE_BASE64` | `notifdex/notifdex` repo secret | Matches Developer ID cert | No (re-download from Developer Portal) | Base64 Developer ID `.provisionprofile` for `com.notifdex.mac` Production CloudKit (`iCloud.com.notifdex.shared`) |
 | `HOMEBREW_TAP_DEPLOY_KEY` | `notifdex/notifdex` repo secret + public key on `notifdex/homebrew-tap` Deploy Keys (write enabled) | **Never expires** | No (regenerate in 20s) | Pushes `Casks/notifdex.rb` to `notifdex/homebrew-tap` |
 | `CLOUDFLARE_PLAN_API_TOKEN` | `cloudflare-plan` env secret | Per token policy | Rotate via Cloudflare Dashboard | Read-only OpenTofu plans on `notifdex.com` |
 | `CLOUDFLARE_APPLY_API_TOKEN` | `cloudflare-prod` env secret (protected) | Per token policy | Rotate via Cloudflare Dashboard | Scoped read/write OpenTofu applies on `notifdex.com` |

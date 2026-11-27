@@ -198,9 +198,13 @@ final class WorkflowModel: ObservableObject {
     @Published var dismissedHandleBannerAlertIDs: Set<Int64> = []
 
     private let worker: CaptureWorker
+    private let onLocalChange: (() -> Void)?
     private var generation = 0
 
-    init(worker: CaptureWorker) { self.worker = worker }
+    init(worker: CaptureWorker, onLocalChange: (() -> Void)? = nil) {
+        self.worker = worker
+        self.onLocalChange = onLocalChange
+    }
 
     var scope: InboxQuery.Scope {
         switch mode {
@@ -340,6 +344,7 @@ final class WorkflowModel: ObservableObject {
                 if inPopover { self.popoverError = nil }
                 then?()
                 self.load(query: self.query)
+                self.onLocalChange?()
             case .failure(let error):
                 if inSheet { self.sheetError = String(describing: error) }
                 else if inPopover { self.popoverError = String(describing: error) }
@@ -770,7 +775,9 @@ struct WorkflowView<AppsContent: View, RecoveryContent: View>: View {
     ) {
         self.appModel = appModel
         self.appearance = appearance
-        _model = StateObject(wrappedValue: WorkflowModel(worker: worker))
+        _model = StateObject(wrappedValue: WorkflowModel(worker: worker, onLocalChange: { [weak appModel] in
+            appModel?.notifyLocalWorkflowChanged()
+        }))
         self.worker = worker
         self.ready = ready
         self.total = total
@@ -878,6 +885,9 @@ struct WorkflowView<AppsContent: View, RecoveryContent: View>: View {
             if visible { model.load(query: model.query) }
         }
         .onChange(of: total) { _, _ in
+            if ready { model.load(query: model.query) }
+        }
+        .onChange(of: appModel.syncDataRevision) { _, _ in
             if ready { model.load(query: model.query) }
         }
         .onChange(of: model.selected) { _, _ in

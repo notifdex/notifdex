@@ -43,6 +43,7 @@ struct UserGuideView: View {
 
                 topic("Recovery and troubleshooting", paragraphs: [
                     "If Inbox is empty, check Accessibility access, the collection status, and whether the source is enabled in Apps. Confirm that macOS is showing a preview for that source.",
+                    "If native Mac alerts (like Messages or desktop WeChat) still work while forwarded iPhone-only apps (like Gmail or X) stop appearing in macOS Notification Center, open System Settings → Notifications → Allow notifications from iPhone and check whether those apps are missing from the list. After a Mac disk-full event or iPhone Mirroring reset, macOS can lose its synced iPhone app placeholders. Updating the missing app in the iPhone App Store—or using iPhone Settings → General → iPhone Storage → [App] → Offload App → Reinstall App (which keeps your data)—forces iOS to re-sync that app to macOS within seconds.",
                     "In Recovery, use Recover now to scan alerts still visible in Notification Center. Check the recovery status for results and blockers. Cleared or unavailable alerts may remain missing after a scan. The collection status control shows recent scan details and lets you pause or resume."
                 ])
             }

@@ -132,6 +132,25 @@
     </section>
 
     <section class="faq-item">
+      <h2>Why did forwarded iPhone alerts (like Gmail or X) stop appearing on my Mac while Messages or WeChat still work?</h2>
+      <p>
+        Native Mac apps (like Messages, desktop WeChat, WhatsApp Desktop, Slack, or Discord) deliver
+        notifications locally on your Mac. iPhone-only apps (like Gmail or X) depend on macOS keeping
+        a synced remote app placeholder from your iPhone.
+      </p>
+      <p>
+        After a macOS reset, low-disk event, or resetting <strong>iPhone Mirroring</strong> access,
+        macOS can lose those synced iPhone placeholders and silently drop forwarded alerts before
+        they reach Notification Center—even when iPhone Mirroring still opens. To check and fix it:
+      </p>
+      <ul>
+        <li>Open macOS <strong>System Settings → Notifications → Allow notifications from iPhone</strong> and see whether the missing app (for example, Gmail or X) disappeared from the list.</li>
+        <li>On your iPhone, update that app in the App Store—or if it is already up to date, go to <strong>iPhone Settings → General → iPhone Storage → [App] → Offload App → Reinstall App</strong>. Offloading preserves your accounts and app data while prompting iOS to re-sync that app’s placeholder to your Mac within seconds.</li>
+        <li>You only need to do this for iPhone-only apps you want forwarded right away; other apps typically re-register on their next normal App Store update. See the <a href="https://github.com/notifdex/notifdex/blob/main/docs/reliability.md" rel="noopener">reliability notes</a> for the technical RCA.</li>
+      </ul>
+    </section>
+
+    <section class="faq-item">
       <h2>Why does Notifdex ask for Accessibility access, and where is my data stored?</h2>
       <p>
         macOS doesn’t offer a public Notification Center history API, so Accessibility is the only

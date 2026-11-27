@@ -616,6 +616,7 @@ public extension CaptureStore {
             ? "INSERT INTO read_observations VALUES (?) ON CONFLICT DO NOTHING"
             : "DELETE FROM read_observations WHERE observation_id = ?"
         try execute(sql, strings: [String(observation)])
+        try? bumpExistingSyncWorkflowVersion(for: observation)
     }
 
     func setFlag(_ observation: Int64, flagged: Bool) throws {
@@ -623,6 +624,7 @@ public extension CaptureStore {
             ? "INSERT INTO flagged_observations VALUES (?) ON CONFLICT DO NOTHING"
             : "DELETE FROM flagged_observations WHERE observation_id = ?"
         try execute(sql, strings: [String(observation)])
+        try? bumpExistingSyncWorkflowVersion(for: observation)
     }
 
     func hideAlert(_ observation: Int64) throws {
@@ -838,6 +840,7 @@ public extension CaptureStore {
             try execute("INSERT INTO person_match_exclusions VALUES (?) ON CONFLICT DO NOTHING",
                         strings: [String(observation)])
         }
+        try? bumpExistingSyncWorkflowVersion(for: observation)
     }
 
     func link(_ observation: Int64, to person: String?) throws {
@@ -963,6 +966,7 @@ public extension CaptureStore {
             INSERT INTO observation_work (observation_id, saved) VALUES (?, ?)
             ON CONFLICT(observation_id) DO UPDATE SET saved = excluded.saved
             """, strings: [String(observation)], numbers: [saved ? 1 : 0])
+        try? bumpExistingSyncWorkflowVersion(for: observation)
     }
 
     func schedule(_ observation: Int64, dueAt: Double) throws {
@@ -971,12 +975,14 @@ public extension CaptureStore {
             INSERT INTO observation_work (observation_id, due_at) VALUES (?, ?)
             ON CONFLICT(observation_id) DO UPDATE SET due_at = excluded.due_at, done = 0
             """, strings: [String(observation)], numbers: [dueAt])
+        try? bumpExistingSyncWorkflowVersion(for: observation)
     }
 
     func complete(_ observation: Int64) throws {
         try execute("UPDATE observation_work SET done = 1 WHERE observation_id = ? AND due_at IS NOT NULL",
                     strings: [String(observation)])
         guard sqlite3_changes(database) == 1 else { throw StoreError(description: "This alert has no scheduled follow-up.") }
+        try? bumpExistingSyncWorkflowVersion(for: observation)
     }
 
     internal func readRows<T>(_ sql: String, strings: [String?] = [], numbers: [Double] = [],

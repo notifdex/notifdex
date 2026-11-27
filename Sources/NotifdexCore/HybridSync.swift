@@ -439,6 +439,14 @@ public struct SyncApplySummary: Equatable, Sendable {
     public let appliedPeople: Int
     public let appliedNotes: Int
     public let appliedTombstones: Int
+
+    public var hasChanges: Bool {
+        insertedObservations > 0
+            || appliedWorkflows > 0
+            || appliedPeople > 0
+            || appliedNotes > 0
+            || appliedTombstones > 0
+    }
 }
 
 public struct SyncRunResult: Equatable, Sendable {
@@ -560,10 +568,327 @@ public struct HybridSyncCoordinator {
     }
 }
 
+// MARK: - Automatic Bidirectional Sync Scheduler (mirrors spec/AutoSync.tla)
+
+public enum AutoSyncPhase: String, Equatable, Sendable {
+    case idle
+    case debouncing
+    case running
+    case backoff
+}
+
+public enum AutoSyncTrigger: String, Equatable, Sendable {
+    case localCapture
+    case localEdit
+    case foreground
+    case remotePush
+    case periodic
+    case manual
+}
+
+public enum AutoSyncScheduleDirective: Equatable, Sendable {
+    case none
+    case runImmediately
+    case scheduleAfter(Double)
+    case cancelScheduled
+}
+
+/// Pure, deterministic state machine mirroring `spec/AutoSync.tla` verbatim.
+/// Guarantees `SingleFlight`, `UnpairedNeverSchedules`, `DisabledAutoNeverArmsTimer`,
+/// `BackoffBounded`, and `MidSyncTriggerNotDropped`.
+public struct AutoSyncStateMachine: Equatable, Sendable {
+    public let debounceSeconds: Double
+    public let baseBackoffSeconds: Double
+    public let maxBackoffSeconds: Double
+    public let maxFailureStreak: Int
+
+    public private(set) var paired: Bool = false
+    public private(set) var autoEnabled: Bool = true
+    public private(set) var phase: AutoSyncPhase = .idle
+    public private(set) var pendingTrigger: Bool = false
+    public private(set) var failureStreak: Int = 0
+
+    public init(
+        debounceSeconds: Double = 3.0,
+        baseBackoffSeconds: Double = 10.0,
+        maxBackoffSeconds: Double = 300.0,
+        maxFailureStreak: Int = 5
+    ) {
+        self.debounceSeconds = max(0, debounceSeconds)
+        self.baseBackoffSeconds = max(0.01, baseBackoffSeconds)
+        self.maxBackoffSeconds = max(self.baseBackoffSeconds, maxBackoffSeconds)
+        self.maxFailureStreak = max(1, maxFailureStreak)
+    }
+
+    public func nextBackoffDelay() -> Double {
+        guard failureStreak > 0 else { return debounceSeconds }
+        let multiplier = pow(2.0, Double(failureStreak - 1))
+        return min(baseBackoffSeconds * multiplier, maxBackoffSeconds)
+    }
+
+    @discardableResult
+    public mutating func setPaired(_ isPaired: Bool) -> AutoSyncScheduleDirective {
+        guard isPaired != paired else { return .none }
+        paired = isPaired
+        if isPaired {
+            if phase == .running {
+                pendingTrigger = autoEnabled
+                return .none
+            }
+            if autoEnabled {
+                phase = .debouncing
+                return .scheduleAfter(debounceSeconds)
+            }
+            phase = .idle
+            return .none
+        } else {
+            // Revoke: immediately disarm timers & clear pending follow-ups.
+            pendingTrigger = false
+            failureStreak = 0
+            if phase != .running {
+                phase = .idle
+                return .cancelScheduled
+            }
+            return .cancelScheduled
+        }
+    }
+
+    @discardableResult
+    public mutating func setAutoEnabled(_ enabled: Bool) -> AutoSyncScheduleDirective {
+        guard enabled != autoEnabled else { return .none }
+        autoEnabled = enabled
+        if !enabled {
+            if phase == .debouncing || phase == .backoff {
+                phase = .idle
+                pendingTrigger = false
+                return .cancelScheduled
+            }
+            return .none
+        } else {
+            if paired && phase == .idle {
+                phase = .debouncing
+                return .scheduleAfter(debounceSeconds)
+            }
+            return .none
+        }
+    }
+
+    @discardableResult
+    public mutating func handleTrigger(_ trigger: AutoSyncTrigger) -> AutoSyncScheduleDirective {
+        if trigger == .manual {
+            guard paired else { return .none }
+            if phase == .running {
+                pendingTrigger = true
+                return .none
+            }
+            phase = .running
+            pendingTrigger = false
+            return .runImmediately
+        }
+
+        guard paired && autoEnabled else { return .none }
+        switch phase {
+        case .idle:
+            phase = .debouncing
+            return .scheduleAfter(debounceSeconds)
+        case .debouncing:
+            return .none
+        case .running:
+            pendingTrigger = true
+            return .none
+        case .backoff:
+            pendingTrigger = true
+            return .none
+        }
+    }
+
+    public mutating func beginScheduledRun() -> Bool {
+        guard paired && autoEnabled && (phase == .debouncing || phase == .backoff) else {
+            return false
+        }
+        phase = .running
+        pendingTrigger = false
+        return true
+    }
+
+    @discardableResult
+    public mutating func finishSuccess() -> AutoSyncScheduleDirective {
+        guard phase == .running else { return .none }
+        failureStreak = 0
+        if paired && autoEnabled && pendingTrigger {
+            phase = .debouncing
+            pendingTrigger = false
+            return .scheduleAfter(debounceSeconds)
+        }
+        phase = .idle
+        pendingTrigger = false
+        return .none
+    }
+
+    @discardableResult
+    public mutating func finishFailure() -> AutoSyncScheduleDirective {
+        guard phase == .running else { return .none }
+        if paired && autoEnabled {
+            failureStreak = min(failureStreak + 1, maxFailureStreak)
+            phase = .backoff
+            pendingTrigger = true
+            return .scheduleAfter(nextBackoffDelay())
+        }
+        failureStreak = 0
+        phase = .idle
+        pendingTrigger = false
+        return .none
+    }
+}
+
+/// Async single-flight debounced sync runner backed by `AutoSyncStateMachine`.
+public actor AutoSyncEngine {
+    public typealias SyncAction = @Sendable () async throws -> SyncRunResult
+    public typealias CompletionCallback = @Sendable (SyncRunResult) -> Void
+    public typealias FailureCallback = @Sendable (Error) -> Void
+    public typealias PhaseCallback = @Sendable (AutoSyncPhase) -> Void
+
+    private var machine: AutoSyncStateMachine
+    private let periodicIntervalSeconds: Double?
+    private let syncAction: SyncAction
+    private let onSyncCompleted: CompletionCallback?
+    private let onSyncFailed: FailureCallback?
+    private let onPhaseChanged: PhaseCallback?
+
+    private var scheduledTask: Task<Void, Never>?
+    private var periodicTask: Task<Void, Never>?
+    private var stopped = false
+
+    public init(
+        debounceSeconds: Double = 3.0,
+        baseBackoffSeconds: Double = 10.0,
+        maxBackoffSeconds: Double = 300.0,
+        maxFailureStreak: Int = 5,
+        periodicIntervalSeconds: Double? = nil,
+        syncAction: @escaping SyncAction,
+        onSyncCompleted: CompletionCallback? = nil,
+        onSyncFailed: FailureCallback? = nil,
+        onPhaseChanged: PhaseCallback? = nil
+    ) {
+        self.machine = AutoSyncStateMachine(
+            debounceSeconds: debounceSeconds,
+            baseBackoffSeconds: baseBackoffSeconds,
+            maxBackoffSeconds: maxBackoffSeconds,
+            maxFailureStreak: maxFailureStreak
+        )
+        self.periodicIntervalSeconds = periodicIntervalSeconds
+        self.syncAction = syncAction
+        self.onSyncCompleted = onSyncCompleted
+        self.onSyncFailed = onSyncFailed
+        self.onPhaseChanged = onPhaseChanged
+    }
+
+    public func currentPhase() -> AutoSyncPhase {
+        machine.phase
+    }
+
+    public func configure(paired: Bool, autoEnabled: Bool) {
+        stopped = false
+        let d1 = machine.setAutoEnabled(autoEnabled)
+        let d2 = machine.setPaired(paired)
+        apply(d1)
+        apply(d2)
+        updatePeriodicLoop()
+        onPhaseChanged?(machine.phase)
+    }
+
+    public func trigger(_ reason: AutoSyncTrigger) {
+        guard !stopped else { return }
+        let directive = machine.handleTrigger(reason)
+        apply(directive)
+        onPhaseChanged?(machine.phase)
+    }
+
+    public func stop() {
+        stopped = true
+        scheduledTask?.cancel()
+        scheduledTask = nil
+        periodicTask?.cancel()
+        periodicTask = nil
+        _ = machine.setPaired(false)
+        onPhaseChanged?(machine.phase)
+    }
+
+    private func apply(_ directive: AutoSyncScheduleDirective) {
+        switch directive {
+        case .none:
+            break
+        case .cancelScheduled:
+            scheduledTask?.cancel()
+            scheduledTask = nil
+        case .scheduleAfter(let seconds):
+            scheduledTask?.cancel()
+            let nanos = UInt64(max(0, seconds) * 1_000_000_000)
+            scheduledTask = Task { [weak self] in
+                if nanos > 0 {
+                    try? await Task.sleep(nanoseconds: nanos)
+                }
+                guard !Task.isCancelled else { return }
+                await self?.runScheduledIfReady()
+            }
+        case .runImmediately:
+            scheduledTask?.cancel()
+            scheduledTask = nil
+            Task { [weak self] in
+                await self?.executeRun()
+            }
+        }
+    }
+
+    private func runScheduledIfReady() async {
+        guard !stopped else { return }
+        guard machine.beginScheduledRun() else { return }
+        onPhaseChanged?(machine.phase)
+        await executeRun()
+    }
+
+    private func executeRun() async {
+        do {
+            let result = try await syncAction()
+            let next = machine.finishSuccess()
+            onPhaseChanged?(machine.phase)
+            onSyncCompleted?(result)
+            if !stopped {
+                apply(next)
+            }
+        } catch {
+            let next = machine.finishFailure()
+            onPhaseChanged?(machine.phase)
+            onSyncFailed?(error)
+            if !stopped {
+                apply(next)
+            }
+        }
+    }
+
+    private func updatePeriodicLoop() {
+        periodicTask?.cancel()
+        periodicTask = nil
+        guard !stopped, machine.paired, machine.autoEnabled,
+              let interval = periodicIntervalSeconds, interval > 0 else {
+            return
+        }
+        let nanos = UInt64(interval * 1_000_000_000)
+        periodicTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: nanos)
+                guard !Task.isCancelled else { break }
+                await self?.trigger(.periodic)
+            }
+        }
+    }
+}
+
 // MARK: - CaptureStore Hybrid Capture & Sync Extension
 
 public extension CaptureStore {
     private static let syncEnabledKey = "sync_enabled"
+    private static let autoSyncEnabledKey = "auto_sync_enabled"
     private static let syncTokenKey = "sync_change_token"
     private static let lastPushedDigestKey = "sync_last_pushed_digest"
     private static let localDeviceIDKey = "local_device_id"
@@ -678,6 +1003,25 @@ public extension CaptureStore {
 
     func setSyncEnabled(_ enabled: Bool) throws {
         try setSyncStateValue(enabled ? "1" : "0", for: Self.syncEnabledKey)
+    }
+
+    func isAutoSyncEnabled() throws -> Bool {
+        guard let value = try syncStateValue(for: Self.autoSyncEnabledKey) else {
+            return true
+        }
+        return value != "0"
+    }
+
+    func setAutoSyncEnabled(_ enabled: Bool) throws {
+        try setSyncStateValue(enabled ? "1" : "0", for: Self.autoSyncEnabledKey)
+    }
+
+    internal func bumpExistingSyncWorkflowVersion(for observationID: Int64, at time: Double = Date().timeIntervalSince1970) throws {
+        try execute("""
+            UPDATE sync_observation_links
+            SET workflow_version = workflow_version + 1, updated_at = max(updated_at, ?)
+            WHERE observation_id = ?
+            """, numbersFirst: [time], strings: [String(observationID)])
     }
 
     func registerOrUpdateDevice(

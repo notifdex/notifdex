@@ -29,6 +29,7 @@ run_tlc WindowChrome.cfg WindowChrome.tla
 run_tlc WindowDrag.cfg WindowDrag.tla
 run_tlc IOSCapture.cfg IOSCapture.tla
 run_tlc HybridSync.cfg HybridSync.tla
+run_tlc AutoSync.cfg AutoSync.tla
 
 # Verify every .cfg file in spec/ was checked so new models can never silently skip CI.
 for cfg in *.cfg; do

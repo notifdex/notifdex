@@ -36,9 +36,11 @@ final class AppViewModel: ObservableObject {
     }
 
     @Published var isSyncPaired: Bool = false
+    @Published var autoSyncEnabled: Bool = true
     @Published var syncDevices: [SyncDeviceRecord] = []
     @Published var isSyncing: Bool = false
     @Published var lastSyncSummary: String? = nil
+    @Published var lastSyncedAt: Date? = nil
 
     @Published var errorMessage: String? = nil
     @Published var toastMessage: String? = nil
@@ -46,11 +48,16 @@ final class AppViewModel: ObservableObject {
     let service: CaptureService
     private var observer: NSObjectProtocol?
     private var reloadTask: Task<Void, Never>?
+    private var autoSyncEngine: AutoSyncEngine?
+    private var isSceneActive: Bool = false
 
     init(service: CaptureService = .shared) {
         self.service = service
+        setupAutoSyncEngine()
         if UIApplication.shared.applicationState == .active {
+            isSceneActive = true
             reload()
+            reconfigureAutoSync()
         }
         observer = NotificationCenter.default.addObserver(
             forName: .notifdexCaptureStoreDidChange,
@@ -58,7 +65,7 @@ final class AppViewModel: ObservableObject {
             queue: .main
         ) { [weak self] _ in
             Task { @MainActor in
-                self?.scheduleForegroundReload()
+                self?.scheduleForegroundReload(triggerAutoSync: false)
             }
         }
         registerDarwinObserver()
@@ -66,6 +73,9 @@ final class AppViewModel: ObservableObject {
 
     deinit {
         reloadTask?.cancel()
+        if let engine = autoSyncEngine {
+            Task { await engine.stop() }
+        }
         if let observer {
             NotificationCenter.default.removeObserver(observer)
         }
@@ -77,14 +87,102 @@ final class AppViewModel: ObservableObject {
         )
     }
 
-    private func scheduleForegroundReload() {
-        // Never run 11 UI SQLite queries while backgrounded during Shortcuts execution.
+    private func setupAutoSyncEngine() {
+        #if canImport(CloudKit)
+        let service = self.service
+        autoSyncEngine = AutoSyncEngine(
+            debounceSeconds: 2.5,
+            baseBackoffSeconds: 15.0,
+            maxBackoffSeconds: 300.0,
+            maxFailureStreak: 5,
+            periodicIntervalSeconds: 45.0,
+            syncAction: {
+                let transport = CloudKitSyncTransport()
+                return try await service.runSync(using: transport)
+            },
+            onSyncCompleted: { [weak self] result in
+                Task { @MainActor in
+                    guard let self else { return }
+                    self.lastSyncedAt = Date(timeIntervalSince1970: result.syncedAt)
+                    self.errorMessage = nil
+                    if result.pushedObservations > 0 || result.applied.hasChanges {
+                        self.lastSyncSummary = "Pushed \(result.pushedObservations) alerts · Pulled \(result.applied.insertedObservations) new"
+                    } else {
+                        self.lastSyncSummary = "Up to date with iCloud"
+                    }
+                    if self.isSceneActive {
+                        self.reload()
+                    }
+                }
+            },
+            onSyncFailed: { [weak self] error in
+                Task { @MainActor in
+                    self?.errorMessage = "CloudKit sync: \(error.localizedDescription)"
+                }
+            },
+            onPhaseChanged: { [weak self] phase in
+                Task { @MainActor in
+                    self?.isSyncing = (phase == .running)
+                }
+            }
+        )
+        #endif
+    }
+
+    func handleScenePhase(_ phase: ScenePhase) {
+        switch phase {
+        case .active:
+            isSceneActive = true
+            reload()
+            reconfigureAutoSync()
+            triggerAutoSync(.foreground)
+        case .inactive, .background:
+            isSceneActive = false
+            if let engine = autoSyncEngine {
+                Task {
+                    await engine.configure(paired: isSyncPaired, autoEnabled: false)
+                }
+            }
+        @unknown default:
+            break
+        }
+    }
+
+    private func reconfigureAutoSync() {
+        #if canImport(CloudKit)
+        let entitled = CloudKitSyncTransport().hasCloudKitEntitlement()
+        let effectiveAuto = isSceneActive && isSyncPaired && autoSyncEnabled && entitled
+        if let engine = autoSyncEngine {
+            Task {
+                await engine.configure(paired: isSyncPaired, autoEnabled: effectiveAuto)
+            }
+        }
+        if effectiveAuto {
+            Task {
+                try? await CloudKitSyncTransport().ensureDatabaseSubscription()
+            }
+        }
+        #endif
+    }
+
+    private func triggerAutoSync(_ reason: AutoSyncTrigger) {
+        guard let engine = autoSyncEngine else { return }
+        Task {
+            await engine.trigger(reason)
+        }
+    }
+
+    private func scheduleForegroundReload(triggerAutoSync shouldSync: Bool) {
+        // Never run UI SQLite queries or CloudKit sync while backgrounded during Shortcuts execution.
         guard UIApplication.shared.applicationState == .active else { return }
         reloadTask?.cancel()
         reloadTask = Task { @MainActor [weak self] in
             try? await Task.sleep(nanoseconds: 150_000_000)
             guard !Task.isCancelled, UIApplication.shared.applicationState == .active else { return }
             self?.reload()
+            if shouldSync {
+                self?.triggerAutoSync(.localCapture)
+            }
         }
     }
 
@@ -97,7 +195,7 @@ final class AppViewModel: ObservableObject {
                 guard let observer else { return }
                 let model = Unmanaged<AppViewModel>.fromOpaque(observer).takeUnretainedValue()
                 Task { @MainActor in
-                    model.scheduleForegroundReload()
+                    model.scheduleForegroundReload(triggerAutoSync: true)
                 }
             },
             CaptureService.darwinChangeNotificationName as CFString,
@@ -135,6 +233,7 @@ final class AppViewModel: ObservableObject {
             noteFolders = try service.noteFolders()
             executionLogs = try service.executionLogs(limit: 50)
             isSyncPaired = try service.isSyncPaired()
+            autoSyncEnabled = try service.isAutoSyncEnabled()
             syncDevices = try service.syncDevices()
             reloadInboxOnly()
             errorMessage = nil
@@ -268,27 +367,43 @@ final class AppViewModel: ObservableObject {
     }
 
     func enableCloudKitSync() {
-        performAction(toast: "iPhone paired for opt-in iCloud Sync.") {
+        performAction(toast: "iPhone paired for opt-in iCloud Sync.", triggersSync: false) {
             try service.enableAndPairLocalSync(displayName: UIDevice.current.name)
         }
+        reconfigureAutoSync()
+    }
+
+    func setAutoSyncEnabled(_ enabled: Bool) {
+        performAction(triggersSync: false) {
+            try service.setAutoSyncEnabled(enabled)
+        }
+        reconfigureAutoSync()
     }
 
     func revokeSyncDevice(_ deviceID: String) {
-        performAction(toast: "Device revoked from sync. Local data preserved.") {
+        performAction(toast: "Device revoked from sync. Local data preserved.", triggersSync: false) {
             try service.revokeSyncDevice(deviceID)
         }
+        reconfigureAutoSync()
     }
 
     func syncNowWithCloudKit() {
         #if canImport(CloudKit)
+        errorMessage = nil
+        if let engine = autoSyncEngine {
+            Task {
+                await engine.trigger(.manual)
+            }
+            return
+        }
         guard !isSyncing else { return }
         isSyncing = true
-        errorMessage = nil
         Task {
             defer { isSyncing = false }
             do {
                 let transport = CloudKitSyncTransport()
                 let result = try await service.runSync(using: transport)
+                lastSyncedAt = Date(timeIntervalSince1970: result.syncedAt)
                 lastSyncSummary = "Pushed \(result.pushedObservations) alerts · Pulled \(result.applied.insertedObservations) new"
                 toastMessage = lastSyncSummary
                 reload()
@@ -358,11 +473,14 @@ final class AppViewModel: ObservableObject {
         errorMessage = "Could not open Apple Shortcuts. Open the Shortcuts app manually and tap Automation."
     }
 
-    private func performAction(toast: String? = nil, _ work: () throws -> Void) {
+    private func performAction(toast: String? = nil, triggersSync: Bool = true, _ work: () throws -> Void) {
         do {
             try work()
             if let toast { toastMessage = toast }
             reload()
+            if triggersSync {
+                triggerAutoSync(.localEdit)
+            }
         } catch {
             errorMessage = error.localizedDescription
         }

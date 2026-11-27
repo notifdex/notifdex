@@ -176,12 +176,45 @@ class IOSCaptureContractTests(unittest.TestCase):
         pbxproj = (ROOT / "ios" / "NotifdexiOS.xcodeproj" / "project.pbxproj").read_text(encoding="utf-8")
         self.assertIn("PrivacyInfo.xcprivacy in Resources", pbxproj)
 
-        # Info.plist must declare remote-notification background mode and export compliance exemption.
+        # Info.plist must declare remote-notification background mode, export compliance exemption,
+        # dynamic Xcode version variables, and full iPad orientation support (preventing ITMS-90474).
         info_plist = plistlib.loads((ROOT / "ios" / "NotifdexiOS" / "Info.plist").read_bytes())
         self.assertIn("remote-notification", info_plist.get("UIBackgroundModes", []))
         self.assertIs(info_plist.get("ITSAppUsesNonExemptEncryption"), False)
+        self.assertEqual(info_plist.get("CFBundleShortVersionString"), "$(MARKETING_VERSION)")
+        self.assertEqual(info_plist.get("CFBundleVersion"), "$(CURRENT_PROJECT_VERSION)")
+        self.assertEqual(
+            set(info_plist.get("UISupportedInterfaceOrientations~ipad", [])),
+            {
+                "UIInterfaceOrientationPortrait",
+                "UIInterfaceOrientationPortraitUpsideDown",
+                "UIInterfaceOrientationLandscapeLeft",
+                "UIInterfaceOrientationLandscapeRight",
+            },
+        )
 
         # Entitlements must include APNs environment alongside CloudKit container.
         ent = plistlib.loads((ROOT / "ios" / "NotifdexiOS" / "NotifdexiOS.entitlements").read_bytes())
         self.assertIn("aps-environment", ent)
         self.assertIn("iCloud.com.notifdex.shared", ent.get("com.apple.developer.icloud-container-identifiers", []))
+
+        # TestFlight export options and archive script must exist and target team HNH4DY9A2T.
+        export_plist_path = ROOT / "ios" / "ExportOptions-AppStore.plist"
+        self.assertTrue(export_plist_path.is_file(), "Missing ios/ExportOptions-AppStore.plist")
+        export_opts = plistlib.loads(export_plist_path.read_bytes())
+        self.assertEqual(export_opts.get("method"), "app-store-connect")
+        self.assertEqual(export_opts.get("teamID"), "HNH4DY9A2T")
+        self.assertEqual(export_opts.get("signingStyle"), "automatic")
+
+        archive_script_path = ROOT / "tools" / "archive-ios-testflight.sh"
+        self.assertTrue(archive_script_path.is_file(), "Missing tools/archive-ios-testflight.sh")
+        archive_script = archive_script_path.read_text(encoding="utf-8")
+        for required in (
+            "xcodebuild",
+            "archive",
+            "-exportArchive",
+            "ios/ExportOptions-AppStore.plist",
+            "PrivacyInfo.xcprivacy",
+            "iCloud.com.notifdex.shared",
+        ):
+            self.assertIn(required, archive_script)

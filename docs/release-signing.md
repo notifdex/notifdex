@@ -45,7 +45,22 @@ gh secret set HOMEBREW_TAP_DEPLOY_KEY --repo notifdex/notifdex < /tmp/notifdex-t
 rm -f /tmp/notifdex-tap-key /tmp/notifdex-tap-key.pub
 ```
 
-### 4. Add GitHub Actions secrets in `notifdex/notifdex`
+### 4. Create a Developer ID provisioning profile for macOS CloudKit sync *(required for iCloud Sync in Homebrew releases)*
+
+macOS Developer ID apps require an embedded **Developer ID Application** provisioning profile to access the shared **Production** CloudKit container (`iCloud.com.notifdex.shared`):
+
+1. Deploy the `iCloud.com.notifdex.shared` schema from **Development → Production** in [CloudKit Console](https://icloud.developer.apple.com/dashboard) (Production CloudKit does not auto-create schema on write).
+2. In [Apple Developer → Identifiers](https://developer.apple.com/account/resources/identifiers/list), open **`com.notifdex.mac`** (macOS), ensure **iCloud** (`CloudKit`, container `iCloud.com.notifdex.shared`) is enabled (and optionally **Push Notifications** for silent CloudKit wake).
+3. In [Apple Developer → Profiles](https://developer.apple.com/account/resources/profiles/list), click **+** → **Distribution → Developer ID** → select **`com.notifdex.mac`** → select **`Developer ID Application: … (HNH4DY9A2T)`** → name it `Notifdex macOS Developer ID CloudKit` → **Download** `.provisionprofile`.
+4. Base64-encode the profile and store it as `APPLE_MAC_CLOUDKIT_PROFILE_BASE64`:
+
+```bash
+base64 -i Notifdex_macOS_Developer_ID_CloudKit.provisionprofile | gh secret set APPLE_MAC_CLOUDKIT_PROFILE_BASE64 --repo notifdex/notifdex
+```
+
+When `APPLE_MAC_CLOUDKIT_PROFILE_BASE64` is set, [`.github/workflows/release-macos.yml`](../.github/workflows/release-macos.yml) embeds the profile, signs with [`Resources/NotifdexMacRelease.entitlements`](../Resources/NotifdexMacRelease.entitlements) (`Production` CloudKit environment, plus `aps-environment` automatically when granted by the profile), verifies the entitlements and launch via `tools/smoke-app.sh`, and cleans up the temporary profile in `if: always()`.
+
+### 5. Add GitHub Actions secrets in `notifdex/notifdex`
 
 In **GitHub → `notifdex/notifdex` → Settings → Secrets and variables → Actions → New repository secret**, add:
 
@@ -57,6 +72,7 @@ In **GitHub → `notifdex/notifdex` → Settings → Secrets and variables → A
 | `APPLE_NOTARY_KEY_P8_BASE64` | Base64 output of `AuthKey_<KEY_ID>.p8` |
 | `APPLE_NOTARY_KEY_ID` | The 10-character Key ID from App Store Connect |
 | `APPLE_NOTARY_ISSUER_ID` | The UUID Issuer ID from App Store Connect |
+| `APPLE_MAC_CLOUDKIT_PROFILE_BASE64` *(recommended)* | Base64 output of the Developer ID `.provisionprofile` for `com.notifdex.mac` (`iCloud.com.notifdex.shared`) |
 | `HOMEBREW_TAP_DEPLOY_KEY` *(optional)* | Private ed25519 SSH key whose public half is a write-enabled Deploy Key on `notifdex/homebrew-tap` (never expires) |
 
 *(You can reuse the exact same Developer ID `.p12` and App Store Connect API key secrets across other apps signed under Team ID `HNH4DY9A2T`.)*

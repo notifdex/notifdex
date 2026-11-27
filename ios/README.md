@@ -52,6 +52,24 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
   xcrun devicectl device process launch --device <DEVICE_UDID> com.notifdex.ios
 ```
 
+### TestFlight archive & App Store Connect upload
+
+Before uploading your first TestFlight build (or shipping a Production CloudKit macOS build):
+
+1. **Deploy CloudKit schema to Production:** Open [CloudKit Console](https://icloud.developer.apple.com/dashboard) → `iCloud.com.notifdex.shared` → **Deploy Schema Changes…** (Development → Production). Production CloudKit does not auto-create `NotifdexSyncBatch` on write.
+2. **Create the App Store Connect app record:** In [App Store Connect → Apps](https://appstoreconnect.apple.com/apps), create an iOS app for bundle ID `com.notifdex.ios` (Team `HNH4DY9A2T`).
+3. **Archive and verify locally** (validates `PrivacyInfo.xcprivacy`, compiled `AppIcon`, `ITSAppUsesNonExemptEncryption = false`, `remote-notification`, 4 iPad orientations, and `iCloud.com.notifdex.shared` + `aps-environment`):
+
+```bash
+bash tools/archive-ios-testflight.sh --archive-only
+```
+
+4. **Upload directly to TestFlight** (uses Xcode's signed-in Apple ID via `-allowProvisioningUpdates`, or set `APP_STORE_CONNECT_API_KEY_PATH`, `APP_STORE_CONNECT_API_KEY_ID`, and `APP_STORE_CONNECT_API_ISSUER_ID` for headless uploads):
+
+```bash
+bash tools/archive-ios-testflight.sh --upload
+```
+
 ## Configure iOS 27 Shortcuts Automation (Single Multi-App Flow)
 
 Apple does not provide a public API to silently create or enable Personal Automations, but **iOS 27 allows selecting multiple apps inside one Notification automation**:

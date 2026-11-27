@@ -25,6 +25,7 @@
 		A10000160000000000000001 /* PeopleView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000190000000000000001 /* PeopleView.swift */; };
 		A10000170000000000000001 /* NotesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000200000000000000001 /* NotesView.swift */; };
 		A10000180000000000000001 /* NotifdexCore in Frameworks */ = {isa = PBXBuildFile; productRef = AB0000020000000000000001 /* NotifdexCore */; };
+		A10000190000000000000001 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = A20000210000000000000001 /* PrivacyInfo.xcprivacy */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -58,6 +59,7 @@
 		A20000180000000000000001 /* TodayView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TodayView.swift; sourceTree = "<group>"; };
 		A20000190000000000000001 /* PeopleView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PeopleView.swift; sourceTree = "<group>"; };
 		A20000200000000000000001 /* NotesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotesView.swift; sourceTree = "<group>"; };
+		A20000210000000000000001 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -96,6 +98,7 @@
 				A50000050000000000000001 /* UI */,
 				A20000130000000000000001 /* Assets.xcassets */,
 				A20000150000000000000001 /* Info.plist */,
+				A20000210000000000000001 /* PrivacyInfo.xcprivacy */,
 			);
 			path = NotifdexiOS;
 			sourceTree = "<group>";
@@ -240,6 +243,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				A10000130000000000000001 /* Assets.xcassets in Resources */,
+				A10000190000000000000001 /* PrivacyInfo.xcprivacy in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

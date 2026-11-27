@@ -762,6 +762,21 @@ final class HybridSyncTests: XCTestCase {
     }
 
     #if canImport(CloudKit)
+    func testCloudKitRemoteNotificationClassifierIdentifiesNotifdexSubscription() {
+        let matchingPayload: [AnyHashable: Any] = [
+            "aps": ["content-available": 1],
+            "ck": [
+                "cid": CloudKitSyncTransport.defaultContainerIdentifier,
+                "met": ["sid": CloudKitSyncTransport.databaseSubscriptionID]
+            ]
+        ]
+        let unrelatedPayload: [AnyHashable: Any] = [
+            "aps": ["alert": "Hello"]
+        ]
+        XCTAssertTrue(CloudKitSyncTransport.isSyncRemoteNotification(matchingPayload))
+        XCTAssertFalse(CloudKitSyncTransport.isSyncRemoteNotification(unrelatedPayload))
+    }
+
     func testCloudKitTransportGuardsMissingEntitlementWithoutCrashing() async throws {
         let transport = CloudKitSyncTransport()
         XCTAssertFalse(transport.hasCloudKitEntitlement())

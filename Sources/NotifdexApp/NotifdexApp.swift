@@ -443,10 +443,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
             DispatchQueue.main.asyncAfter(deadline: .now() + 2) { NSApp.terminate(nil) }
         } else {
+            #if canImport(CloudKit)
+            if CloudKitSyncTransport().hasCloudKitEntitlement() {
+                NSApp.registerForRemoteNotifications()
+            }
+            #endif
             DispatchQueue.main.async { [weak self] in
                 self?.showAppCenter()
             }
         }
+    }
+
+    func application(_ application: NSApplication, didReceiveRemoteNotification userInfo: [String: Any]) {
+        #if canImport(CloudKit)
+        guard CloudKitSyncTransport.isSyncRemoteNotification(userInfo) else { return }
+        AppModel.shared.triggerAutoSync(.remotePush)
+        #endif
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }

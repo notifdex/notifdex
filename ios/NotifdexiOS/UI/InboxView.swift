@@ -13,6 +13,31 @@ struct InboxView: View {
                 if !viewModel.availableAppsInInbox.isEmpty {
                     filterBar
                 }
+                if let lastHide = viewModel.lastHideAction {
+                    HStack(spacing: 10) {
+                        Image(systemName: "eye.slash")
+                            .foregroundStyle(.secondary)
+                        Text(lastHide.bannerText)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        Button("Undo") {
+                            viewModel.undoLastHide()
+                        }
+                        .font(.caption.weight(.semibold))
+                        Button {
+                            viewModel.lastHideAction = nil
+                        } label: {
+                            Image(systemName: "xmark")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 8)
+                    .background(Color(.secondarySystemBackground))
+                }
 
                 if viewModel.hybridItems.isEmpty {
                     emptyState
@@ -43,10 +68,19 @@ struct InboxView: View {
                                 .tint(NotifdexTheme.sienna)
                             }
                             .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                                Button(role: .destructive) {
-                                    viewModel.hideAlert(item.primary)
-                                } label: {
-                                    Label("Hide", systemImage: "eye.slash")
+                                if viewModel.inboxFilter == .hidden {
+                                    Button {
+                                        viewModel.restoreAlert(item.primary)
+                                    } label: {
+                                        Label("Restore", systemImage: "arrow.uturn.backward")
+                                    }
+                                    .tint(NotifdexTheme.celadon)
+                                } else {
+                                    Button(role: .destructive) {
+                                        viewModel.hideAlert(item.primary)
+                                    } label: {
+                                        Label("Hide", systemImage: "eye.slash")
+                                    }
                                 }
                                 Button {
                                     viewModel.toggleSaved(item.primary)
@@ -67,6 +101,24 @@ struct InboxView: View {
             .navigationTitle("Inbox")
             .searchable(text: $viewModel.searchText, prompt: "Search app, title, or message")
             .toolbar {
+                if !viewModel.hideRules.isEmpty {
+                    ToolbarItem(placement: .topBarLeading) {
+                        Menu {
+                            ForEach(viewModel.hideRules) { rule in
+                                Button(role: .destructive) {
+                                    viewModel.removeHideRule(rule.match)
+                                } label: {
+                                    Label(
+                                        "Remove \(rule.match.app) · \(rule.match.field.rawValue): \(rule.match.text)",
+                                        systemImage: "trash"
+                                    )
+                                }
+                            }
+                        } label: {
+                            Label("Rules (\(viewModel.hideRules.count))", systemImage: "line.3.horizontal.decrease.circle")
+                        }
+                    }
+                }
                 ToolbarItem(placement: .topBarTrailing) {
                     if viewModel.settings.paused {
                         Label("Paused", systemImage: "pause.circle.fill")
@@ -352,11 +404,39 @@ private struct HybridNotificationDetailSheet: View {
                         Label("Schedule Follow-up", systemImage: "calendar.badge.plus")
                     }
 
-                    Button(role: .destructive) {
-                        viewModel.hideAlert(entry)
-                        dismiss()
-                    } label: {
-                        Label("Hide Alert", systemImage: "eye.slash")
+                    if viewModel.inboxFilter == .hidden {
+                        Button {
+                            viewModel.restoreAlert(entry)
+                            dismiss()
+                        } label: {
+                            Label("Restore Alert", systemImage: "arrow.uturn.backward")
+                        }
+                    } else {
+                        Button(role: .destructive) {
+                            viewModel.hideAlert(entry)
+                            dismiss()
+                        } label: {
+                            Label("Hide Alert", systemImage: "eye.slash")
+                        }
+
+                        if entry.app != "Unknown app" {
+                            if !entry.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                                Button(role: .destructive) {
+                                    viewModel.addHideRule(app: entry.app, field: .title, text: entry.title)
+                                    dismiss()
+                                } label: {
+                                    Label("Hide All with This Title", systemImage: "eye.slash.fill")
+                                }
+                            }
+                            if !entry.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                                Button(role: .destructive) {
+                                    viewModel.addHideRule(app: entry.app, field: .body, text: entry.body)
+                                    dismiss()
+                                } label: {
+                                    Label("Hide All with This Body", systemImage: "eye.slash.fill")
+                                }
+                            }
+                        }
                     }
                 }
 

@@ -8,8 +8,21 @@ enum InboxTabFilter: String, CaseIterable, Identifiable {
     case unread = "Unread"
     case flagged = "Flagged"
     case saved = "Saved"
+    case hidden = "Hidden"
 
     var id: String { rawValue }
+}
+
+enum IOSHideAction: Equatable {
+    case alert(Int64)
+    case rule(InboxRuleMatch)
+
+    var bannerText: String {
+        switch self {
+        case .alert: "Alert hidden."
+        case .rule(let match): "Hid matching \(match.app) alerts."
+        }
+    }
 }
 
 @MainActor
@@ -20,6 +33,8 @@ final class AppViewModel: ObservableObject {
     @Published var personalNotes: [PersonalNote] = []
     @Published var noteFolders: [NoteFolder] = []
     @Published var coreAppCounts: [String: Int] = [:]
+    @Published var hideRules: [InboxFilter] = []
+    @Published var lastHideAction: IOSHideAction? = nil
 
     @Published var settings: CaptureSettingsState = CaptureSettingsState(deviceID: "initializing")
     @Published var stats: CaptureStats = CaptureStats()
@@ -231,6 +246,7 @@ final class AppViewModel: ObservableObject {
             people = try service.people()
             personalNotes = try service.personalNotes()
             noteFolders = try service.noteFolders()
+            hideRules = try service.inboxFilters()
             executionLogs = try service.executionLogs(limit: 50)
             isSyncPaired = try service.isSyncPaired()
             autoSyncEnabled = try service.isAutoSyncEnabled()
@@ -258,6 +274,9 @@ final class AppViewModel: ObservableObject {
                 readFilter = .all
             case .saved:
                 scope = .inbox(app: selectedAppFilter, saved: true)
+                readFilter = .all
+            case .hidden:
+                scope = .hidden(app: selectedAppFilter)
                 readFilter = .all
             }
             hybridItems = try service.hybridInbox(scope: scope, readFilter: readFilter, search: searchText)
@@ -296,6 +315,48 @@ final class AppViewModel: ObservableObject {
     func hideAlert(_ entry: InboxEntry) {
         performAction(toast: "Alert hidden.") {
             try service.hideAlert(entry.id)
+            lastHideAction = .alert(entry.id)
+        }
+    }
+
+    func restoreAlert(_ entry: InboxEntry) {
+        performAction(toast: "Alert restored.") {
+            try service.restoreAlert(entry.id)
+            if lastHideAction == .alert(entry.id) {
+                lastHideAction = nil
+            }
+        }
+    }
+
+    func addHideRule(app: String, field: InboxRuleMatch.Field, text: String) {
+        let match = InboxRuleMatch(app: app, field: field, text: text)
+        performAction(toast: "Hide rule added.") {
+            let added = try service.addHideRule(match)
+            if added {
+                lastHideAction = .rule(match)
+            }
+        }
+    }
+
+    func removeHideRule(_ match: InboxRuleMatch) {
+        performAction(toast: "Hide rule removed.") {
+            try service.removeHideRule(match)
+            if lastHideAction == .rule(match) {
+                lastHideAction = nil
+            }
+        }
+    }
+
+    func undoLastHide() {
+        guard let action = lastHideAction else { return }
+        performAction(toast: "Hide undone.") {
+            switch action {
+            case .alert(let id):
+                try service.restoreAlert(id)
+            case .rule(let match):
+                try service.removeHideRule(match)
+            }
+            lastHideAction = nil
         }
     }
 

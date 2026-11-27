@@ -134,6 +134,12 @@ class HybridSyncContractTests(unittest.TestCase):
                     saw_outage_warning = True
             if mfwd and (vis, iphone) in mobs and (vis, mac) in mobs:
                 saw_recovery_dual_capture = True
+            # CrossDeviceDualCaptureCoherence
+            for obs_set in (mobs, iobs):
+                collapsed = {o[0] for o in obs_set}
+                self.assertLessEqual(len(collapsed), 2)
+                if (vis, mac) in obs_set and (vis, iphone) in obs_set:
+                    self.assertIn(vis, collapsed)
 
             for ns in next_states(s):
                 transitions += 1

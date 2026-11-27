@@ -617,6 +617,10 @@ public extension CaptureStore {
             : "DELETE FROM read_observations WHERE observation_id = ?"
         try execute(sql, strings: [String(observation)])
         try? bumpExistingSyncWorkflowVersion(for: observation)
+        for twinID in (try? crossDeviceTwinIDs(for: observation)) ?? [] {
+            try? execute(sql, strings: [String(twinID)])
+            try? bumpExistingSyncWorkflowVersion(for: twinID)
+        }
     }
 
     func setFlag(_ observation: Int64, flagged: Bool) throws {
@@ -625,15 +629,26 @@ public extension CaptureStore {
             : "DELETE FROM flagged_observations WHERE observation_id = ?"
         try execute(sql, strings: [String(observation)])
         try? bumpExistingSyncWorkflowVersion(for: observation)
+        for twinID in (try? crossDeviceTwinIDs(for: observation)) ?? [] {
+            try? execute(sql, strings: [String(twinID)])
+            try? bumpExistingSyncWorkflowVersion(for: twinID)
+        }
     }
 
     func hideAlert(_ observation: Int64) throws {
         try execute("INSERT INTO hidden_observations VALUES (?) ON CONFLICT DO NOTHING",
                     strings: [String(observation)])
+        for twinID in (try? crossDeviceTwinIDs(for: observation)) ?? [] {
+            try? execute("INSERT INTO hidden_observations VALUES (?) ON CONFLICT DO NOTHING",
+                         strings: [String(twinID)])
+        }
     }
 
     func restoreAlert(_ observation: Int64) throws {
         try execute("DELETE FROM hidden_observations WHERE observation_id = ?", strings: [String(observation)])
+        for twinID in (try? crossDeviceTwinIDs(for: observation)) ?? [] {
+            try? execute("DELETE FROM hidden_observations WHERE observation_id = ?", strings: [String(twinID)])
+        }
     }
 
     func hideSubject(app: String, subject: String) throws {
@@ -841,6 +856,19 @@ public extension CaptureStore {
                         strings: [String(observation)])
         }
         try? bumpExistingSyncWorkflowVersion(for: observation)
+        for twinID in (try? crossDeviceTwinIDs(for: observation)) ?? [] {
+            if let person {
+                try? execute("""
+                    INSERT INTO person_observations (observation_id, person_id, method) VALUES (?, ?, 'manual')
+                    ON CONFLICT(observation_id) DO UPDATE SET person_id = excluded.person_id, method = 'manual'
+                    """, strings: [String(twinID), person])
+            } else {
+                try? execute("DELETE FROM person_observations WHERE observation_id = ?", strings: [String(twinID)])
+                try? execute("INSERT INTO person_match_exclusions VALUES (?) ON CONFLICT DO NOTHING",
+                             strings: [String(twinID)])
+            }
+            try? bumpExistingSyncWorkflowVersion(for: twinID)
+        }
     }
 
     func link(_ observation: Int64, to person: String?) throws {
@@ -962,20 +990,30 @@ public extension CaptureStore {
     }
 
     func setSaved(_ observation: Int64, saved: Bool) throws {
-        try execute("""
+        let sql = """
             INSERT INTO observation_work (observation_id, saved) VALUES (?, ?)
             ON CONFLICT(observation_id) DO UPDATE SET saved = excluded.saved
-            """, strings: [String(observation)], numbers: [saved ? 1 : 0])
+            """
+        try execute(sql, strings: [String(observation)], numbers: [saved ? 1 : 0])
         try? bumpExistingSyncWorkflowVersion(for: observation)
+        for twinID in (try? crossDeviceTwinIDs(for: observation)) ?? [] {
+            try? execute(sql, strings: [String(twinID)], numbers: [saved ? 1 : 0])
+            try? bumpExistingSyncWorkflowVersion(for: twinID)
+        }
     }
 
     func schedule(_ observation: Int64, dueAt: Double) throws {
         guard dueAt.isFinite else { throw StoreError(description: "Choose a valid due date.") }
-        try execute("""
+        let sql = """
             INSERT INTO observation_work (observation_id, due_at) VALUES (?, ?)
             ON CONFLICT(observation_id) DO UPDATE SET due_at = excluded.due_at, done = 0
-            """, strings: [String(observation)], numbers: [dueAt])
+            """
+        try execute(sql, strings: [String(observation)], numbers: [dueAt])
         try? bumpExistingSyncWorkflowVersion(for: observation)
+        for twinID in (try? crossDeviceTwinIDs(for: observation)) ?? [] {
+            try? execute(sql, strings: [String(twinID)], numbers: [dueAt])
+            try? bumpExistingSyncWorkflowVersion(for: twinID)
+        }
     }
 
     func complete(_ observation: Int64) throws {
@@ -983,6 +1021,11 @@ public extension CaptureStore {
                     strings: [String(observation)])
         guard sqlite3_changes(database) == 1 else { throw StoreError(description: "This alert has no scheduled follow-up.") }
         try? bumpExistingSyncWorkflowVersion(for: observation)
+        for twinID in (try? crossDeviceTwinIDs(for: observation)) ?? [] {
+            try? execute("UPDATE observation_work SET done = 1 WHERE observation_id = ? AND due_at IS NOT NULL",
+                         strings: [String(twinID)])
+            try? bumpExistingSyncWorkflowVersion(for: twinID)
+        }
     }
 
     internal func readRows<T>(_ sql: String, strings: [String?] = [], numbers: [Double] = [],

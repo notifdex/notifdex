@@ -101,14 +101,17 @@ public struct HybridInboxItem: Identifiable, Equatable {
 }
 
 public enum HybridInboxProjection {
-    /// Collapses observations of the same logical alert seen by multiple devices within `windowSeconds`
-    /// while preserving all underlying provenance badges and never deleting raw rows.
+    /// Collapses observations of the same logical alert seen by **different** capture sources/devices
+    /// within `windowSeconds` while preserving all underlying provenance badges, keeping identical
+    /// same-device messages distinct, and never deleting raw rows.
     public static func collapse(
         _ entries: [InboxEntry],
         provenanceByID: [Int64: ObservationProvenance],
         windowSeconds: Double = 300
     ) -> [HybridInboxItem] {
         var groups: [HybridInboxItem] = []
+        var groupKeys: [String] = []
+        var groupSourceIDs: [Set<String>] = []
 
         for entry in entries {
             let prov = provenanceByID[entry.id]
@@ -118,17 +121,14 @@ public enum HybridInboxProjection {
                 subtitle: entry.subtitle,
                 body: entry.body
             )
+            let sourceID = prov?.sourceID ?? "local:\(entry.id)"
             let badge = prov?.sourceBadge ?? "Mac"
             let channel = prov?.channel ?? .macosAX
 
-            if let idx = groups.firstIndex(where: { existing in
-                let existingKey = provenanceByID[existing.primary.id]?.logicalKey ?? SyncLogicalKey.make(
-                    appLabel: existing.primary.app,
-                    title: existing.primary.title,
-                    subtitle: existing.primary.subtitle,
-                    body: existing.primary.body
-                )
-                return existingKey == key && abs(existing.primary.capturedAt - entry.capturedAt) <= windowSeconds
+            if let idx = groups.indices.first(where: { i in
+                groupKeys[i] == key
+                    && !groupSourceIDs[i].contains(sourceID)
+                    && abs(groups[i].primary.capturedAt - entry.capturedAt) <= windowSeconds
             }) {
                 let current = groups[idx]
                 var badges = current.provenanceBadges
@@ -141,6 +141,7 @@ public enum HybridInboxProjection {
                     provenanceBadges: badges,
                     channels: channels
                 )
+                groupSourceIDs[idx].insert(sourceID)
             } else {
                 groups.append(HybridInboxItem(
                     primary: entry,
@@ -148,6 +149,8 @@ public enum HybridInboxProjection {
                     provenanceBadges: [badge],
                     channels: [channel]
                 ))
+                groupKeys.append(key)
+                groupSourceIDs.append([sourceID])
             }
         }
 
@@ -1024,6 +1027,59 @@ public extension CaptureStore {
             """, numbersFirst: [time], strings: [String(observationID)])
     }
 
+    /// Finds observations of the same logical alert captured on a **different** source/device
+    /// within `windowSeconds` (so identical DMs on the same device are never merged).
+    internal func crossDeviceTwinIDs(
+        for observationID: Int64,
+        windowSeconds: Double = 300.0
+    ) throws -> [Int64] {
+        let baseRows = try readRows("""
+            SELECT o.source_id, coalesce(o.app_label, ''), o.title, o.subtitle, o.body,
+                   o.captured_at, coalesce(l.logical_key, '')
+            FROM observations o
+            LEFT JOIN sync_observation_links l ON l.observation_id = o.id
+            WHERE o.id = ?
+            LIMIT 1
+            """, strings: [String(observationID)]) { row in
+            (
+                sourceID: columnString(row, 0),
+                app: columnString(row, 1),
+                title: columnString(row, 2),
+                subtitle: columnString(row, 3),
+                body: columnString(row, 4),
+                capturedAt: sqlite3_column_double(row, 5),
+                logicalKey: columnString(row, 6)
+            )
+        }
+        guard let base = baseRows.first else { return [] }
+        let targetKey = base.logicalKey.isEmpty
+            ? SyncLogicalKey.make(appLabel: base.app, title: base.title, subtitle: base.subtitle, body: base.body)
+            : base.logicalKey
+
+        let candidates = try readRows("""
+            SELECT o.id, coalesce(o.app_label, ''), o.title, o.subtitle, o.body, coalesce(l.logical_key, '')
+            FROM observations o
+            LEFT JOIN sync_observation_links l ON l.observation_id = o.id
+            WHERE o.id != ?
+              AND o.source_id != ?
+              AND abs(o.captured_at - ?) <= ?
+            """, strings: [String(observationID), base.sourceID],
+                 numbers: [base.capturedAt, windowSeconds]) { row -> (Int64, String) in
+            let id = sqlite3_column_int64(row, 0)
+            let storedKey = columnString(row, 5)
+            let key = storedKey.isEmpty
+                ? SyncLogicalKey.make(
+                    appLabel: columnString(row, 1),
+                    title: columnString(row, 2),
+                    subtitle: columnString(row, 3),
+                    body: columnString(row, 4)
+                )
+                : storedKey
+            return (id, key)
+        }
+        return candidates.filter { $0.1 == targetKey }.map(\.0)
+    }
+
     func registerOrUpdateDevice(
         deviceID: String,
         displayName: String,
@@ -1523,79 +1579,40 @@ public extension CaptureStore {
                     """, strings: [String(obsID), obs.syncUUID, obs.captureChannel.rawValue,
                                    obs.originDeviceID, obs.logicalKey],
                          numbers: [time])
+
+                // If a local cross-device twin was already hidden locally, keep the newly synced twin hidden too.
+                let localTwins = (try? crossDeviceTwinIDs(for: obsID)) ?? []
+                if !localTwins.isEmpty {
+                    let anyHidden = localTwins.contains { twinID in
+                        let rows = (try? readRows(
+                            "SELECT 1 FROM hidden_observations WHERE observation_id = ? LIMIT 1",
+                            strings: [String(twinID)]
+                        ) { _ in 1 }) ?? []
+                        return !rows.isEmpty
+                    }
+                    if anyHidden {
+                        try execute("INSERT OR IGNORE INTO hidden_observations VALUES (?)", strings: [String(obsID)])
+                    }
+                }
             }
 
             var appliedWorkflows = 0
             for wf in batch.workflows where !tombstonedObs.contains(wf.syncUUID) {
                 let linkRows = try readRows("""
-                    SELECT observation_id, workflow_version, updated_at
+                    SELECT observation_id
                     FROM sync_observation_links WHERE sync_uuid = ? LIMIT 1
-                    """, strings: [wf.syncUUID]) { row in
-                    (
-                        id: sqlite3_column_int64(row, 0),
-                        version: Int(sqlite3_column_int64(row, 1)),
-                        updatedAt: sqlite3_column_double(row, 2)
-                    )
-                }
-                guard let link = linkRows.first else { continue }
+                    """, strings: [wf.syncUUID]) { sqlite3_column_int64($0, 0) }
+                guard let primaryID = linkRows.first else { continue }
 
-                // Monotonic LWW conflict resolution: only apply newer version (or tie-break by newer timestamp).
-                let isNewer = wf.workflowVersion > link.version
-                    || (wf.workflowVersion == link.version && wf.updatedAt > link.updatedAt)
-                guard isNewer else { continue }
-
-                if wf.isRead {
-                    try execute("INSERT OR IGNORE INTO read_observations (observation_id) VALUES (?)",
-                                strings: [String(link.id)])
-                } else {
-                    try execute("DELETE FROM read_observations WHERE observation_id = ?",
-                                strings: [String(link.id)])
+                if try applyWorkflowStateInTransaction(wf, toObservationID: primaryID, localDeviceID: localDeviceID, at: time) {
+                    appliedWorkflows += 1
                 }
 
-                if wf.isFlagged {
-                    try execute("INSERT OR IGNORE INTO flagged_observations (observation_id) VALUES (?)",
-                                strings: [String(link.id)])
-                } else {
-                    try execute("DELETE FROM flagged_observations WHERE observation_id = ?",
-                                strings: [String(link.id)])
+                // Propagate newer synced workflow state to local cross-device twins (same logical alert, different source).
+                let twins = (try? crossDeviceTwinIDs(for: primaryID)) ?? []
+                for twinID in twins {
+                    _ = try applyWorkflowStateInTransaction(wf, toObservationID: twinID, localDeviceID: localDeviceID, at: time)
                 }
-
-                let savedNum: Double = wf.saved ? 1 : 0
-                let doneNum: Double = (wf.dueAt != nil && wf.done) ? 1 : 0
-                if let dueAt = wf.dueAt {
-                    try execute("""
-                        INSERT INTO observation_work (observation_id, saved, due_at, done)
-                        VALUES (?, ?, ?, ?)
-                        ON CONFLICT(observation_id) DO UPDATE SET
-                            saved = excluded.saved, due_at = excluded.due_at, done = excluded.done
-                        """, strings: [String(link.id)], numbers: [savedNum, dueAt, doneNum])
-                } else {
-                    try execute("""
-                        INSERT INTO observation_work (observation_id, saved, due_at, done)
-                        VALUES (?, ?, NULL, 0)
-                        ON CONFLICT(observation_id) DO UPDATE SET
-                            saved = excluded.saved, due_at = NULL, done = 0
-                        """, strings: [String(link.id)], numbers: [savedNum])
-                }
-
-                if let personID = wf.personID {
-                    try execute("""
-                        INSERT INTO person_observations (observation_id, person_id, method)
-                        VALUES (?, ?, 'manual')
-                        ON CONFLICT(observation_id) DO UPDATE SET person_id = excluded.person_id
-                        """, strings: [String(link.id), personID])
-                } else {
-                    try execute("DELETE FROM person_observations WHERE observation_id = ?",
-                                strings: [String(link.id)])
-                }
-
-                try execute("""
-                    UPDATE sync_observation_links
-                    SET workflow_version = ?, updated_at = max(updated_at, ?)
-                    WHERE observation_id = ?
-                    """, numbersFirst: [Double(wf.workflowVersion), wf.updatedAt],
-                         strings: [String(link.id)])
-                appliedWorkflows += 1
             }
 
             return SyncApplySummary(
@@ -1609,6 +1626,89 @@ public extension CaptureStore {
     }
 
     // MARK: - Internal Sync Helpers
+
+    private func applyWorkflowStateInTransaction(
+        _ wf: SyncedWorkflowRecord,
+        toObservationID targetID: Int64,
+        localDeviceID: String,
+        at time: Double
+    ) throws -> Bool {
+        _ = try ensureSyncLinkInTransaction(
+            observationID: targetID,
+            channel: .macosAX,
+            originDeviceID: localDeviceID,
+            logicalKey: nil,
+            at: time
+        )
+        let linkRows = try readRows("""
+            SELECT workflow_version, updated_at
+            FROM sync_observation_links WHERE observation_id = ? LIMIT 1
+            """, strings: [String(targetID)]) { row in
+            (
+                version: Int(sqlite3_column_int64(row, 0)),
+                updatedAt: sqlite3_column_double(row, 1)
+            )
+        }
+        guard let link = linkRows.first else { return false }
+
+        // Monotonic LWW conflict resolution: only apply newer version (or tie-break by newer timestamp).
+        let isNewer = wf.workflowVersion > link.version
+            || (wf.workflowVersion == link.version && wf.updatedAt > link.updatedAt)
+        guard isNewer else { return false }
+
+        if wf.isRead {
+            try execute("INSERT OR IGNORE INTO read_observations (observation_id) VALUES (?)",
+                        strings: [String(targetID)])
+        } else {
+            try execute("DELETE FROM read_observations WHERE observation_id = ?",
+                        strings: [String(targetID)])
+        }
+
+        if wf.isFlagged {
+            try execute("INSERT OR IGNORE INTO flagged_observations (observation_id) VALUES (?)",
+                        strings: [String(targetID)])
+        } else {
+            try execute("DELETE FROM flagged_observations WHERE observation_id = ?",
+                        strings: [String(targetID)])
+        }
+
+        let savedNum: Double = wf.saved ? 1 : 0
+        let doneNum: Double = (wf.dueAt != nil && wf.done) ? 1 : 0
+        if let dueAt = wf.dueAt {
+            try execute("""
+                INSERT INTO observation_work (observation_id, saved, due_at, done)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(observation_id) DO UPDATE SET
+                    saved = excluded.saved, due_at = excluded.due_at, done = excluded.done
+                """, strings: [String(targetID)], numbers: [savedNum, dueAt, doneNum])
+        } else {
+            try execute("""
+                INSERT INTO observation_work (observation_id, saved, due_at, done)
+                VALUES (?, ?, NULL, 0)
+                ON CONFLICT(observation_id) DO UPDATE SET
+                    saved = excluded.saved, due_at = NULL, done = 0
+                """, strings: [String(targetID)], numbers: [savedNum])
+        }
+
+        if let personID = wf.personID {
+            try execute("""
+                INSERT INTO person_observations (observation_id, person_id, method)
+                VALUES (?, ?, 'manual')
+                ON CONFLICT(observation_id) DO UPDATE SET person_id = excluded.person_id
+                """, strings: [String(targetID), personID])
+        } else {
+            try execute("DELETE FROM person_observations WHERE observation_id = ?",
+                        strings: [String(targetID)])
+        }
+
+        try execute("""
+            UPDATE sync_observation_links
+            SET workflow_version = ?, updated_at = max(updated_at, ?)
+            WHERE observation_id = ?
+            """, numbersFirst: [Double(wf.workflowVersion), wf.updatedAt],
+                 strings: [String(targetID)])
+        return true
+    }
 
     private func ensureSyncLinkInTransaction(
         observationID: Int64,

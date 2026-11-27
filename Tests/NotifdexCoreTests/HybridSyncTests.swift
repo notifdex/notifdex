@@ -626,6 +626,141 @@ final class HybridSyncTests: XCTestCase {
         XCTAssertFalse(iosAfter.isFlagged, "Unflagging on Mac must monotonically override older flag on iPhone")
     }
 
+    // MARK: - Cross-Device Dual Capture Collapse & Twin Triage Coherence
+
+    func testHybridCollapsePreservesIdenticalSameDeviceDMsWhileCollapsingCrossDeviceTwins() async throws {
+        let macStore = try makeStore(named: "mac-collapse-same-source")
+        let iosStore = try makeStore(named: "ios-collapse-same-source")
+        let transport = InMemorySyncTransport()
+
+        let macID = "mac-mini"
+        let iosID = "iphone-17"
+        try macStore.pairDevice(deviceID: macID, displayName: "Mac", platform: .mac, at: 100)
+        try iosStore.pairDevice(deviceID: iosID, displayName: "iPhone", platform: .iphone, at: 100)
+
+        // Two distinct identical "ok" DMs on the SAME Mac source 10s apart MUST NOT be collapsed.
+        let runID = try macStore.startRun(at: 100)
+        try macStore.record(Observation(
+            sourceID: "\(macID):notificationcenter",
+            sourceEventID: "mac-dm-1",
+            capturedAt: 1_000,
+            description: "Messages, Maya, ok",
+            title: "Maya",
+            body: "ok"
+        ), runID: runID)
+        try macStore.record(Observation(
+            sourceID: "\(macID):notificationcenter",
+            sourceEventID: "mac-dm-2",
+            capturedAt: 1_010,
+            description: "Messages, Maya, ok",
+            title: "Maya",
+            body: "ok"
+        ), runID: runID)
+
+        // One Gmail alert captured by BOTH Mac AX and iPhone Shortcuts 3s apart MUST collapse into 1 item.
+        try macStore.record(Observation(
+            sourceID: "\(macID):notificationcenter",
+            sourceEventID: "mac-gmail-1",
+            capturedAt: 1_050,
+            description: "Gmail, Jordan, Proposal ready, from iPhone",
+            title: "Jordan",
+            body: "Proposal ready"
+        ), runID: runID)
+        _ = try iosStore.recordDirectObservation(
+            sourceID: "\(iosID):ios_shortcuts",
+            originDeviceID: iosID,
+            appLabel: "Gmail",
+            title: "Jordan",
+            body: "Proposal ready",
+            capturedAt: 1_053
+        )
+
+        let iosCoord = HybridSyncCoordinator(store: iosStore, transport: transport)
+        let macCoord = HybridSyncCoordinator(store: macStore, transport: transport)
+        _ = try await iosCoord.syncNow(localDeviceID: iosID, at: 1_060)
+        _ = try await macCoord.syncNow(localDeviceID: macID, at: 1_065)
+
+        let entries = try macStore.inbox(InboxQuery())
+        let prov = try macStore.provenanceByObservationID()
+        let collapsed = HybridInboxProjection.collapse(entries, provenanceByID: prov)
+
+        // 2 distinct same-device Messages DMs + 1 collapsed dual-capture Gmail alert = 3 items.
+        XCTAssertEqual(collapsed.count, 3)
+        let messagesItems = collapsed.filter { $0.primary.app == "Messages" }
+        XCTAssertEqual(messagesItems.count, 2, "Identical DMs from the same device must stay separate")
+        let gmailItems = collapsed.filter { $0.primary.app == "Gmail" }
+        XCTAssertEqual(gmailItems.count, 1, "Same alert captured on Mac and iPhone must collapse into 1 row")
+        XCTAssertEqual(gmailItems[0].observationIDs.count, 2)
+    }
+
+    func testDualCapturedTriageAndHidePropagateAcrossCrossDeviceTwins() async throws {
+        let macStore = try makeStore(named: "mac-twin-triage")
+        let iosStore = try makeStore(named: "ios-twin-triage")
+        let transport = InMemorySyncTransport()
+
+        let macID = "mac-mini"
+        let iosID = "iphone-17"
+        try macStore.pairDevice(deviceID: macID, displayName: "Mac", platform: .mac, at: 100)
+        try iosStore.pairDevice(deviceID: iosID, displayName: "iPhone", platform: .iphone, at: 100)
+
+        // Both Mac and iPhone capture the same Gmail alert independently.
+        let runID = try macStore.startRun(at: 100)
+        try macStore.record(Observation(
+            sourceID: "\(macID):notificationcenter",
+            sourceEventID: "mac-gmail-twin",
+            capturedAt: 2_000,
+            description: "Gmail, Taylor, Contract signed, from iPhone",
+            title: "Taylor",
+            body: "Contract signed"
+        ), runID: runID)
+        let iosCaptured = try iosStore.recordDirectObservation(
+            sourceID: "\(iosID):ios_shortcuts",
+            originDeviceID: iosID,
+            appLabel: "Gmail",
+            title: "Taylor",
+            body: "Contract signed",
+            capturedAt: 2_002
+        )
+
+        // User flags & marks read on iPhone BEFORE syncing to Mac.
+        try iosStore.setFlag(iosCaptured.observationID, flagged: true)
+        try iosStore.setRead(iosCaptured.observationID, read: true)
+
+        let iosCoord = HybridSyncCoordinator(store: iosStore, transport: transport)
+        let macCoord = HybridSyncCoordinator(store: macStore, transport: transport)
+        _ = try await iosCoord.syncNow(localDeviceID: iosID, at: 2_010)
+        _ = try await macCoord.syncNow(localDeviceID: macID, at: 2_015)
+
+        // On Mac: both raw observations exist, AND both twins must now be flagged & read.
+        let macEntries = try macStore.inbox(InboxQuery())
+        XCTAssertEqual(macEntries.count, 2)
+        XCTAssertTrue(macEntries.allSatisfy { $0.isFlagged }, "Flagged state from iPhone twin must propagate to Mac local twin")
+        XCTAssertTrue(macEntries.allSatisfy { $0.isRead }, "Read state from iPhone twin must propagate to Mac local twin")
+
+        // Collapsed Mac inbox shows 1 flagged, read item.
+        let collapsedFlagged = HybridInboxProjection.collapse(
+            try macStore.inbox(InboxQuery(scope: .flagged(app: nil))),
+            provenanceByID: try macStore.provenanceByObservationID()
+        )
+        XCTAssertEqual(collapsedFlagged.count, 1)
+
+        // Unflagging the collapsed item on Mac propagates to both twins and syncs back to iPhone.
+        try macStore.setFlag(collapsedFlagged[0].primary.id, flagged: false)
+        let macAfterUnflag = try macStore.inbox(InboxQuery())
+        XCTAssertTrue(macAfterUnflag.allSatisfy { !$0.isFlagged })
+
+        _ = try await macCoord.syncNow(localDeviceID: macID, at: 2_020)
+        _ = try await iosCoord.syncNow(localDeviceID: iosID, at: 2_025)
+        let iosAfterUnflag = try iosStore.inbox(InboxQuery())
+        XCTAssertTrue(iosAfterUnflag.allSatisfy { !$0.isFlagged })
+
+        // Hiding the collapsed item on Mac hides BOTH twins (no ghost duplicate reappears) and restore brings both back.
+        try macStore.hideAlert(collapsedFlagged[0].primary.id)
+        XCTAssertTrue(try macStore.inbox(InboxQuery()).isEmpty, "Hiding a dual-captured alert must hide both twins")
+        try macStore.restoreAlert(collapsedFlagged[0].primary.id)
+        XCTAssertEqual(try macStore.inbox(InboxQuery()).count, 2, "Restoring must bring both twins back")
+    }
+
     #if canImport(CloudKit)
     func testCloudKitTransportGuardsMissingEntitlementWithoutCrashing() async throws {
         let transport = CloudKitSyncTransport()

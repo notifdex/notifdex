@@ -6,7 +6,7 @@
   <title>Privacy — Notifdex</title>
   <meta
     name="description"
-    content="How Notifdex keeps your notifications, people, and notes on your Mac, and what notifdex.com does and does not collect."
+    content="How Notifdex keeps your notifications, people, and notes local on your Mac and iPhone, how opt-in private iCloud sync works, and what notifdex.com does and does not collect."
   />
   <link rel="canonical" href="https://notifdex.com/privacy.html" />
   <link rel="icon" type="image/png" href="/favicon.png" />
@@ -47,22 +47,26 @@
   <main id="main" class="container prose">
     <h1>Privacy</h1>
     <p class="prose-lead">
-      Your notifications, people, and notes stay on your Mac. There is no Notifdex account or sync
-      server, and this website sets no tracking cookies and never touches your device.
+      Your notifications, people, and notes stay on your own devices by default. There is no
+      Notifdex account, no Notifdex sync server, and no analytics or ad tracking—and this website
+      sets no tracking cookies and never touches your device.
     </p>
 
-    <h2>The macOS app</h2>
+    <h2>The macOS &amp; iOS apps</h2>
     <ul>
       <li>
-        <strong>Stored on your Mac:</strong> Everything you capture—alerts, people, notes, and
-        follow-ups—lives in <code>~/Library/Application Support/Notifdex/capture.db</code> with
-        private file permissions. The SQLite file itself is unencrypted, so macOS FileVault protects
-        it at rest.
+        <strong>Local-first storage:</strong> On macOS, everything you capture—alerts, people,
+        notes, and follow-ups—lives in
+        <code>~/Library/Application Support/Notifdex/capture.db</code> with private file
+        permissions (protected at rest by macOS FileVault). On iOS, captured notifications and notes
+        stay in an app-private SQLite database protected by iOS Data Protection
+        (<code>CompleteUntilFirstUserAuthentication</code>).
       </li>
       <li>
-        <strong>No account logins:</strong> Notifdex reads the notification previews macOS already
-        shows through Accessibility (including iPhone alerts forwarded to your Mac) for the apps you
-        turn on. It never asks for your email or messaging passwords.
+        <strong>No account logins:</strong> On macOS, Notifdex reads the notification previews macOS
+        already shows through Accessibility for the apps you turn on. On iOS, capture runs only
+        through an explicit Apple Shortcuts Notification automation you configure yourself. Notifdex
+        never asks for your email or messaging passwords.
       </li>
       <li>
         <strong>Straight about what it misses:</strong> Locked-screen redactions, Focus modes, and
@@ -70,10 +74,37 @@
         caught everything.
       </li>
       <li>
+        <strong>No tracking or third-party SDKs:</strong> Neither app includes analytics, crash
+        telemetry SDKs, ad networks, or third-party trackers.
+      </li>
+      <li>
         <strong>Optional AI later:</strong> Any future summarization or chat features
         (<a href="https://github.com/notifdex/notifdex/issues/5" rel="noopener">#5</a>,
         <a href="https://github.com/notifdex/notifdex/issues/48" rel="noopener">#48</a>) will be
         strictly opt-in. Local indexing and notes will always work offline.
+      </li>
+    </ul>
+
+    <h2>Optional private iCloud sync</h2>
+    <ul>
+      <li>
+        <strong>Off by default:</strong> Both the macOS and iOS apps work completely offline until
+        you explicitly enable and pair iCloud Sync.
+      </li>
+      <li>
+        <strong>Your Apple iCloud Private Database only:</strong> When paired, Notifdex syncs your
+        Inbox triage, flags, follow-ups, People, and Notes through Apple CloudKit’s Private Database
+        (container <code>iCloud.com.notifdex.shared</code>) inside your own Apple Account. Notifdex
+        does not operate a backend server and cannot see or access your iCloud data.
+      </li>
+      <li>
+        <strong>Hidden &amp; muted alerts stay local:</strong> Notifications you hide or filter out
+        on your Mac are excluded from iCloud sync and never leave your Mac.
+      </li>
+      <li>
+        <strong>One-tap revocation:</strong> You can revoke any paired Mac or iPhone at any time
+        from <strong>Recovery &rarr; iOS &amp; iCloud Sync</strong> on macOS or
+        <strong>Setup &rarr; iCloud Sync</strong> on iOS.
       </li>
     </ul>
 

@@ -72,7 +72,7 @@
             <a class="action-primary" href="#install">Install on macOS</a>
             <a class="action-link" href="https://github.com/notifdex/notifdex#run-the-menu-bar-app" rel="noopener">Read the install guide</a>
           </div>
-          <p class="hero-colophon">Free &amp; open source &middot; Stays on your Mac &middot; No logins or cloud</p>
+          <p class="hero-colophon">Free &amp; open source &middot; Local-first &middot; Optional private iCloud sync</p>
         </div>
 
         <div id="hero-stage" class="hero-stage" aria-label="Interactive glass-leaf illustration">
@@ -374,9 +374,10 @@
           <article class="index-row">
             <h3>Private, and honest about its limits</h3>
             <p>
-              Everything stays in one local SQLite file on your Mac. Because Notifdex only sees what
-              macOS shows, it logs when your Mac was asleep or a preview was hidden instead of
-              pretending nothing was missed.
+              Everything stays in local SQLite by default, with optional private Apple iCloud sync
+              if you pair the iOS companion (hidden Mac alerts never leave your Mac). Because
+              Notifdex only sees what your devices show, it logs sleep or redacted windows instead
+              of pretending nothing was missed.
             </p>
           </article>
         </div>
@@ -398,6 +399,7 @@
             <li><strong>Requirements:</strong> macOS 14+ for Mac alerts, or <strong>macOS 15+ &amp; iOS 18+</strong> with iPhone Mirroring paired for forwarded iPhone alerts.</li>
             <li><strong>iPhone &amp; previews:</strong> Turn on <strong>Allow notifications from iPhone</strong> in macOS System Settings (including each app you want) and make sure <strong>Show Previews</strong> isn’t set to Never.</li>
             <li><strong>First run:</strong> Open Notifdex, grant Accessibility access from <strong>App Center</strong>, and toggle on the apps you want under <strong>Apps</strong> (X and Messages start enabled).</li>
+            <li><strong>iOS companion (TestFlight preview):</strong> Pair Notifdex on iPhone over optional private Apple iCloud sync to capture alerts directly via iOS Shortcuts and triage Inbox, Today, People, and Notes on the go (<a href="https://github.com/notifdex/notifdex/blob/main/ios/README.md" rel="noopener">iOS setup guide</a>).</li>
           </ol>
           <p class="mt-24 inline-links">
             <a href="https://github.com/notifdex/notifdex#run-the-menu-bar-app" rel="noopener">Full install guide</a>

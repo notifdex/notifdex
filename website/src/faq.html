@@ -151,6 +151,26 @@
     </section>
 
     <section class="faq-item">
+      <h2>Is there an iOS companion app, and how does private iCloud sync work?</h2>
+      <p>
+        Yes. Notifdex includes an early iOS companion app (in TestFlight preview) that pairs with
+        Notifdex for macOS. On iOS 27+, you can point one Apple Shortcuts <strong>Notification</strong>
+        automation at <strong>Notifdex &rarr; Capture Notification</strong> so incoming iPhone alerts
+        are recorded directly on your phone—even while your Mac is asleep or away.
+      </p>
+      <p>
+        Private iCloud sync is <strong>opt-in and off by default</strong>. When you pair your Mac
+        and iPhone, Notifdex syncs through your own Apple iCloud Private Database
+        (<code>iCloud.com.notifdex.shared</code>)—with automatic updates on edits, foregrounding,
+        and silent CloudKit pushes—so flags, follow-ups, People, and Notes stay in sync across
+        devices and duplicate iPhone/Mac copies collapse into one row. Alerts you hide or mute on
+        your Mac stay local and never sync to iCloud, and you can revoke any device in one tap. See
+        the <a href="https://github.com/notifdex/notifdex/blob/main/ios/README.md" rel="noopener">iOS setup guide</a>
+        and <a href="/privacy.html">Privacy</a> for details.
+      </p>
+    </section>
+
+    <section class="faq-item">
       <h2>Why does Notifdex ask for Accessibility access, and where is my data stored?</h2>
       <p>
         macOS doesn’t offer a public Notification Center history API, so Accessibility is the only
@@ -160,9 +180,10 @@
       <p>
         Everything is stored locally in one SQLite database at
         <code>~/Library/Application Support/Notifdex/capture.db</code> with private file
-        permissions (protected at rest by macOS FileVault). Nothing is uploaded anywhere.
-        Signed Homebrew upgrades (<code>brew update &amp;&amp; brew upgrade --cask notifdex</code>)
-        keep the same signing identity so your Accessibility grant carries across updates.
+        permissions (protected at rest by macOS FileVault). Nothing leaves your device unless you
+        explicitly opt in to private Apple iCloud sync with the iOS companion. Signed Homebrew
+        upgrades (<code>brew update &amp;&amp; brew upgrade --cask notifdex</code>) keep the same
+        signing identity so your Accessibility grant carries across updates.
       </p>
     </section>
 

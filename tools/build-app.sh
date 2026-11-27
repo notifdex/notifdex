@@ -125,10 +125,16 @@ if req_containers:
                 f"Provisioning profile missing CloudKit container(s): {missing} (profile allows: {allowed_containers})"
             )
 
-# Automatically include aps-environment if the provisioning profile explicitly grants it.
-prof_aps = profile_ent.get("aps-environment")
-if isinstance(prof_aps, str) and prof_aps and "aps-environment" not in requested:
-    requested["aps-environment"] = prof_aps
+# Automatically include macOS APNs entitlement if the provisioning profile explicitly grants it.
+# macOS provisioning profiles use `com.apple.developer.aps-environment` (iOS uses `aps-environment`).
+aps_label = "none"
+for aps_key in ("com.apple.developer.aps-environment", "aps-environment"):
+    prof_aps = profile_ent.get(aps_key)
+    if isinstance(prof_aps, str) and prof_aps:
+        if aps_key not in requested:
+            requested[aps_key] = prof_aps
+        aps_label = f"{aps_key}={requested[aps_key]}"
+        break
 
 with open(out_path, "wb") as f:
     plistlib.dump(requested, f, fmt=plistlib.FMT_XML)
@@ -136,7 +142,7 @@ with open(out_path, "wb") as f:
 print(
     f"Verified provisioning profile '{profile.get('Name', 'unknown')}': "
     f"app-id={prof_app_id}, icloud-env={req_env}, containers={req_containers}, "
-    f"aps={requested.get('aps-environment', 'none')}"
+    f"aps={aps_label}"
 )
 PY
 

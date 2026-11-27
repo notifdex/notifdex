@@ -55,6 +55,36 @@
 
     <article class="release-entry">
       <div class="release-meta">
+        <a class="release-tag" href="https://github.com/notifdex/notifdex/releases/tag/v0.2.0" rel="noopener">v0.2.0</a>
+        <span>November 27, 2026</span>
+      </div>
+      <h2>Opt-in private iCloud sync with Notifdex for iPhone</h2>
+      <ul>
+        <li>
+          Added optional, opt-in private iCloud sync (<code>iCloud.com.notifdex.shared</code>)
+          between Notifdex for macOS and the new Notifdex iOS companion app, keeping Inbox triage,
+          flags, follow-ups, People, and Notes in sync across devices while keeping hidden/muted
+          Mac alerts strictly local.
+        </li>
+        <li>
+          Automatic bidirectional sync runs on local edits, app wake, periodic checks, and silent
+          CloudKit push notifications, with live Inbox updates and one-tap device revocation in
+          <strong>Recovery &rarr; iOS &amp; iCloud Sync</strong>.
+        </li>
+        <li>
+          Added cross-device duplicate collapsing so notifications captured both on iPhone and via
+          macOS forwarding appear once in Inbox with clear source labels, and triage actions stay
+          in sync across paired copies.
+        </li>
+        <li>
+          Added macOS iPhone-forwarding health diagnostics and recovery guidance when macOS drops
+          forwarded alerts for an iPhone-only app (see the <a href="/faq.html">FAQ</a>).
+        </li>
+      </ul>
+    </article>
+
+    <article class="release-entry">
+      <div class="release-meta">
         <a class="release-tag" href="https://github.com/notifdex/notifdex/releases/tag/v0.1.5" rel="noopener">v0.1.5</a>
         <span>November 25, 2026</span>
       </div>

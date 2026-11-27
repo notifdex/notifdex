@@ -156,6 +156,7 @@ class ReleaseAndHomebrewContractTests(unittest.TestCase):
             "embedded.provisionprofile",
             "security cms -D -i",
             "com.apple.developer.icloud-container-environment",
+            "com.apple.developer.aps-environment",
         ):
             self.assertIn(required, script)
 
@@ -172,6 +173,18 @@ class ReleaseAndHomebrewContractTests(unittest.TestCase):
         guide = RELEASE_GUIDE.read_text(encoding="utf-8")
         self.assertIn("APPLE_MAC_CLOUDKIT_PROFILE_BASE64", guide)
         self.assertIn("iCloud.com.notifdex.shared", guide)
+
+        ops = (ROOT / "docs" / "operations.md").read_text(encoding="utf-8")
+        for required in (
+            "com.notifdex.ios",
+            "com.notifdex.mac",
+            "iCloud.com.notifdex.shared",
+            "NotifdexSyncZone",
+            "NotifdexSyncBatch",
+            "Notifdex macOS Developer ID CloudKit",
+            "com.apple.developer.aps-environment",
+        ):
+            self.assertIn(required, ops)
 
 
 if __name__ == "__main__":

@@ -18,9 +18,50 @@ Deep-dive bootstrap instructions remain in their focused docs:
 
 ### Apple & GitHub identities
 
-- **Apple Developer Program:** Individual enrollment, Team ID `HNH4DY9A2T` (can also sign other macOS apps under separate bundle IDs, and converts in-place to an Organization account later while preserving Team ID `HNH4DY9A2T`).
+- **Apple Developer Program:** Individual enrollment, Team ID `HNH4DY9A2T` (can also sign other macOS/iOS apps under separate bundle IDs, and converts in-place to an Organization account later while preserving Team ID `HNH4DY9A2T`).
 - **macOS bundle identifier:** `com.notifdex.mac` (stable across releases so macOS TCC preserves Accessibility permissions across `brew upgrade --cask notifdex`; verified in [#20](https://github.com/notifdex/notifdex/issues/20)).
+- **iOS bundle identifier:** `com.notifdex.ios` (isolated Xcode project under `ios/NotifdexiOS.xcodeproj`, distributed via TestFlight / App Store Connect).
 - **GitHub organization:** `notifdex` (with **Deploy keys** enabled under *Organization Settings → Member privileges* so `notifdex/homebrew-tap` accepts write deploy keys).
+
+## 1B. Apple Developer Portal, App Store Connect & CloudKit Console configuration
+
+This section records the exact external portal state configured under Team ID **`HNH4DY9A2T`** so operators and future AI sessions have complete context without guessing.
+
+### App IDs & enabled capabilities ([Apple Developer → Identifiers](https://developer.apple.com/account/resources/identifiers/list))
+
+| App ID | Platform | Enabled Capabilities | Important Notes |
+| --- | --- | --- | --- |
+| `HNH4DY9A2T.com.notifdex.mac` | **macOS** *(Mac, NOT Mac Catalyst)* | **iCloud** (`Include CloudKit support`, container `iCloud.com.notifdex.shared`), **Push Notifications** *(checkbox enabled; **Broadcast Capability** left unchecked; **Configure / APNs SSL cert skipped**)* | Ticking Push Notifications without creating an APNs cert is intentional: CloudKit silent pushes are dispatched by Apple's CloudKit servers directly, and enabling the capability causes Apple to include `com.apple.developer.aps-environment = production` in the Developer ID profile. |
+| `HNH4DY9A2T.com.notifdex.ios` | **iOS** | **iCloud** (`Include CloudKit support`, container `iCloud.com.notifdex.shared`), **Push Notifications**, App Intents (`CaptureNotificationIntent`) | Paired with `UIBackgroundModes: [remote-notification]` and `ITSAppUsesNonExemptEncryption = false` in `ios/NotifdexiOS/Info.plist`. |
+
+### CloudKit Console ([CloudKit Database](https://icloud.developer.apple.com/dashboard))
+
+- **Shared Container:** `iCloud.com.notifdex.shared` (Private Database only — user notification data never touches the Public Database).
+- **Custom Zone:** `NotifdexSyncZone`
+- **Record Type:** `NotifdexSyncBatch`
+- **Database Subscription ID:** `notifdex-private-db-changes` (silent push wake via `shouldSendContentAvailable = true`).
+- **Environments & Schema Deployment Rule:**
+  - **Development** is used by local Xcode / `Apple Development` builds (`Resources/NotifdexMac.entitlements`, `ios/NotifdexiOS/NotifdexiOS.entitlements`).
+  - **Production** is used by TestFlight / App Store iOS builds and Developer ID macOS releases (`Resources/NotifdexMacRelease.entitlements`).
+  - **CRITICAL:** CloudKit Production **does not** allow Just-In-Time (JIT) schema creation on write. Whenever new record types, fields, or indexes are introduced in Development, you **must** click **Deploy Schema Changes…** (bottom of left sidebar in CloudKit Database under `iCloud.com.notifdex.shared`) to promote Development → Production. Initial `NotifdexSyncBatch` schema was deployed to Production on **November 27, 2026**.
+
+### Signing Certificates & Provisioning Profiles ([Certificates](https://developer.apple.com/account/resources/certificates/list) & [Profiles](https://developer.apple.com/account/resources/profiles/list))
+
+| Artifact | Type / Name | Purpose & Storage |
+| --- | --- | --- |
+| `Developer ID Application: Jared Yu (HNH4DY9A2T)` | Mac distribution outside Mac App Store | Signs universal `Notifdex.app` for GitHub Releases + Homebrew; exported `.p12` stored in `APPLE_DEVELOPER_ID_CERT_P12_BASE64`. |
+| `Apple Development: Jared Yu (QKYKWJ6U39)` | Local Mac & USB iPhone development | Used for local `tools/build-app.sh` and Xcode USB runs on Jared's iPhone 17. |
+| `Cloud Managed Apple Distribution` | Xcode automatic iOS distribution | Automatically managed by Xcode (`xcodebuild -exportArchive -allowProvisioningUpdates`) for TestFlight & App Store Connect. |
+| `Notifdex macOS Developer ID CloudKit` | **Distribution → Developer ID (Mac)** profile for `com.notifdex.mac` | Grants `com.apple.developer.icloud-container-environment = Production`, `iCloud.com.notifdex.shared`, and `com.apple.developer.aps-environment = production`. Base64 stored in GitHub secret `APPLE_MAC_CLOUDKIT_PROFILE_BASE64`. |
+| `Mac Team Provisioning Profile: com.notifdex.mac` | Xcode local Mac development profile | Local dev CloudKit profile (`Development` + `Production` allowed, no `aps-environment`). |
+| `iOS Team Store Provisioning Profile: com.notifdex.ios` | Xcode automatic App Store / TestFlight profile | Automatically managed by Xcode; grants `aps-environment = production`, `icloud-container-environment = Production`, `beta-reports-active = true`. |
+| `iOS Team Provisioning Profile: com.notifdex.ios` | Xcode local iOS development profile | Local USB iPhone runs (`aps-environment = development`, `Development` CloudKit). |
+
+### App Store Connect ([Apps](https://appstoreconnect.apple.com/apps) & [API Keys](https://appstoreconnect.apple.com/access/integrations/api))
+
+- **iOS App Record:** Bundle ID `com.notifdex.ios`, SKU `notifdex-ios`, **User Access: Full Access** (required so Team API keys and Xcode can upload builds without per-app scoping blocks).
+- **TestFlight Export / Upload Tooling:** [`ios/ExportOptions-AppStore.plist`](../ios/ExportOptions-AppStore.plist) + [`tools/archive-ios-testflight.sh`](../tools/archive-ios-testflight.sh) (`--archive-only`, `--export-only`, `--upload`).
+- **Team API Key:** Key ID `8NM2DVP5V7` (Developer role), stored in `APPLE_NOTARY_KEY_P8_BASE64` / `APPLE_NOTARY_KEY_ID` / `APPLE_NOTARY_ISSUER_ID` for macOS notarization via `xcrun notarytool`.
 
 ## 2. GitHub Actions workflows
 

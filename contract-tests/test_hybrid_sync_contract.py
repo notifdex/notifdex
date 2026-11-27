@@ -184,3 +184,96 @@ class HybridSyncContractTests(unittest.TestCase):
         self.assertIn("NOTIFDEX_PROVISIONING_PROFILE", build_app)
         self.assertIn("Resources/NotifdexMac.entitlements", build_app)
 
+    def test_auto_sync_tla_model_exhaustive_invariants(self):
+        """Exhaustive finite-state check mirroring spec/AutoSync.tla."""
+        max_failures = 3
+        # State: (paired, auto_enabled, sync_state, pending_trigger, failure_streak, in_flight)
+        init = (False, True, "idle", False, 0, 0)
+        visited = {init}
+        queue = collections.deque([init])
+        transitions = 0
+
+        def next_states(s):
+            paired, auto_en, st, pend, streak, inflight = s
+            out = []
+            # Pair
+            if not paired:
+                if st == "running":
+                    out.append((True, auto_en, "running", auto_en, streak, inflight))
+                else:
+                    out.append((True, auto_en, "debouncing" if auto_en else "idle", pend, streak, inflight))
+            # Revoke
+            if paired:
+                out.append((False, auto_en, "running" if st == "running" else "idle", False, 0, inflight))
+            # SetAutoEnabled
+            for flag in (False, True):
+                if flag != auto_en:
+                    if not flag and st in ("debouncing", "backoff"):
+                        out.append((paired, flag, "idle", False, streak, inflight))
+                    elif flag and paired and st == "idle":
+                        out.append((paired, flag, "debouncing", pend, streak, inflight))
+                    else:
+                        out.append((paired, flag, st, pend, streak, inflight))
+            # AutoTrigger
+            if paired and auto_en:
+                if st == "idle":
+                    out.append((paired, auto_en, "debouncing", pend, streak, inflight))
+                elif st in ("running", "backoff"):
+                    out.append((paired, auto_en, st, True, streak, inflight))
+                else:
+                    out.append(s)
+            # ManualTrigger
+            if paired:
+                if st == "running":
+                    out.append((paired, auto_en, st, True, streak, inflight))
+                else:
+                    out.append((paired, auto_en, "running", False, streak, 1))
+            # StartScheduledRun
+            if paired and auto_en and st in ("debouncing", "backoff"):
+                out.append((paired, auto_en, "running", False, streak, 1))
+            # FinishSuccess
+            if st == "running":
+                next_st = "debouncing" if (paired and auto_en and pend) else "idle"
+                out.append((paired, auto_en, next_st, False, 0, 0))
+            # FinishFailure
+            if st == "running":
+                if paired and auto_en:
+                    next_streak = streak + 1 if streak < max_failures else max_failures
+                    out.append((paired, auto_en, "backoff", True, next_streak, 0))
+                else:
+                    out.append((paired, auto_en, "idle", False, 0, 0))
+            return out
+
+        while queue:
+            s = queue.popleft()
+            paired, auto_en, st, pend, streak, inflight = s
+            # SingleFlight
+            self.assertIn(inflight, (0, 1))
+            self.assertEqual(st == "running", inflight == 1)
+            # UnpairedNeverSchedules
+            if not paired:
+                self.assertIn(st, ("idle", "running"))
+                self.assertFalse(pend)
+                self.assertEqual(streak, 0)
+            # DisabledAutoNeverArmsTimer
+            if not auto_en:
+                self.assertIn(st, ("idle", "running"))
+            # BackoffBounded
+            self.assertLessEqual(streak, max_failures)
+            if st == "backoff":
+                self.assertGreater(streak, 0)
+                self.assertTrue(paired and auto_en)
+
+            for ns in next_states(s):
+                transitions += 1
+                n_paired, n_auto, n_st, _, _, _ = ns
+                # MidSyncTriggerNotDropped
+                if st == "running" and paired and auto_en and pend and n_st != "running":
+                    self.assertIn(n_st, ("debouncing", "backoff"))
+                if ns not in visited:
+                    visited.add(ns)
+                    queue.append(ns)
+
+        self.assertGreaterEqual(len(visited), 25)
+        self.assertGreater(transitions, 100)
+

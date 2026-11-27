@@ -9,9 +9,7 @@ struct NotifdexiOSApp: App {
         WindowGroup {
             RootTabView(viewModel: viewModel)
                 .onChange(of: scenePhase) { _, newPhase in
-                    if newPhase == .active {
-                        viewModel.reload()
-                    }
+                    viewModel.handleScenePhase(newPhase)
                 }
         }
     }

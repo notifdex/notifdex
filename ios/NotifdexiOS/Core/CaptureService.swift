@@ -323,6 +323,17 @@ public final class CaptureService: @unchecked Sendable {
         return try coreStore.canDeviceSync(deviceID)
     }
 
+    public func isAutoSyncEnabled() throws -> Bool {
+        try coreStore.isAutoSyncEnabled()
+    }
+
+    public func setAutoSyncEnabled(_ enabled: Bool) throws {
+        try ingestQueue.sync {
+            try coreStore.setAutoSyncEnabled(enabled)
+            notifyChanged()
+        }
+    }
+
     public func syncDevices() throws -> [SyncDeviceRecord] {
         try coreStore.syncDevices()
     }

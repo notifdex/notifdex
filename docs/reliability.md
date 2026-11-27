@@ -29,6 +29,7 @@ Statuses below distinguish implemented paths from pending real-device verificati
 | Mac login locked/logged out | Poll failures/discontinuities create gaps when observable | Locked-screen/relogin test pending; capture coverage unknown |
 | iPhone off/reboots | Upstream delivery completeness stays unknown | Device test pending; no local proof of upstream power state |
 | iPhone disconnected or mirroring disabled | Upstream coverage stays unknown, even if local scans succeed | Device test pending; no inferred disconnect from silence |
+| macOS remote iPhone app placeholder missing (`usernotificationsd` `-10814`) | Native Mac apps still deliver; macOS drops forwarded iPhone alerts before Notification Center; Notifdex `MacForwardingHealthAnalyzer` flags degradation when paired with iOS companion | Live RCA verified on macOS 27.2 / iOS 27.2 (#98); automated `HybridSyncTests` + `HybridSync.tla` `ForwardingHealthSoundness` pass |
 | Mac/iPhone Focus or notification summary | Capture only what becomes accessible | Trial per Focus/summary setting pending; no lossless claim |
 | Previews hidden/redacted | Preserve what UI exposes; later text is another revision | Locked/unlocked preview trials pending |
 | Alert dismissed before polling | May be missed | Measure capture window and observer feasibility; no automatic recovery promise |
@@ -58,6 +59,30 @@ The iPhone's power, Focus, and notification settings may be inaccessible to this
 collector. Their state remains unknown until independently established. Silence
 does not establish a healthy iPhone connection. Source-specific APIs or exports
 could later reconcile missing messages if they provide authorized history.
+
+## Troubleshooting missing forwarded iPhone notifications (macOS `-10814` placeholder drop)
+
+A subtle macOS Continuity failure can cause **native Mac alerts** (such as Messages or desktop WeChat/WhatsApp/Slack) to keep appearing normally while **forwarded iPhone-only apps** (such as Gmail or X) arrive on the iPhone but never appear in macOS Notification Center—even when iPhone Mirroring itself connects.
+
+### What happens inside macOS
+
+1. After a disk-full event, macOS upgrade, or **iPhone Mirroring → Settings → Reset/Revoke Access**, Apple's `appplaceholdersyncd` and `replicatord` can drop synced remote iPhone app placeholders from LaunchServices and stop re-emitting existing App Store apps in bulk (only pushing new app installs/updates as deltas).
+2. The iPhone continues forwarding notification payloads over IDS to macOS `usernotificationsd`, which drops every alert whose remote app placeholder is missing with LaunchServices error `-10814` (`kLSApplicationNotFoundErr`):
+   - `Unable to find (remote) record for <private>: Error Domain=NSOSStatusErrorDomain Code=-10814`
+   - `Dropping updates for unknown source <private>`
+3. Because macOS drops the alert upstream of Notification Center, Notifdex macOS never sees it. (If you have Notifdex iOS paired via opt-in CloudKit sync, Notifdex iOS still captures those alerts and macOS **Recovery → iOS & iCloud Sync** flags the affected apps automatically via `MacForwardingHealthAnalyzer`.)
+
+### How to verify and fix in 30 seconds
+
+1. On your Mac, open **System Settings → Notifications → Allow notifications from iPhone**. If the affected app (e.g., Gmail or X) is missing from that iPhone app list, macOS is missing its remote placeholder.
+2. On your iPhone, force iOS to emit a fresh placeholder delta for that app:
+   - **If an App Store update is available:** update the app in the iPhone App Store.
+   - **If already up to date:** go to **iPhone Settings → General → iPhone Storage → [App] → Offload App → Reinstall App**. *Offload* preserves your sign-in and local app data while triggering `replicatord` → `appplaceholdersyncd` to re-register the app on macOS within seconds.
+3. You only need to do this for iPhone-only apps whose forwarded alerts you want on your Mac right away; native Mac apps do not rely on remote placeholders, and other iPhone apps will restore themselves on their next normal App Store update.
+4. For deep terminal diagnostics on macOS, inspect recent `usernotificationsd` drops (`-10814`) with:
+   ```bash
+   /usr/bin/log show --last 15m --predicate 'process == "usernotificationsd"' --info | grep -iE '10814|Dropping updates|Unable to find'
+   ```
 
 ## Release gate
 

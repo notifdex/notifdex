@@ -30,16 +30,22 @@ final class AppModel: ObservableObject {
     @Published var customLabel = ""
     @Published var showingCollectionStatus = false
     @Published var syncPaired = false
+    @Published var autoSyncEnabled = true
     @Published var syncDevices: [SyncDeviceRecord] = []
     @Published var syncBusy = false
     @Published var syncMessage: String?
     @Published var syncError: String?
+    @Published var lastSyncedAt: Date?
+    @Published var syncDataRevision = 0
     @Published var forwardingHealth: MacForwardingHealthReport?
     private let loginQueue = DispatchQueue(label: "com.notifdex.login", qos: .utility)
     let worker: CaptureWorker
     let appearance: AppearanceSettings
     private let databaseURL: URL
     private var sleepObservers: [NSObjectProtocol] = []
+    private var activeObserver: NSObjectProtocol?
+    private var lastObservedCaptureAt: Date?
+    private var autoSyncEngine: AutoSyncEngine?
 
     init() {
         let smoke = CommandLine.arguments.contains("--smoke-test")
@@ -67,15 +73,34 @@ final class AppModel: ObservableObject {
                 Task { @MainActor in self?.worker.setSleeping(true) }
             },
             center.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { [weak self] _ in
-                Task { @MainActor in self?.worker.setSleeping(false) }
+                Task { @MainActor in
+                    self?.worker.setSleeping(false)
+                    self?.triggerAutoSync(.foreground)
+                }
             }
         ]
+        activeObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.didBecomeActiveNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in
+                self?.triggerAutoSync(.foreground)
+            }
+        }
+        setupAutoSyncEngine()
+        refreshSyncState()
     }
 
     func start() {
         worker.start { [weak self] value in
-            self?.state = value
+            guard let self else { return }
+            self.state = value
             if value.ready { smokeTrace("real worker ready") }
+            if let savedAt = value.lastSavedAt, savedAt != self.lastObservedCaptureAt {
+                self.lastObservedCaptureAt = savedAt
+                self.triggerAutoSync(.localCapture)
+            }
         }
     }
 
@@ -137,6 +162,98 @@ final class AppModel: ObservableObject {
         state.settings?.apps.filter(\.enabled).count ?? 0
     }
 
+    private func setupAutoSyncEngine() {
+        #if canImport(CloudKit)
+        let path = databaseURL.path
+        autoSyncEngine = AutoSyncEngine(
+            debounceSeconds: 3.0,
+            baseBackoffSeconds: 15.0,
+            maxBackoffSeconds: 300.0,
+            maxFailureStreak: 5,
+            periodicIntervalSeconds: 45.0,
+            syncAction: {
+                let store = try CaptureStore(path: path)
+                let deviceID = try store.localSyncDeviceID()
+                let coordinator = HybridSyncCoordinator(store: store, transport: CloudKitSyncTransport())
+                return try await coordinator.syncNow(localDeviceID: deviceID)
+            },
+            onSyncCompleted: { [weak self] result in
+                Task { @MainActor in
+                    guard let self else { return }
+                    self.lastSyncedAt = Date(timeIntervalSince1970: result.syncedAt)
+                    self.syncError = nil
+                    if result.pushedObservations > 0 || result.applied.hasChanges {
+                        self.syncMessage = "Synced: pushed \(result.pushedObservations) alerts, pulled \(result.applied.insertedObservations) new."
+                    } else {
+                        self.syncMessage = "Up to date with iCloud."
+                    }
+                    if result.applied.hasChanges {
+                        self.syncDataRevision += 1
+                    }
+                    self.refreshSyncMetadataOnly()
+                }
+            },
+            onSyncFailed: { [weak self] error in
+                Task { @MainActor in
+                    self?.syncError = "CloudKit sync: \(error.localizedDescription)"
+                }
+            },
+            onPhaseChanged: { [weak self] phase in
+                Task { @MainActor in
+                    self?.syncBusy = (phase == .running)
+                }
+            }
+        )
+        #endif
+    }
+
+    func notifyLocalWorkflowChanged() {
+        triggerAutoSync(.localEdit)
+    }
+
+    func triggerAutoSync(_ reason: AutoSyncTrigger) {
+        guard let engine = autoSyncEngine else { return }
+        Task {
+            await engine.trigger(reason)
+        }
+    }
+
+    private func configureAutoSync(paired: Bool, autoEnabled: Bool) {
+        #if canImport(CloudKit)
+        let entitled = CloudKitSyncTransport().hasCloudKitEntitlement()
+        let effectiveAuto = paired && autoEnabled && entitled
+        if let engine = autoSyncEngine {
+            Task {
+                await engine.configure(paired: paired, autoEnabled: effectiveAuto)
+            }
+        }
+        if effectiveAuto {
+            Task {
+                try? await CloudKitSyncTransport().ensureDatabaseSubscription()
+            }
+        }
+        #endif
+    }
+
+    private func refreshSyncMetadataOnly() {
+        let path = databaseURL.path
+        let enabledApps = state.settings?.allowedLabels ?? []
+        loginQueue.async { [weak self] in
+            do {
+                let store = try CaptureStore(path: path)
+                let deviceID = try store.localSyncDeviceID()
+                let devices = try store.syncDevices()
+                let health = try store.macForwardingHealth(localDeviceID: deviceID, enabledApps: enabledApps)
+                onAppMainLoop {
+                    self?.syncDevices = devices
+                    self?.forwardingHealth = health
+                }
+            } catch {
+                onAppMainLoop { self?.syncError = error.localizedDescription }
+            }
+        }
+    }
+
     func refreshSyncState() {
         let path = databaseURL.path
         let enabledApps = state.settings?.allowedLabels ?? []
@@ -145,12 +262,33 @@ final class AppModel: ObservableObject {
                 let store = try CaptureStore(path: path)
                 let deviceID = try store.localSyncDeviceID()
                 let paired = try store.canDeviceSync(deviceID)
+                let autoEnabled = try store.isAutoSyncEnabled()
                 let devices = try store.syncDevices()
                 let health = try store.macForwardingHealth(localDeviceID: deviceID, enabledApps: enabledApps)
                 onAppMainLoop {
                     self?.syncPaired = paired
+                    self?.autoSyncEnabled = autoEnabled
                     self?.syncDevices = devices
                     self?.forwardingHealth = health
+                    self?.configureAutoSync(paired: paired, autoEnabled: autoEnabled)
+                }
+            } catch {
+                onAppMainLoop { self?.syncError = error.localizedDescription }
+            }
+        }
+    }
+
+    func setAutoSyncEnabled(_ enabled: Bool) {
+        let path = databaseURL.path
+        loginQueue.async { [weak self] in
+            do {
+                let store = try CaptureStore(path: path)
+                try store.setAutoSyncEnabled(enabled)
+                let deviceID = try store.localSyncDeviceID()
+                let paired = try store.canDeviceSync(deviceID)
+                onAppMainLoop {
+                    self?.autoSyncEnabled = enabled
+                    self?.configureAutoSync(paired: paired, autoEnabled: enabled)
                 }
             } catch {
                 onAppMainLoop { self?.syncError = error.localizedDescription }
@@ -166,12 +304,15 @@ final class AppModel: ObservableObject {
                 let store = try CaptureStore(path: path)
                 let deviceID = try store.localSyncDeviceID()
                 try store.pairDevice(deviceID: deviceID, displayName: hostName, platform: .mac)
+                let autoEnabled = try store.isAutoSyncEnabled()
                 let devices = try store.syncDevices()
                 onAppMainLoop {
                     self?.syncPaired = true
+                    self?.autoSyncEnabled = autoEnabled
                     self?.syncDevices = devices
                     self?.syncError = nil
                     self?.syncMessage = "Mac paired for opt-in iCloud Sync."
+                    self?.configureAutoSync(paired: true, autoEnabled: autoEnabled)
                 }
             } catch {
                 onAppMainLoop { self?.syncError = error.localizedDescription }
@@ -187,12 +328,14 @@ final class AppModel: ObservableObject {
                 try store.revokeDevice(deviceID)
                 let localID = try store.localSyncDeviceID()
                 let paired = try store.canDeviceSync(localID)
+                let autoEnabled = try store.isAutoSyncEnabled()
                 let devices = try store.syncDevices()
                 onAppMainLoop {
                     self?.syncPaired = paired
                     self?.syncDevices = devices
                     self?.syncError = nil
                     self?.syncMessage = "Device revoked. Local observations remain intact."
+                    self?.configureAutoSync(paired: paired, autoEnabled: autoEnabled)
                 }
             } catch {
                 onAppMainLoop { self?.syncError = error.localizedDescription }
@@ -202,9 +345,15 @@ final class AppModel: ObservableObject {
 
     func syncNowWithCloudKit() {
         #if canImport(CloudKit)
+        syncError = nil
+        if let engine = autoSyncEngine {
+            Task {
+                await engine.trigger(.manual)
+            }
+            return
+        }
         guard !syncBusy else { return }
         syncBusy = true
-        syncError = nil
         let path = databaseURL.path
         let enabledApps = state.settings?.allowedLabels ?? []
         Task {
@@ -221,8 +370,12 @@ final class AppModel: ObservableObject {
                 await MainActor.run {
                     self.syncDevices = devices
                     self.forwardingHealth = health
+                    self.lastSyncedAt = Date(timeIntervalSince1970: result.syncedAt)
                     self.syncMessage = "Synced: pushed \(result.pushedObservations) alerts, pulled \(result.applied.insertedObservations) new."
                     self.syncError = nil
+                    if result.applied.hasChanges {
+                        self.syncDataRevision += 1
+                    }
                 }
             } catch {
                 await MainActor.run {
@@ -700,8 +853,21 @@ struct AppCenter: View {
                     }
 
                     LabeledContent("Sync status") {
-                        Text(model.syncPaired ? "Paired (CloudKit Private DB)" : "Local-only")
+                        Text(model.syncPaired ? (model.autoSyncEnabled ? "Paired · Auto-sync on" : "Paired · Manual only") : "Local-only")
                             .foregroundStyle(.secondary)
+                    }
+                    if model.syncPaired {
+                        Toggle("Automatic iCloud Sync", isOn: Binding(
+                            get: { model.autoSyncEnabled },
+                            set: { enabled in model.setAutoSyncEnabled(enabled) }
+                        ))
+                        .toggleStyle(.switch)
+                        if let lastSyncedAt = model.lastSyncedAt {
+                            LabeledContent("Last synced") {
+                                Text(lastSyncedAt.formatted(date: .omitted, time: .standard))
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
                     }
                     if let syncMessage = model.syncMessage {
                         Text(syncMessage)

@@ -446,6 +446,186 @@ final class HybridSyncTests: XCTestCase {
         XCTAssertTrue(gmailItem.provenanceBadges.contains("iPhone via Mac"))
     }
 
+    // MARK: - Automatic Bidirectional Sync (mirrors spec/AutoSync.tla)
+
+    func testAutoSyncStateMachineEnforcesSingleFlightCoalescingBackoffAndRevocation() {
+        var machine = AutoSyncStateMachine(
+            debounceSeconds: 2.0,
+            baseBackoffSeconds: 10.0,
+            maxBackoffSeconds: 40.0,
+            maxFailureStreak: 3
+        )
+
+        // Unpaired device never schedules auto-sync.
+        XCTAssertEqual(machine.phase, .idle)
+        XCTAssertEqual(machine.handleTrigger(.localCapture), .none)
+        XCTAssertEqual(machine.phase, .idle)
+
+        // Pairing with auto-sync enabled schedules an initial debounced sync.
+        XCTAssertEqual(machine.setPaired(true), .scheduleAfter(2.0))
+        XCTAssertEqual(machine.phase, .debouncing)
+
+        // Burst triggers while debouncing coalesce without launching multiple runs.
+        XCTAssertEqual(machine.handleTrigger(.localCapture), .none)
+        XCTAssertEqual(machine.handleTrigger(.localEdit), .none)
+
+        // Begin single-flight run; mid-sync trigger sets pendingTrigger instead of overlapping.
+        XCTAssertTrue(machine.beginScheduledRun())
+        XCTAssertEqual(machine.phase, .running)
+        XCTAssertFalse(machine.beginScheduledRun())
+        XCTAssertEqual(machine.handleTrigger(.localEdit), .none)
+        XCTAssertTrue(machine.pendingTrigger)
+
+        // Completing mid-sync run transitions to follow-up debounce (never drops mid-sync edit).
+        XCTAssertEqual(machine.finishSuccess(), .scheduleAfter(2.0))
+        XCTAssertEqual(machine.phase, .debouncing)
+        XCTAssertEqual(machine.failureStreak, 0)
+
+        // Transient failures apply bounded exponential backoff (10s -> 20s -> 40s -> 40s).
+        XCTAssertTrue(machine.beginScheduledRun())
+        XCTAssertEqual(machine.finishFailure(), .scheduleAfter(10.0))
+        XCTAssertEqual(machine.phase, .backoff)
+        XCTAssertEqual(machine.failureStreak, 1)
+
+        XCTAssertTrue(machine.beginScheduledRun())
+        XCTAssertEqual(machine.finishFailure(), .scheduleAfter(20.0))
+        XCTAssertEqual(machine.failureStreak, 2)
+
+        XCTAssertTrue(machine.beginScheduledRun())
+        XCTAssertEqual(machine.finishFailure(), .scheduleAfter(40.0))
+        XCTAssertEqual(machine.failureStreak, 3)
+
+        XCTAssertTrue(machine.beginScheduledRun())
+        XCTAssertEqual(machine.finishFailure(), .scheduleAfter(40.0))
+        XCTAssertEqual(machine.failureStreak, 3)
+
+        // Disabling auto-sync disarms backoff timer, but explicit manual sync still runs.
+        machine.setAutoEnabled(false)
+        XCTAssertEqual(machine.phase, .idle)
+        XCTAssertEqual(machine.handleTrigger(.periodic), .none)
+        XCTAssertEqual(machine.handleTrigger(.manual), .runImmediately)
+        XCTAssertEqual(machine.phase, .running)
+        XCTAssertEqual(machine.finishSuccess(), .none)
+        XCTAssertEqual(machine.failureStreak, 0)
+
+        // Revoking immediately disarms scheduled work.
+        machine.setAutoEnabled(true)
+        XCTAssertEqual(machine.phase, .debouncing)
+        machine.setPaired(false)
+        XCTAssertEqual(machine.phase, .idle)
+        XCTAssertFalse(machine.pendingTrigger)
+    }
+
+    func testAutoSyncEngineBidirectionalCoalescedSyncAndLiveUpdateCallback() async throws {
+        let macStore = try makeStore(named: "mac-auto")
+        let iosStore = try makeStore(named: "ios-auto")
+        let transport = InMemorySyncTransport()
+
+        let macID = "mac-mini"
+        let iosID = "iphone-17"
+        try macStore.pairDevice(deviceID: macID, displayName: "Mac", platform: .mac, at: 100)
+        try iosStore.pairDevice(deviceID: iosID, displayName: "iPhone", platform: .iphone, at: 100)
+
+        XCTAssertTrue(try macStore.isAutoSyncEnabled())
+        try macStore.setAutoSyncEnabled(false)
+        XCTAssertFalse(try macStore.isAutoSyncEnabled())
+        try macStore.setAutoSyncEnabled(true)
+        XCTAssertTrue(try macStore.isAutoSyncEnabled())
+
+        let appliedExpectation = expectation(description: "Mac auto-sync pulls remote iPhone alert")
+        let iosCoordinator = HybridSyncCoordinator(store: iosStore, transport: transport)
+        let macCoordinator = HybridSyncCoordinator(store: macStore, transport: transport)
+
+        let iosEngine = AutoSyncEngine(
+            debounceSeconds: 0.02,
+            baseBackoffSeconds: 0.05,
+            maxBackoffSeconds: 0.2,
+            syncAction: { try await iosCoordinator.syncNow(localDeviceID: iosID, at: 200) }
+        )
+        let macEngine = AutoSyncEngine(
+            debounceSeconds: 0.02,
+            baseBackoffSeconds: 0.05,
+            maxBackoffSeconds: 0.2,
+            syncAction: { try await macCoordinator.syncNow(localDeviceID: macID, at: 210) },
+            onSyncCompleted: { result in
+                if result.applied.insertedObservations > 0 {
+                    appliedExpectation.fulfill()
+                }
+            }
+        )
+
+        await iosEngine.configure(paired: true, autoEnabled: true)
+        await macEngine.configure(paired: true, autoEnabled: true)
+
+        // Burst 3 captures on iPhone; debounced auto-sync should push them cleanly.
+        for i in 1...3 {
+            _ = try iosStore.recordDirectObservation(
+                sourceID: "\(iosID):ios_shortcuts",
+                originDeviceID: iosID,
+                appLabel: "Gmail",
+                title: "Sender \(i)",
+                body: "Body \(i)",
+                capturedAt: Double(150 + i)
+            )
+            await iosEngine.trigger(.localCapture)
+        }
+
+        // Wait for iPhone auto-push to settle, then trigger Mac foreground auto-pull.
+        try await Task.sleep(nanoseconds: 120_000_000)
+        await macEngine.trigger(.foreground)
+        await fulfillment(of: [appliedExpectation], timeout: 2.0)
+
+        let macInbox = try macStore.inbox(InboxQuery())
+        XCTAssertEqual(macInbox.count, 3)
+
+        await iosEngine.stop()
+        await macEngine.stop()
+    }
+
+    func testWorkflowUnflagOnMacOverridesOlderFlagOnIPhoneViaAutoVersionBump() async throws {
+        let macStore = try makeStore(named: "mac-unflag")
+        let iosStore = try makeStore(named: "ios-unflag")
+        let transport = InMemorySyncTransport()
+
+        let macID = "mac-mini"
+        let iosID = "iphone-17"
+        try macStore.pairDevice(deviceID: macID, displayName: "Mac", platform: .mac, at: 100)
+        try iosStore.pairDevice(deviceID: iosID, displayName: "iPhone", platform: .iphone, at: 100)
+
+        let runID = try macStore.startRun(at: 100)
+        try macStore.record(Observation(
+            sourceID: "\(macID):notificationcenter",
+            sourceEventID: "ev-flag-toggle",
+            capturedAt: 200,
+            description: "X, Casey, Ping, from iPhone",
+            title: "Casey",
+            body: "Ping"
+        ), runID: runID)
+
+        let macCoord = HybridSyncCoordinator(store: macStore, transport: transport)
+        let iosCoord = HybridSyncCoordinator(store: iosStore, transport: transport)
+
+        _ = try await macCoord.syncNow(localDeviceID: macID, at: 205)
+        _ = try await iosCoord.syncNow(localDeviceID: iosID, at: 210)
+
+        // Flag on iPhone without manually calling bumpWorkflowVersion.
+        let iosEntry = try XCTUnwrap(try iosStore.inbox(InboxQuery()).first)
+        try iosStore.setFlag(iosEntry.id, flagged: true)
+        _ = try await iosCoord.syncNow(localDeviceID: iosID, at: 220)
+        _ = try await macCoord.syncNow(localDeviceID: macID, at: 225)
+
+        let macFlagged = try XCTUnwrap(try macStore.inbox(InboxQuery()).first)
+        XCTAssertTrue(macFlagged.isFlagged)
+
+        // Now unflag on Mac without manually calling bumpWorkflowVersion; must sync back to iPhone as false.
+        try macStore.setFlag(macFlagged.id, flagged: false)
+        _ = try await macCoord.syncNow(localDeviceID: macID, at: 230)
+        _ = try await iosCoord.syncNow(localDeviceID: iosID, at: 235)
+
+        let iosAfter = try XCTUnwrap(try iosStore.inbox(InboxQuery()).first)
+        XCTAssertFalse(iosAfter.isFlagged, "Unflagging on Mac must monotonically override older flag on iPhone")
+    }
+
     #if canImport(CloudKit)
     func testCloudKitTransportGuardsMissingEntitlementWithoutCrashing() async throws {
         let transport = CloudKitSyncTransport()

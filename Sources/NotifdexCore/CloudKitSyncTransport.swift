@@ -13,6 +13,7 @@ public final class CloudKitSyncTransport: SyncTransport, @unchecked Sendable {
     public static let defaultContainerIdentifier = "iCloud.com.notifdex.shared"
     public static let zoneName = "NotifdexSyncZone"
     public static let recordType = "NotifdexSyncBatch"
+    public static let databaseSubscriptionID = "notifdex-private-db-changes"
 
     public let containerIdentifier: String
     private let zoneID: CKRecordZone.ID
@@ -60,6 +61,24 @@ public final class CloudKitSyncTransport: SyncTransport, @unchecked Sendable {
         let container = CKContainer(identifier: containerIdentifier)
         let status = try await container.accountStatus()
         return status == .available
+    }
+
+    /// Registers an idempotent silent-push subscription on the private CloudKit database
+    /// so paired devices can be nudged when remote changes arrive.
+    public func ensureDatabaseSubscription() async throws {
+        try requireEntitlement()
+        let container = CKContainer(identifier: containerIdentifier)
+        let status = try await container.accountStatus()
+        guard status == .available else { return }
+
+        let database = container.privateCloudDatabase
+        try await ensureZoneExists(in: database)
+
+        let subscription = CKDatabaseSubscription(subscriptionID: Self.databaseSubscriptionID)
+        let notificationInfo = CKSubscription.NotificationInfo()
+        notificationInfo.shouldSendContentAvailable = true
+        subscription.notificationInfo = notificationInfo
+        _ = try await database.modifySubscriptions(saving: [subscription], deleting: [])
     }
 
     public func push(_ batch: SyncBatch) async throws {

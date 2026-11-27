@@ -23,13 +23,26 @@ struct SettingsView: View {
         List {
             Section {
                 LabeledContent("Sync Mode") {
-                    Text(viewModel.isSyncPaired ? "Paired (Opt-In CloudKit)" : "Local-Only")
+                    Text(viewModel.isSyncPaired ? (viewModel.autoSyncEnabled ? "Paired · Auto-Sync On" : "Paired · Manual Only") : "Local-Only")
                         .fontWeight(.semibold)
                         .foregroundStyle(viewModel.isSyncPaired ? NotifdexTheme.celadon : .secondary)
                 }
 
+                if viewModel.isSyncPaired {
+                    Toggle("Automatic iCloud Sync", isOn: Binding(
+                        get: { viewModel.autoSyncEnabled },
+                        set: { viewModel.setAutoSyncEnabled($0) }
+                    ))
+                }
+
                 if let summary = viewModel.lastSyncSummary {
                     LabeledContent("Last Sync", value: summary)
+                }
+                if let syncedAt = viewModel.lastSyncedAt {
+                    LabeledContent("Last Synced") {
+                        Text(syncedAt, style: .relative)
+                            .foregroundStyle(.secondary)
+                    }
                 }
 
                 if !viewModel.isSyncPaired {

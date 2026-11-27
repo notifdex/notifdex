@@ -1,3 +1,4 @@
+import NotifdexCore
 import XCTest
 @testable import NotifdexiOS
 
@@ -331,5 +332,91 @@ final class NotifdexCaptureTests: XCTestCase {
         XCTAssertEqual(stats.totalCount, 1)
         XCTAssertEqual(stats.lastCapturedAt, 1_764_100_700)
         XCTAssertEqual(stats.countByApp["X"], 1)
+    }
+
+    // MARK: - Phase 2 Shared NotifdexCore & Hybrid Sync on iOS
+
+    func testIOSShortcutsCaptureFeedsSharedNotifdexCoreWorkflowsAndSync() async throws {
+        let store = try NotificationStore(databaseURL: dbURL)
+        let service = CaptureService(store: store)
+
+        _ = try CaptureNotificationIntent.execute(
+            app: "Gmail",
+            title: "Alex",
+            subtitle: "Launch",
+            body: "Ready for review",
+            receivedAt: Date(timeIntervalSince1970: 1_764_200_000),
+            service: service
+        )
+
+        let items = try service.hybridInbox()
+        XCTAssertEqual(items.count, 1)
+        let entry = try XCTUnwrap(items.first?.primary)
+        XCTAssertEqual(entry.app, "Gmail")
+        XCTAssertEqual(items.first?.provenanceBadges, ["iPhone"])
+
+        // Exercise shared NotifdexCore workflows (flag, save, follow-up, person, note).
+        try service.setFlag(entry.id, flagged: true)
+        try service.setSaved(entry.id, saved: true)
+        try service.scheduleFollowUp(entry.id, dueAt: 1_764_250_000)
+        let personID = try service.createPerson(name: "Alex Morgan", linking: entry.id)
+        try service.addPersonNote(personID: personID, title: "Launch", body: "Send checklist")
+        try service.savePersonalNote(folderID: nil, title: "Scratch", body: "Test iOS note")
+
+        XCTAssertEqual(try service.followUps().count, 1)
+        XCTAssertEqual(try service.people().count, 1)
+        XCTAssertEqual(try service.personNotes(for: personID).count, 1)
+        XCTAssertEqual(try service.personalNotes().count, 1)
+
+        // Pair and sync iOS -> Mac through shared HybridSyncCoordinator.
+        try service.enableAndPairLocalSync(displayName: "Jared's iPhone")
+        let transport = InMemorySyncTransport()
+        let syncResult = try await service.runSync(using: transport)
+        XCTAssertEqual(syncResult.pushedObservations, 1)
+
+        let macDB = tempDir.appendingPathComponent("mac-capture.db")
+        let macStore = try CaptureStore(path: macDB.path)
+        try macStore.pairDevice(deviceID: "mac-mini", displayName: "Jared's Mac", platform: .mac)
+        let macCoord = HybridSyncCoordinator(store: macStore, transport: transport)
+        let macResult = try await macCoord.syncNow(localDeviceID: "mac-mini")
+
+        XCTAssertEqual(macResult.applied.insertedObservations, 1)
+        let macEntry = try XCTUnwrap(try macStore.inbox(InboxQuery()).first)
+        XCTAssertTrue(macEntry.isFlagged)
+        XCTAssertTrue(macEntry.saved)
+        XCTAssertEqual(macEntry.personName, "Alex Morgan")
+        XCTAssertEqual(try macStore.personalNotes().count, 1)
+    }
+
+    func testConcurrentBurstCaptureCompletesRapidlyUnderUIContention() async throws {
+        let store = try NotificationStore(databaseURL: dbURL)
+        let service = CaptureService(store: store)
+        let start = Date()
+
+        try await withThrowingTaskGroup(of: Void.self) { group in
+            for idx in 0..<25 {
+                group.addTask {
+                    _ = try CaptureNotificationIntent.execute(
+                        app: idx.isMultiple(of: 2) ? "Gmail" : "X",
+                        title: "Burst Sender \(idx)",
+                        subtitle: "",
+                        body: "Burst body \(idx)",
+                        receivedAt: Date(timeIntervalSince1970: 1_764_300_000 + Double(idx)),
+                        service: service
+                    )
+                }
+            }
+            for _ in 0..<10 {
+                group.addTask {
+                    _ = try service.hybridInbox()
+                    _ = try service.stats()
+                }
+            }
+            try await group.waitForAll()
+        }
+
+        let elapsed = Date().timeIntervalSince(start)
+        XCTAssertLessThan(elapsed, 2.0, "25 concurrent captures under UI contention took \(elapsed)s")
+        XCTAssertEqual(try service.hybridInbox().count, 25)
     }
 }

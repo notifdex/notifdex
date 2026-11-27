@@ -29,9 +29,16 @@ final class AppModel: ObservableObject {
     // Command Line Tools may lack the SwiftUI State macro plugin.
     @Published var customLabel = ""
     @Published var showingCollectionStatus = false
+    @Published var syncPaired = false
+    @Published var syncDevices: [SyncDeviceRecord] = []
+    @Published var syncBusy = false
+    @Published var syncMessage: String?
+    @Published var syncError: String?
+    @Published var forwardingHealth: MacForwardingHealthReport?
     private let loginQueue = DispatchQueue(label: "com.notifdex.login", qos: .utility)
     let worker: CaptureWorker
     let appearance: AppearanceSettings
+    private let databaseURL: URL
     private var sleepObservers: [NSObjectProtocol] = []
 
     init() {
@@ -39,6 +46,7 @@ final class AppModel: ObservableObject {
         let directory = smoke
             ? FileManager.default.temporaryDirectory.appendingPathComponent("notifdex-smoke-" + UUID().uuidString)
             : FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/Notifdex")
+        databaseURL = directory.appendingPathComponent("capture.db")
         worker = CaptureWorker(directory: directory)
         appearance = AppearanceSettings(directory: directory)
         if smoke {
@@ -127,6 +135,104 @@ final class AppModel: ObservableObject {
 
     var enabledAppCount: Int {
         state.settings?.apps.filter(\.enabled).count ?? 0
+    }
+
+    func refreshSyncState() {
+        let path = databaseURL.path
+        let enabledApps = state.settings?.allowedLabels ?? []
+        loginQueue.async { [weak self] in
+            do {
+                let store = try CaptureStore(path: path)
+                let deviceID = try store.localSyncDeviceID()
+                let paired = try store.canDeviceSync(deviceID)
+                let devices = try store.syncDevices()
+                let health = try store.macForwardingHealth(localDeviceID: deviceID, enabledApps: enabledApps)
+                onAppMainLoop {
+                    self?.syncPaired = paired
+                    self?.syncDevices = devices
+                    self?.forwardingHealth = health
+                }
+            } catch {
+                onAppMainLoop { self?.syncError = error.localizedDescription }
+            }
+        }
+    }
+
+    func enableCloudKitSync() {
+        let path = databaseURL.path
+        let hostName = Host.current().localizedName ?? "Mac"
+        loginQueue.async { [weak self] in
+            do {
+                let store = try CaptureStore(path: path)
+                let deviceID = try store.localSyncDeviceID()
+                try store.pairDevice(deviceID: deviceID, displayName: hostName, platform: .mac)
+                let devices = try store.syncDevices()
+                onAppMainLoop {
+                    self?.syncPaired = true
+                    self?.syncDevices = devices
+                    self?.syncError = nil
+                    self?.syncMessage = "Mac paired for opt-in iCloud Sync."
+                }
+            } catch {
+                onAppMainLoop { self?.syncError = error.localizedDescription }
+            }
+        }
+    }
+
+    func revokeSyncDevice(_ deviceID: String) {
+        let path = databaseURL.path
+        loginQueue.async { [weak self] in
+            do {
+                let store = try CaptureStore(path: path)
+                try store.revokeDevice(deviceID)
+                let localID = try store.localSyncDeviceID()
+                let paired = try store.canDeviceSync(localID)
+                let devices = try store.syncDevices()
+                onAppMainLoop {
+                    self?.syncPaired = paired
+                    self?.syncDevices = devices
+                    self?.syncError = nil
+                    self?.syncMessage = "Device revoked. Local observations remain intact."
+                }
+            } catch {
+                onAppMainLoop { self?.syncError = error.localizedDescription }
+            }
+        }
+    }
+
+    func syncNowWithCloudKit() {
+        #if canImport(CloudKit)
+        guard !syncBusy else { return }
+        syncBusy = true
+        syncError = nil
+        let path = databaseURL.path
+        let enabledApps = state.settings?.allowedLabels ?? []
+        Task {
+            defer {
+                Task { @MainActor in self.syncBusy = false }
+            }
+            do {
+                let store = try CaptureStore(path: path)
+                let deviceID = try store.localSyncDeviceID()
+                let coordinator = HybridSyncCoordinator(store: store, transport: CloudKitSyncTransport())
+                let result = try await coordinator.syncNow(localDeviceID: deviceID)
+                let devices = try store.syncDevices()
+                let health = try store.macForwardingHealth(localDeviceID: deviceID, enabledApps: enabledApps)
+                await MainActor.run {
+                    self.syncDevices = devices
+                    self.forwardingHealth = health
+                    self.syncMessage = "Synced: pushed \(result.pushedObservations) alerts, pulled \(result.applied.insertedObservations) new."
+                    self.syncError = nil
+                }
+            } catch {
+                await MainActor.run {
+                    self.syncError = "CloudKit sync: \(error.localizedDescription)"
+                }
+            }
+        }
+        #else
+        syncError = "CloudKit is unavailable in this build."
+        #endif
     }
 }
 
@@ -569,6 +675,80 @@ struct AppCenter: View {
                 Rectangle().fill(Color.primary.opacity(0.09)).frame(height: 0.5)
 
                 VStack(alignment: .leading, spacing: 10) {
+                    HStack(alignment: .top) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("iOS & iCloud Sync")
+                                .font(.system(size: 16, weight: .regular, design: .serif))
+                            Text("Opt-in private CloudKit sync between macOS and Notifdex iOS. Hidden alerts stay local and never sync.")
+                                .font(.callout)
+                                .foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        Spacer(minLength: 16)
+                        if !model.syncPaired {
+                            Button("Enable & Pair") {
+                                model.enableCloudKitSync()
+                            }
+                            .buttonStyle(NotifdexGlassButtonStyle(emphasis: .prominent))
+                        } else {
+                            Button(model.syncBusy ? "Syncing…" : "Sync Now") {
+                                model.syncNowWithCloudKit()
+                            }
+                            .buttonStyle(NotifdexGlassButtonStyle(emphasis: .prominent))
+                            .disabled(model.syncBusy)
+                        }
+                    }
+
+                    LabeledContent("Sync status") {
+                        Text(model.syncPaired ? "Paired (CloudKit Private DB)" : "Local-only")
+                            .foregroundStyle(.secondary)
+                    }
+                    if let syncMessage = model.syncMessage {
+                        Text(syncMessage)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    if let syncError = model.syncError {
+                        Text(syncError)
+                            .font(.caption)
+                            .foregroundStyle(.orange)
+                            .textSelection(.enabled)
+                    }
+                    if let health = model.forwardingHealth, health.status == .degraded {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Label(health.summary, systemImage: "exclamationmark.triangle.fill")
+                                .font(.caption.weight(.medium))
+                                .foregroundStyle(.orange)
+                            if let hint = health.remediationHint {
+                                Text(hint)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                        }
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 8)
+                        .notifdexSurface(.card)
+                    }
+                    ForEach(model.syncDevices) { device in
+                        HStack {
+                            Text("\(device.displayName) (\(device.platform.displayLabel) · \(device.status.rawValue))")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            Spacer()
+                            if device.status == .paired {
+                                Button("Revoke") {
+                                    model.revokeSyncDevice(device.deviceID)
+                                }
+                                .font(.caption)
+                            }
+                        }
+                    }
+                }
+
+                Rectangle().fill(Color.primary.opacity(0.09)).frame(height: 0.5)
+
+                VStack(alignment: .leading, spacing: 10) {
                     Text("System")
                         .font(.system(size: 16, weight: .regular, design: .serif))
                     Toggle("Launch at login", isOn: Binding(
@@ -593,7 +773,10 @@ struct AppCenter: View {
             .frame(maxWidth: 640, alignment: .leading)
             .padding(.top, 4)
         }
-        .onAppear { model.refreshLoginState() }
+        .onAppear {
+            model.refreshLoginState()
+            model.refreshSyncState()
+        }
     }
 }
 #else

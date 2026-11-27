@@ -1,6 +1,6 @@
 import Foundation
 
-public enum NotificationOrigin: String, Codable {
+public enum NotificationOrigin: String, Codable, Sendable {
     case iphone, mac, unknown
 }
 
@@ -27,10 +27,13 @@ public struct Observation: Codable {
     public var title: String
     public var subtitle: String
     public var body: String
+    public var explicitOrigin: NotificationOrigin?
+    public var explicitAppLabel: String?
     public var parserVersion: Int { 1 }
 
     public init(sourceID: String, sourceEventID: String, capturedAt: Double,
-                description: String, title: String, subtitle: String = "", body: String) {
+                description: String, title: String, subtitle: String = "", body: String,
+                explicitOrigin: NotificationOrigin? = nil, explicitAppLabel: String? = nil) {
         self.sourceID = sourceID
         self.sourceEventID = sourceEventID
         self.capturedAt = capturedAt
@@ -38,14 +41,22 @@ public struct Observation: Codable {
         self.title = title
         self.subtitle = subtitle
         self.body = body
+        self.explicitOrigin = explicitOrigin
+        self.explicitAppLabel = explicitAppLabel
     }
 
     public var origin: NotificationOrigin {
+        if let explicitOrigin { return explicitOrigin }
         // Only the English suffix observed in the live probe is currently recognized.
-        accessibilityDescription.hasSuffix(", from iPhone") ? .iphone : .unknown
+        return accessibilityDescription.hasSuffix(", from iPhone") ? .iphone : .unknown
     }
 
     public var appLabel: String? {
+        if let explicitAppLabel {
+            let trimmed = Self.normalizedAppLabel(explicitAppLabel)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
+        }
         // Anchor against the separately observed title, preserving commas in body/title.
         guard !title.isEmpty,
               let boundary = accessibilityDescription.range(of: ", " + title + ", "),

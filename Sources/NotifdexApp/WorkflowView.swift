@@ -159,6 +159,7 @@ final class WorkflowModel: ObservableObject {
     @Published private(set) var matchRules: [PersonMatchRule] = []
     @Published private(set) var limit = 50
     @Published private(set) var entries: [InboxEntry] = []
+    @Published private(set) var provenanceBadgesByID: [Int64: [String]] = [:]
     @Published private(set) var rules: [InboxFilter] = []
     @Published private(set) var lastHide: InboxHide?
     @Published private(set) var loadedQuery: InboxQuery?
@@ -257,8 +258,21 @@ final class WorkflowModel: ObservableObject {
         let isPeople = mode == .people
         let keepsOpenDetail = mode.hasTriageControls
         worker.withStore({ store in
-            let entries = try store.inbox(query)
+            let fetchQuery = InboxQuery(
+                scope: query.scope,
+                search: query.search,
+                limit: min(2000, query.limit * 2),
+                readFilter: query.readFilter,
+                order: query.order,
+                workspaceID: query.workspaceID
+            )
+            let rawEntries = try store.inbox(fetchQuery)
+            let provenance = try store.provenanceByObservationID()
+            let collapsed = HybridInboxProjection.collapse(rawEntries, provenanceByID: provenance)
+            let entries = Array(collapsed.prefix(query.limit)).map(\.primary)
+            let badgesByID = Dictionary(uniqueKeysWithValues: collapsed.map { ($0.primary.id, $0.provenanceBadges) })
             var alert = entries.first { $0.id == selected }
+                ?? collapsed.first { item in selected.map { item.observationIDs.contains($0) } ?? false }?.primary
             if alert == nil, keepsOpenDetail, let selected {
                 alert = try store.selectedInboxEntry(selected, in: query)
             }
@@ -267,9 +281,10 @@ final class WorkflowModel: ObservableObject {
             let scopedPeople = try query.workspaceID.map { try store.people(in: $0) } ?? allPeople
             let visiblePerson = scopedPeople.first { $0.id == person }?.id
             let card = isPeople ? visiblePerson : alert?.personID
-            let timeline = try (isPeople ? nil : card).map {
-                try store.inbox(InboxQuery(scope: .person($0), limit: 12))
+            let rawTimeline = try (isPeople ? nil : card).map {
+                try store.inbox(InboxQuery(scope: .person($0), limit: 24))
             } ?? []
+            let timeline = Array(HybridInboxProjection.collapse(rawTimeline, provenanceByID: provenance).prefix(12)).map(\.primary)
             let identities = try card.map { try store.identities(for: $0) } ?? []
             let matches = try card.map { try store.personMatchRules(for: $0) } ?? []
             let notes = try card.map { try store.personNotes(for: $0) } ?? []
@@ -280,7 +295,7 @@ final class WorkflowModel: ObservableObject {
                 return try? store.previewPersonMatch(for: alert.id)
             }()
             let workspaceState = (options: try store.workspaces(), people: scopedPeople, memberships: membership)
-            let contactExtras = (allIdentities: allIdentities, inlineMatch: inlineMatch)
+            let contactExtras = (allIdentities: allIdentities, inlineMatch: inlineMatch, badgesByID: badgesByID)
             return (entries, allPeople, card, identities, timeline, try store.inboxFilters(),
                     matches, notes, alert, assignment, workspaceState, contactExtras)
         }, completion: { [weak self] result in
@@ -290,6 +305,7 @@ final class WorkflowModel: ObservableObject {
             case .success(let value):
                 self.loadedQuery = query
                 self.entries = value.0
+                self.provenanceBadgesByID = value.11.badgesByID
                 self.people = value.1
                 self.cardID = value.2
                 self.identities = value.3
@@ -1688,6 +1704,12 @@ struct WorkflowView<AppsContent: View, RecoveryContent: View>: View {
                 Text(entry.app)
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
+                if let badges = model.provenanceBadgesByID[entry.id],
+                   badges.count > 1 || badges.contains("iPhone") {
+                    Text("· \(badges.joined(separator: " + "))")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.tertiary)
+                }
                 if entry.personID != nil, !entry.personName.isEmpty {
                     let trimmedTitle = entry.title.trimmingCharacters(in: .whitespacesAndNewlines)
                     if entry.personName.caseInsensitiveCompare(trimmedTitle) != .orderedSame {
@@ -1797,7 +1819,14 @@ struct WorkflowView<AppsContent: View, RecoveryContent: View>: View {
                 VStack(alignment: .leading, spacing: 3) {
                     Text(alert.title.isEmpty ? "Notification" : alert.title)
                         .font(.system(size: 20, weight: .regular, design: .serif))
-                    Text("\(alert.app) · \(Date(timeIntervalSince1970: alert.capturedAt).formatted(date: .abbreviated, time: .shortened))")
+                    let provenanceSuffix: String = {
+                        guard let badges = model.provenanceBadgesByID[alert.id],
+                              badges.count > 1 || badges.contains("iPhone") else {
+                            return ""
+                        }
+                        return " · \(badges.joined(separator: " + "))"
+                    }()
+                    Text("\(alert.app) · \(Date(timeIntervalSince1970: alert.capturedAt).formatted(date: .abbreviated, time: .shortened))\(provenanceSuffix)")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }

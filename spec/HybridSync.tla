@@ -208,6 +208,16 @@ ForwardingHealthSoundness ==
     /\ ((<<VisibleAlert, Mac>> \in localObs[Mac]) => ~MacForwardingWarning)
     /\ (MacForwardingWarning => \E o \in localObs[Mac] : o[1] = VisibleAlert)
 
+\* Collapsed logical alert view: merges dual Mac + iPhone observations of the same logical alert
+\* into one Inbox item without deleting raw per-device evidence.
+CollapsedAlerts(obs) == {o[1] : o \in obs}
+
+CrossDeviceDualCaptureCoherence ==
+    \A d \in Devices :
+        /\ Cardinality(CollapsedAlerts(localObs[d])) <= Cardinality(Alerts)
+        /\ ((<<VisibleAlert, Mac>> \in localObs[d] /\ <<VisibleAlert, IPhone>> \in localObs[d])
+            => VisibleAlert \in CollapsedAlerts(localObs[d]))
+
 \* Local evidence on either device is never destroyed by sync, edits, failures, or revocation.
 LocalEvidenceNeverVanishes == [][
     \A d \in Devices : localObs[d] \subseteq localObs'[d]

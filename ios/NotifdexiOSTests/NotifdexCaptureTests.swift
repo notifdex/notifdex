@@ -514,4 +514,24 @@ final class NotifdexCaptureTests: XCTestCase {
         XCTAssertEqual(try migratedService.coreStore.observationCount(), 1)
         XCTAssertEqual(try migratedService.stats().countByApp["Gmail"], 1)
     }
+
+    func testSeedSampleAlertsCreatesSyntheticAlertsWithoutFabricatingShortcutVerification() throws {
+        let store = try NotificationStore(databaseURL: dbURL)
+        let service = CaptureService(store: store)
+        let baseDate = Date(timeIntervalSince1970: 1_764_600_000)
+
+        let added = try service.seedSampleAlerts(at: baseDate)
+        XCTAssertEqual(added, 3)
+        XCTAssertEqual(try service.hybridInbox().count, 3)
+
+        // Calling seedSampleAlerts again within the dedup window is idempotent.
+        let duplicateRun = try service.seedSampleAlerts(at: baseDate)
+        XCTAssertEqual(duplicateRun, 0)
+        XCTAssertEqual(try service.hybridInbox().count, 3)
+
+        // Sample alerts are manual_test and must NEVER mark any app as Shortcuts-verified.
+        let settings = try service.settings()
+        XCTAssertTrue(settings.verifiedAppLabels.isEmpty)
+        XCTAssertTrue(try service.notifications().allSatisfy { $0.captureChannel == .manualTest })
+    }
 }

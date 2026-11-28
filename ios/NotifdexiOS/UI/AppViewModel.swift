@@ -512,6 +512,17 @@ final class AppViewModel: ObservableObject {
         }
     }
 
+    func loadSampleAlerts() {
+        performAction(triggersSync: false) {
+            let added = try service.seedSampleAlerts()
+            if added > 0 {
+                toastMessage = "Loaded \(added) sample alerts. Swipe any row to flag, save, or hide."
+            } else {
+                toastMessage = "Sample alerts are already in your Inbox."
+            }
+        }
+    }
+
     func clearAllNotifications() {
         performAction(toast: "Cleared Phase 1 telemetry store.") {
             try service.clearAllNotifications()

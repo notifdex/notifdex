@@ -498,6 +498,50 @@ public final class CaptureService: @unchecked Sendable {
         try store.fetchExecutionLogs(limit: limit)
     }
 
+    /// Seeds synthetic sample alerts tagged `manual_test` so first-time testers
+    /// and App Review can explore Inbox, Today, People, Notes, and Hide Rules
+    /// without fabricating Apple Shortcuts automation verification.
+    @discardableResult
+    public func seedSampleAlerts(at baseDate: Date = Date()) throws -> Int {
+        let samples: [IncomingNotificationPayload] = [
+            IncomingNotificationPayload(
+                app: "Gmail",
+                title: "Priya Nair",
+                subtitle: "Coffee next week?",
+                body: "Are you free Thursday morning to catch up on the launch timeline?",
+                receivedAt: baseDate.addingTimeInterval(-900),
+                channel: .manualTest,
+                sourceMetadata: ["origin_ui": "onboarding_sample"]
+            ),
+            IncomingNotificationPayload(
+                app: "X",
+                title: "Hannah Park",
+                subtitle: "Direct Message",
+                body: "Just sent over the notes from our run club—let me know what you think.",
+                receivedAt: baseDate.addingTimeInterval(-300),
+                channel: .manualTest,
+                sourceMetadata: ["origin_ui": "onboarding_sample"]
+            ),
+            IncomingNotificationPayload(
+                app: "WeChat",
+                title: "Marco Rossi",
+                subtitle: nil,
+                body: "Tile samples arrived early, I can drop them by at 4 PM.",
+                receivedAt: baseDate,
+                channel: .manualTest,
+                sourceMetadata: ["origin_ui": "onboarding_sample"]
+            )
+        ]
+
+        var insertedCount = 0
+        for sample in samples {
+            if case .captured = try ingest(sample) {
+                insertedCount += 1
+            }
+        }
+        return insertedCount
+    }
+
     public func clearAllNotifications() throws {
         try ingestQueue.sync {
             try store.clearAllNotifications()

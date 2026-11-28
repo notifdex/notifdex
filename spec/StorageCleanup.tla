@@ -120,6 +120,11 @@ RemoteSyncPull(o) ==
     /\ observations' = observations \cup {o}
     /\ UNCHANGED <<pendingDelete, userData, phase, walPending, prunedOld, prunedAll, integrityOK, usedClearAll>>
 
+\* Read-only storage usage refresh is always available while idle (prevents artificial terminal deadlock).
+RefreshStorageUsage ==
+    /\ phase = "idle"
+    /\ UNCHANGED vars
+
 Next ==
     \/ BeginAgeCleanup
     \/ BeginClearAll
@@ -129,6 +134,7 @@ Next ==
     \/ InterruptMaintenance
     \/ RunStandaloneCompaction
     \/ \E o \in {OldNormal, RecentNormal} : RemoteSyncPull(o)
+    \/ RefreshStorageUsage
 
 Spec == Init /\ [][Next]_vars
 

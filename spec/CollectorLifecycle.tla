@@ -1,13 +1,15 @@
 ------------------------- MODULE CollectorLifecycle -------------------------
 EXTENDS Naturals
-CONSTANTS Collectors, NoOwner, MaxSteps, MaxUnchanged
+CONSTANTS Collectors, NoOwner, MaxSteps, MaxUnchanged, MaxWakeRetries
 
 GapReasons == {"collector_stopped", "unavailable", "partial_scan", "recovery_navigation"}
 
-VARIABLES lockOwner, openGaps, permission, paused, sleeping, selectedNonEmpty,
+VARIABLES lockOwner, openGaps, permission, paused, sleeping, screenLocked,
+          selectedNonEmpty, pendingRecovery, wakeRetries,
           recovering, recoveryFailed, panelOpen, steps, unchanged
 
-vars == <<lockOwner, openGaps, permission, paused, sleeping, selectedNonEmpty,
+vars == <<lockOwner, openGaps, permission, paused, sleeping, screenLocked,
+          selectedNonEmpty, pendingRecovery, wakeRetries,
           recovering, recoveryFailed, panelOpen, steps, unchanged>>
 
 CanCollect ==
@@ -17,13 +19,20 @@ CanCollect ==
     /\ ~sleeping
     /\ selectedNonEmpty
 
+CanRecover ==
+    /\ CanCollect
+    /\ ~screenLocked
+
 Init ==
     /\ lockOwner = NoOwner
     /\ openGaps = {}
     /\ permission = FALSE
     /\ paused = FALSE
     /\ sleeping = FALSE
+    /\ screenLocked = FALSE
     /\ selectedNonEmpty = TRUE
+    /\ pendingRecovery = FALSE
+    /\ wakeRetries = 0
     /\ recovering = FALSE
     /\ recoveryFailed = FALSE
     /\ panelOpen = FALSE
@@ -35,8 +44,9 @@ AcquireLock(c) ==
     /\ lockOwner' = c
     /\ openGaps' = openGaps \cup {"collector_stopped"}
     /\ recoveryFailed' = FALSE
-    /\ UNCHANGED <<permission, paused, sleeping, selectedNonEmpty,
-                   recovering, panelOpen, steps, unchanged>>
+    /\ wakeRetries' = 0
+    /\ UNCHANGED <<permission, paused, sleeping, screenLocked, selectedNonEmpty,
+                   pendingRecovery, recovering, panelOpen, steps, unchanged>>
 
 ReleaseLock(c) ==
     /\ lockOwner = c
@@ -45,7 +55,10 @@ ReleaseLock(c) ==
     /\ panelOpen' = FALSE
     /\ steps' = 0
     /\ unchanged' = 0
-    /\ UNCHANGED <<openGaps, permission, paused, sleeping, selectedNonEmpty, recoveryFailed>>
+    /\ pendingRecovery' = FALSE
+    /\ wakeRetries' = 0
+    /\ UNCHANGED <<openGaps, permission, paused, sleeping, screenLocked,
+                   selectedNonEmpty, recoveryFailed>>
 
 SetPermission(b) ==
     /\ b # permission
@@ -57,7 +70,8 @@ SetPermission(b) ==
             /\ unchanged' = 0
             /\ openGaps' = IF lockOwner # NoOwner THEN openGaps \cup {"unavailable"} ELSE openGaps
        ELSE UNCHANGED <<openGaps, recovering, panelOpen, steps, unchanged>>
-    /\ UNCHANGED <<lockOwner, paused, sleeping, selectedNonEmpty, recoveryFailed>>
+    /\ UNCHANGED <<lockOwner, paused, sleeping, screenLocked, selectedNonEmpty,
+                   pendingRecovery, wakeRetries, recoveryFailed>>
 
 SetPaused(b) ==
     /\ b # paused
@@ -69,7 +83,8 @@ SetPaused(b) ==
             /\ unchanged' = 0
             /\ openGaps' = IF lockOwner # NoOwner THEN openGaps \cup {"unavailable"} ELSE openGaps
        ELSE UNCHANGED <<openGaps, recovering, panelOpen, steps, unchanged>>
-    /\ UNCHANGED <<lockOwner, permission, sleeping, selectedNonEmpty, recoveryFailed>>
+    /\ UNCHANGED <<lockOwner, permission, sleeping, screenLocked, selectedNonEmpty,
+                   pendingRecovery, wakeRetries, recoveryFailed>>
 
 SetSleeping(b) ==
     /\ b # sleeping
@@ -79,9 +94,26 @@ SetSleeping(b) ==
             /\ panelOpen' = FALSE
             /\ steps' = 0
             /\ unchanged' = 0
+            /\ pendingRecovery' = FALSE
+            /\ wakeRetries' = 0
             /\ openGaps' = IF lockOwner # NoOwner THEN openGaps \cup {"unavailable"} ELSE openGaps
-       ELSE UNCHANGED <<openGaps, recovering, panelOpen, steps, unchanged>>
-    /\ UNCHANGED <<lockOwner, permission, paused, selectedNonEmpty, recoveryFailed>>
+       ELSE /\ pendingRecovery' = (lockOwner # NoOwner)
+            /\ wakeRetries' = 0
+            /\ UNCHANGED <<openGaps, recovering, panelOpen, steps, unchanged>>
+    /\ UNCHANGED <<lockOwner, permission, paused, screenLocked, selectedNonEmpty, recoveryFailed>>
+
+SetScreenLocked(b) ==
+    /\ b # screenLocked
+    /\ screenLocked' = b
+    /\ IF b
+       THEN /\ recovering' = FALSE
+            /\ panelOpen' = FALSE
+            /\ steps' = 0
+            /\ unchanged' = 0
+            /\ pendingRecovery' = IF recovering THEN TRUE ELSE pendingRecovery
+       ELSE UNCHANGED <<recovering, panelOpen, steps, unchanged, pendingRecovery>>
+    /\ UNCHANGED <<lockOwner, openGaps, permission, paused, sleeping,
+                   selectedNonEmpty, wakeRetries, recoveryFailed>>
 
 SetSelected(b) ==
     /\ b # selectedNonEmpty
@@ -93,44 +125,52 @@ SetSelected(b) ==
             /\ unchanged' = 0
             /\ openGaps' = IF lockOwner # NoOwner THEN openGaps \cup {"unavailable"} ELSE openGaps
        ELSE UNCHANGED <<openGaps, recovering, panelOpen, steps, unchanged>>
-    /\ UNCHANGED <<lockOwner, permission, paused, sleeping, recoveryFailed>>
+    /\ UNCHANGED <<lockOwner, permission, paused, sleeping, screenLocked,
+                   pendingRecovery, wakeRetries, recoveryFailed>>
 
 BeginRecoverySuccess(c) ==
-    /\ CanCollect
+    /\ CanRecover
     /\ lockOwner = c
     /\ ~recovering
     /\ recovering' = TRUE
     /\ panelOpen' = TRUE
     /\ recoveryFailed' = FALSE
+    /\ pendingRecovery' = FALSE
+    /\ wakeRetries' = 0
     /\ steps' = 0
     /\ unchanged' = 0
-    /\ UNCHANGED <<lockOwner, openGaps, permission, paused, sleeping, selectedNonEmpty>>
+    /\ UNCHANGED <<lockOwner, openGaps, permission, paused, sleeping, screenLocked, selectedNonEmpty>>
 
 BeginRecoveryFail(c) ==
-    /\ CanCollect
+    /\ CanRecover
     /\ lockOwner = c
     /\ ~recovering
     /\ recoveryFailed' = TRUE
     /\ openGaps' = openGaps \cup {"recovery_navigation"}
-    /\ UNCHANGED <<lockOwner, permission, paused, sleeping, selectedNonEmpty,
+    /\ IF pendingRecovery /\ wakeRetries < MaxWakeRetries
+       THEN /\ wakeRetries' = wakeRetries + 1
+            /\ pendingRecovery' = TRUE
+       ELSE /\ pendingRecovery' = FALSE
+            /\ UNCHANGED wakeRetries
+    /\ UNCHANGED <<lockOwner, permission, paused, sleeping, screenLocked, selectedNonEmpty,
                    recovering, panelOpen, steps, unchanged>>
 
 LiveScanClean(c) ==
     /\ CanCollect
     /\ lockOwner = c
     /\ openGaps' = IF recoveryFailed THEN openGaps \cap {"recovery_navigation"} ELSE {}
-    /\ UNCHANGED <<lockOwner, permission, paused, sleeping, selectedNonEmpty,
-                   recovering, recoveryFailed, panelOpen, steps, unchanged>>
+    /\ UNCHANGED <<lockOwner, permission, paused, sleeping, screenLocked, selectedNonEmpty,
+                   pendingRecovery, wakeRetries, recovering, recoveryFailed, panelOpen, steps, unchanged>>
 
 LiveScanPartial(c) ==
     /\ CanCollect
     /\ lockOwner = c
     /\ openGaps' = openGaps \cup {"partial_scan"}
-    /\ UNCHANGED <<lockOwner, permission, paused, sleeping, selectedNonEmpty,
-                   recovering, recoveryFailed, panelOpen, steps, unchanged>>
+    /\ UNCHANGED <<lockOwner, permission, paused, sleeping, screenLocked, selectedNonEmpty,
+                   pendingRecovery, wakeRetries, recovering, recoveryFailed, panelOpen, steps, unchanged>>
 
 RecoveryStepProgress(c) ==
-    /\ CanCollect
+    /\ CanRecover
     /\ lockOwner = c
     /\ recovering
     /\ steps < MaxSteps
@@ -148,10 +188,11 @@ RecoveryStepProgress(c) ==
             /\ panelOpen' = FALSE
             /\ recoveryFailed' = FALSE
             /\ openGaps' = openGaps \ {"recovery_navigation"}
-    /\ UNCHANGED <<lockOwner, permission, paused, sleeping, selectedNonEmpty>>
+    /\ UNCHANGED <<lockOwner, permission, paused, sleeping, screenLocked,
+                   selectedNonEmpty, pendingRecovery, wakeRetries>>
 
 RecoveryStepStalled(c) ==
-    /\ CanCollect
+    /\ CanRecover
     /\ lockOwner = c
     /\ recovering
     /\ steps < MaxSteps
@@ -170,10 +211,11 @@ RecoveryStepStalled(c) ==
             /\ panelOpen' = FALSE
             /\ recoveryFailed' = FALSE
             /\ openGaps' = openGaps \ {"recovery_navigation"}
-    /\ UNCHANGED <<lockOwner, permission, paused, sleeping, selectedNonEmpty>>
+    /\ UNCHANGED <<lockOwner, permission, paused, sleeping, screenLocked,
+                   selectedNonEmpty, pendingRecovery, wakeRetries>>
 
 RecoveryStepFail(c) ==
-    /\ CanCollect
+    /\ CanRecover
     /\ lockOwner = c
     /\ recovering
     /\ recovering' = FALSE
@@ -182,7 +224,8 @@ RecoveryStepFail(c) ==
     /\ unchanged' = 0
     /\ recoveryFailed' = TRUE
     /\ openGaps' = openGaps \cup {"recovery_navigation"}
-    /\ UNCHANGED <<lockOwner, permission, paused, sleeping, selectedNonEmpty>>
+    /\ UNCHANGED <<lockOwner, permission, paused, sleeping, screenLocked,
+                   selectedNonEmpty, pendingRecovery, wakeRetries>>
 
 Next ==
     \/ \E c \in Collectors : AcquireLock(c)
@@ -190,6 +233,7 @@ Next ==
     \/ \E b \in BOOLEAN : SetPermission(b)
     \/ \E b \in BOOLEAN : SetPaused(b)
     \/ \E b \in BOOLEAN : SetSleeping(b)
+    \/ \E b \in BOOLEAN : SetScreenLocked(b)
     \/ \E b \in BOOLEAN : SetSelected(b)
     \/ \E c \in Collectors : BeginRecoverySuccess(c)
     \/ \E c \in Collectors : BeginRecoveryFail(c)
@@ -207,7 +251,10 @@ TypeOK ==
     /\ permission \in BOOLEAN
     /\ paused \in BOOLEAN
     /\ sleeping \in BOOLEAN
+    /\ screenLocked \in BOOLEAN
     /\ selectedNonEmpty \in BOOLEAN
+    /\ pendingRecovery \in BOOLEAN
+    /\ wakeRetries \in 0..MaxWakeRetries
     /\ recovering \in BOOLEAN
     /\ recoveryFailed \in BOOLEAN
     /\ panelOpen \in BOOLEAN
@@ -221,7 +268,13 @@ FailedRecoveryNotMaskedByLiveScan ==
     recoveryFailed => "recovery_navigation" \in openGaps
 
 UnavailableStopsRecovery ==
-    (~permission \/ paused \/ sleeping \/ ~selectedNonEmpty) => (~recovering /\ ~panelOpen)
+    (~permission \/ paused \/ sleeping \/ screenLocked \/ ~selectedNonEmpty) => (~recovering /\ ~panelOpen)
+
+LockedNeverRunsRecovery ==
+    screenLocked => (~recovering /\ ~panelOpen)
+
+WakeRetriesBounded ==
+    wakeRetries <= MaxWakeRetries
 
 NoLeakedPanel ==
     panelOpen => recovering

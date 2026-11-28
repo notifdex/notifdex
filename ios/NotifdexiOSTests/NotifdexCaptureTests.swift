@@ -575,4 +575,57 @@ final class NotifdexCaptureTests: XCTestCase {
         _ = try await iosService.runSync(using: transport)
         XCTAssertTrue(try iosService.inboxFilters().isEmpty)
     }
+
+    func testStorageUsageReportAndSafeCleanupPreserveUserDataAndReclaimSpace() throws {
+        let store = try NotificationStore(databaseURL: dbURL)
+        let service = CaptureService(store: store)
+        let now: Double = 1_765_000_000
+        let day: Double = 86_400
+
+        // Seed 20 old disposable alerts (120 days old) + 1 old flagged alert + 1 recent alert.
+        let bigBody = String(repeating: "Large alert payload for iOS storage reclamation. ", count: 40)
+        for i in 0..<20 {
+            _ = try service.ingest(IncomingNotificationPayload(
+                app: "Gmail", title: "Digest \(i)", subtitle: nil, body: bigBody,
+                receivedAt: Date(timeIntervalSince1970: now - 120 * day + Double(i)),
+                channel: .iosShortcuts
+            ))
+        }
+        _ = try service.ingest(IncomingNotificationPayload(
+            app: "X", title: "Keep Flagged", subtitle: nil, body: "Important old alert",
+            receivedAt: Date(timeIntervalSince1970: now - 120 * day - 10),
+            channel: .iosShortcuts
+        ))
+        _ = try service.ingest(IncomingNotificationPayload(
+            app: "X", title: "Recent", subtitle: nil, body: "Fresh alert",
+            receivedAt: Date(timeIntervalSince1970: now - 2 * day),
+            channel: .iosShortcuts
+        ))
+
+        let allEntries = try service.coreStore.inbox(InboxQuery(limit: 100))
+        let flaggedEntry = try XCTUnwrap(allEntries.first(where: { $0.title == "Keep Flagged" }))
+        try service.setFlag(flaggedEntry.id, flagged: true)
+        _ = try service.createPerson(name: "Jordan")
+        try service.savePersonalNote(folderID: nil, title: "iOS Note", body: "Preserve me")
+
+        let reportBefore = try service.storageUsageReport(at: now)
+        XCTAssertEqual(reportBefore.observationCount, 22)
+        XCTAssertEqual(reportBefore.protectedObservationCount, 1)
+        XCTAssertGreaterThan(reportBefore.totalBytes, 0)
+
+        let preview = try service.previewStorageCleanup(period: .olderThan90Days, now: now)
+        XCTAssertEqual(preview.removableObservationCount, 20)
+        XCTAssertEqual(preview.preservedObservationCount, 1)
+        XCTAssertEqual(preview.preservedPeopleCount, 1)
+        XCTAssertEqual(preview.preservedNotesCount, 1)
+        XCTAssertGreaterThan(preview.estimatedReclaimableBytes, 0)
+
+        let outcome = try service.performStorageCleanup(period: .olderThan90Days, now: now)
+        XCTAssertEqual(outcome.removedObservations, 20)
+        XCTAssertEqual(outcome.preservedObservations, 1)
+        XCTAssertTrue(outcome.integrityOK)
+        XCTAssertEqual(try service.coreStore.observationCount(), 2)
+        XCTAssertEqual(try service.people().count, 1)
+        XCTAssertEqual(try service.personalNotes().count, 1)
+    }
 }

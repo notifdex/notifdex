@@ -60,6 +60,12 @@ final class AppViewModel: ObservableObject {
     @Published var errorMessage: String? = nil
     @Published var toastMessage: String? = nil
 
+    @Published var storageReport: StorageUsageReport? = nil
+    @Published var storagePreview: StorageCleanupPreview? = nil
+    @Published var selectedCleanupPeriod: StorageCleanupPeriod = .olderThan90Days
+    @Published var storageBusy: Bool = false
+    @Published var storageResultMessage: String? = nil
+
     let service: CaptureService
     private var observer: NSObjectProtocol?
     private var reloadTask: Task<Void, Never>?
@@ -229,12 +235,141 @@ final class AppViewModel: ObservableObject {
     }
 
     var databaseFileSizeDescription: String {
-        let path = (try? CaptureService.defaultCoreDatabaseURL().path) ?? service.store.databaseURL.path
+        if let report = storageReport {
+            return report.formattedTotalSize
+        }
+        let path = service.coreDatabaseURL.path
         guard let attrs = try? FileManager.default.attributesOfItem(atPath: path),
               let size = attrs[.size] as? Int64 else {
             return "Not created yet"
         }
         return ByteCountFormatter.string(fromByteCount: size, countStyle: .file)
+    }
+
+    // MARK: - Storage Usage & Cleanup (Issue #110)
+
+    func refreshStorageUsage() {
+        guard !storageBusy else { return }
+        storageBusy = true
+        let service = self.service
+        let period = self.selectedCleanupPeriod
+        Task.detached(priority: .utility) {
+            do {
+                let report = try service.storageUsageReport()
+                let preview = try service.previewStorageCleanup(period: period)
+                await MainActor.run { [weak self] in
+                    self?.storageReport = report
+                    self?.storagePreview = preview
+                    self?.storageBusy = false
+                }
+            } catch {
+                await MainActor.run { [weak self] in
+                    self?.errorMessage = error.localizedDescription
+                    self?.storageBusy = false
+                }
+            }
+        }
+    }
+
+    func refreshStoragePreview(for period: StorageCleanupPeriod) {
+        let service = self.service
+        Task.detached(priority: .utility) {
+            do {
+                let preview = try service.previewStorageCleanup(period: period)
+                await MainActor.run { [weak self] in
+                    guard let self, self.selectedCleanupPeriod == period else { return }
+                    self.storagePreview = preview
+                }
+            } catch {
+                await MainActor.run { [weak self] in
+                    self?.errorMessage = error.localizedDescription
+                }
+            }
+        }
+    }
+
+    func prepareClearAllPreview(onReady: @escaping @MainActor (StorageCleanupPreview) -> Void) {
+        guard !storageBusy else { return }
+        storageBusy = true
+        let service = self.service
+        Task.detached(priority: .utility) {
+            do {
+                let preview = try service.previewStorageCleanup(period: .allHistory)
+                await MainActor.run { [weak self] in
+                    self?.storageBusy = false
+                    onReady(preview)
+                }
+            } catch {
+                await MainActor.run { [weak self] in
+                    self?.errorMessage = error.localizedDescription
+                    self?.storageBusy = false
+                }
+            }
+        }
+    }
+
+    func executeStorageCleanup(_ period: StorageCleanupPeriod) {
+        guard !storageBusy else { return }
+        storageBusy = true
+        storageResultMessage = nil
+        let service = self.service
+        let activePeriod = self.selectedCleanupPeriod
+        Task.detached(priority: .utility) {
+            do {
+                let outcome = try service.performStorageCleanup(period: period)
+                let report = try service.storageUsageReport()
+                let preview = try service.previewStorageCleanup(period: activePeriod)
+                await MainActor.run { [weak self] in
+                    guard let self else { return }
+                    self.storageReport = report
+                    self.storagePreview = preview
+                    self.storageBusy = false
+                    let integrityNote = outcome.integrityOK ? "Integrity verified." : "Integrity warning."
+                    let msg = "Removed \(outcome.removedObservations) alert(s), reclaimed \(outcome.formattedReclaimedBytes). \(integrityNote)"
+                    self.storageResultMessage = msg
+                    self.toastMessage = msg
+                    if period.isClearAll {
+                        self.selectedAppFilter = nil
+                    }
+                    self.reload()
+                }
+            } catch {
+                await MainActor.run { [weak self] in
+                    self?.errorMessage = error.localizedDescription
+                    self?.storageBusy = false
+                }
+            }
+        }
+    }
+
+    func compactStorageDatabase() {
+        guard !storageBusy else { return }
+        storageBusy = true
+        let service = self.service
+        let activePeriod = self.selectedCleanupPeriod
+        Task.detached(priority: .utility) {
+            do {
+                let outcome = try service.compactDatabase()
+                let report = try service.storageUsageReport()
+                let preview = try service.previewStorageCleanup(period: activePeriod)
+                await MainActor.run { [weak self] in
+                    guard let self else { return }
+                    self.storageReport = report
+                    self.storagePreview = preview
+                    self.storageBusy = false
+                    let msg = outcome.vacuumPerformed
+                        ? "Compacted database and reclaimed \(outcome.formattedReclaimedBytes)."
+                        : "Database was busy during compaction; no data was lost."
+                    self.storageResultMessage = msg
+                    self.toastMessage = msg
+                }
+            } catch {
+                await MainActor.run { [weak self] in
+                    self?.errorMessage = error.localizedDescription
+                    self?.storageBusy = false
+                }
+            }
+        }
     }
 
     func reload() {

@@ -61,14 +61,14 @@ public final class CaptureStore {
             try execute("PRAGMA synchronous = FULL")
             #endif
             let version = try scalar("PRAGMA user_version")
-            guard (0...12).contains(version) else {
+            guard (0...13).contains(version) else {
                 throw StoreError(description: "Unsupported database version \(version)")
             }
-            if version < 12 {
+            if version < 13 {
                 try transaction {
                     // Recheck under the write lock if another process opened concurrently.
                     let current = try scalar("PRAGMA user_version")
-                    guard (0...12).contains(current) else {
+                    guard (0...13).contains(current) else {
                         throw StoreError(description: "Unsupported database version \(current)")
                     }
                     if current == 0 {
@@ -106,7 +106,10 @@ public final class CaptureStore {
                     }
                     if current < 12 {
                         try execute(Self.schema(named: "sync"))
-                        try execute("PRAGMA user_version = 12")
+                    }
+                    if current < 13 {
+                        try migrateToV13InTransaction()
+                        try execute("PRAGMA user_version = 13")
                     }
                 }
             }
@@ -123,6 +126,31 @@ public final class CaptureStore {
             throw StoreError(description: "Missing database schema: \(name)")
         }
         return try String(contentsOf: url, encoding: .utf8)
+    }
+
+    private func tableHasColumn(_ table: String, column: String) throws -> Bool {
+        let rows = try readRows("PRAGMA table_info(\(table))") { columnString($0, 1) }
+        return rows.contains(column)
+    }
+
+    private func migrateToV13InTransaction() throws {
+        if !(try tableHasColumn("inbox_filters", column: "enabled")) {
+            try execute(Self.schema(named: "sync-v13"))
+        }
+        let additions: [(table: String, column: String, sql: String)] = [
+            ("sync_observation_links", "hidden_version", "ALTER TABLE sync_observation_links ADD COLUMN hidden_version INTEGER NOT NULL DEFAULT 0"),
+            ("sync_observation_links", "hidden_updated_at", "ALTER TABLE sync_observation_links ADD COLUMN hidden_updated_at REAL NOT NULL DEFAULT 0"),
+            ("people", "updated_at", "ALTER TABLE people ADD COLUMN updated_at REAL NOT NULL DEFAULT 0"),
+            ("identities", "updated_at", "ALTER TABLE identities ADD COLUMN updated_at REAL NOT NULL DEFAULT 0"),
+            ("person_match_rules", "updated_at", "ALTER TABLE person_match_rules ADD COLUMN updated_at REAL NOT NULL DEFAULT 0"),
+            ("note_folders", "updated_at", "ALTER TABLE note_folders ADD COLUMN updated_at REAL NOT NULL DEFAULT 0"),
+            ("workspaces", "updated_at", "ALTER TABLE workspaces ADD COLUMN updated_at REAL NOT NULL DEFAULT 0"),
+            ("person_workspaces", "updated_at", "ALTER TABLE person_workspaces ADD COLUMN updated_at REAL NOT NULL DEFAULT 0"),
+            ("person_templates", "updated_at", "ALTER TABLE person_templates ADD COLUMN updated_at REAL NOT NULL DEFAULT 0")
+        ]
+        for addition in additions where !(try tableHasColumn(addition.table, column: addition.column)) {
+            try execute(addition.sql)
+        }
     }
 
     deinit { sqlite3_close(database) }
@@ -402,8 +430,11 @@ public extension CaptureStore {
     }
 
     func deletePersonNote(_ id: String, person: String) throws {
-        try execute("DELETE FROM person_notes WHERE id = ? AND person_id = ?", strings: [id, person])
-        guard sqlite3_changes(database) == 1 else { throw StoreError(description: "This note no longer exists for this person.") }
+        try transaction {
+            try execute("DELETE FROM person_notes WHERE id = ? AND person_id = ?", strings: [id, person])
+            guard sqlite3_changes(database) == 1 else { throw StoreError(description: "This note no longer exists for this person.") }
+            try recordSyncTombstone(entityType: "person_note", entityID: id)
+        }
     }
 
     func noteFolders() throws -> [NoteFolder] {
@@ -416,20 +447,26 @@ public extension CaptureStore {
     func saveNoteFolder(_ id: String? = nil, name: String) throws -> String {
         let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty else { throw StoreError(description: "Enter a folder name.") }
+        let now = Date().timeIntervalSince1970
         if let id {
-            try execute("UPDATE note_folders SET name = ? WHERE id = ?", strings: [name, id])
+            try execute("UPDATE note_folders SET updated_at = max(updated_at, ?), name = ? WHERE id = ?",
+                        numbersFirst: [now], strings: [name, id])
             guard sqlite3_changes(database) == 1 else { throw StoreError(description: "This folder no longer exists.") }
             return id
         }
         let newID = UUID().uuidString
-        try execute("INSERT INTO note_folders (id, name) VALUES (?, ?)", strings: [newID, name])
+        try execute("INSERT INTO note_folders (id, name, updated_at) VALUES (?, ?, ?)",
+                    strings: [newID, name], numbers: [now])
         return newID
     }
 
     func deleteNoteFolder(_ id: String) throws {
         // SQLite clears the folder reference on each note in the same write.
-        try execute("DELETE FROM note_folders WHERE id = ?", strings: [id])
-        guard sqlite3_changes(database) == 1 else { throw StoreError(description: "This folder no longer exists.") }
+        try transaction {
+            try execute("DELETE FROM note_folders WHERE id = ?", strings: [id])
+            guard sqlite3_changes(database) == 1 else { throw StoreError(description: "This folder no longer exists.") }
+            try recordSyncTombstone(entityType: "note_folder", entityID: id)
+        }
     }
 
     func personalNotes() throws -> [PersonalNote] {
@@ -465,8 +502,11 @@ public extension CaptureStore {
     }
 
     func deletePersonalNote(_ id: String) throws {
-        try execute("DELETE FROM personal_notes WHERE id = ?", strings: [id])
-        guard sqlite3_changes(database) == 1 else { throw StoreError(description: "This note no longer exists.") }
+        try transaction {
+            try execute("DELETE FROM personal_notes WHERE id = ?", strings: [id])
+            guard sqlite3_changes(database) == 1 else { throw StoreError(description: "This note no longer exists.") }
+            try recordSyncTombstone(entityType: "personal_note", entityID: id)
+        }
     }
 
     private static func validateNote(_ body: String, at time: Double) throws {
@@ -500,15 +540,24 @@ public extension CaptureStore {
         let subject = "CASE WHEN o.app_label = 'Gmail' THEN o.body END"
         let individuallyHidden = "EXISTS (SELECT 1 FROM hidden_observations h WHERE h.observation_id = o.id)"
         func hasHideRule(for field: InboxRuleMatch.Field) -> String {
-            let column = field.rawValue
-            return """
-                EXISTS (SELECT 1 FROM inbox_filters f
-                        WHERE f.app = \(app) AND f.field = '\(column)' AND f.value = o.\(column))
-                """
+            switch field {
+            case .title, .body:
+                let column = field.rawValue
+                return """
+                    EXISTS (SELECT 1 FROM inbox_filters f
+                            WHERE f.enabled = 1 AND f.app = \(app) AND f.field = '\(column)' AND f.value = o.\(column))
+                    """
+            case .app:
+                return """
+                    EXISTS (SELECT 1 FROM inbox_filters f
+                            WHERE f.enabled = 1 AND f.app = \(app) AND f.field = 'app')
+                    """
+            }
         }
         let titleHidden = hasHideRule(for: .title)
         let bodyHidden = hasHideRule(for: .body)
-        let hidden = "(\(individuallyHidden) OR \(titleHidden) OR \(bodyHidden))"
+        let appHidden = hasHideRule(for: .app)
+        let hidden = "(\(individuallyHidden) OR \(titleHidden) OR \(bodyHidden) OR \(appHidden))"
         let read = "EXISTS (SELECT 1 FROM read_observations r WHERE r.observation_id = o.id)"
         let flagged = "EXISTS (SELECT 1 FROM flagged_observations f WHERE f.observation_id = o.id)"
         switch query.scope {
@@ -581,7 +630,7 @@ public extension CaptureStore {
             SELECT o.id, \(app), o.title, o.subtitle, o.body, o.captured_at,
                    w.saved, w.due_at, w.done, p.id, p.display_name,
                    \(subject), \(individuallyHidden), \(titleHidden), \(bodyHidden),
-                   \(read), m.id, \(flagged), route.workspace_id
+                   \(read), m.id, \(flagged), route.workspace_id, \(appHidden)
             FROM observations o
             LEFT JOIN observation_workspaces route ON route.observation_id = o.id
             LEFT JOIN observation_work w ON w.observation_id = o.id
@@ -604,6 +653,7 @@ public extension CaptureStore {
                            individuallyHidden: sqlite3_column_int(row, 12) != 0,
                            titleFiltered: sqlite3_column_int(row, 13) != 0,
                            bodyFiltered: sqlite3_column_int(row, 14) != 0,
+                           appFiltered: sqlite3_column_int(row, 19) != 0,
                            isRead: sqlite3_column_int(row, 15) != 0,
                            isFlagged: sqlite3_column_int(row, 17) != 0,
                            personRuleID: sqlite3_column_type(row, 16) == SQLITE_NULL ? nil : columnString(row, 16),
@@ -635,19 +685,27 @@ public extension CaptureStore {
         }
     }
 
-    func hideAlert(_ observation: Int64) throws {
-        try execute("INSERT INTO hidden_observations VALUES (?) ON CONFLICT DO NOTHING",
-                    strings: [String(observation)])
-        for twinID in (try? crossDeviceTwinIDs(for: observation)) ?? [] {
-            try? execute("INSERT INTO hidden_observations VALUES (?) ON CONFLICT DO NOTHING",
-                         strings: [String(twinID)])
+    func hideAlert(_ observation: Int64, at time: Double = Date().timeIntervalSince1970) throws {
+        try transaction {
+            try execute("INSERT INTO hidden_observations VALUES (?) ON CONFLICT DO NOTHING",
+                        strings: [String(observation)])
+            try? ensureAndBumpHiddenVersion(for: observation, at: time)
+            for twinID in (try? crossDeviceTwinIDs(for: observation)) ?? [] {
+                try? execute("INSERT INTO hidden_observations VALUES (?) ON CONFLICT DO NOTHING",
+                             strings: [String(twinID)])
+                try? ensureAndBumpHiddenVersion(for: twinID, at: time)
+            }
         }
     }
 
-    func restoreAlert(_ observation: Int64) throws {
-        try execute("DELETE FROM hidden_observations WHERE observation_id = ?", strings: [String(observation)])
-        for twinID in (try? crossDeviceTwinIDs(for: observation)) ?? [] {
-            try? execute("DELETE FROM hidden_observations WHERE observation_id = ?", strings: [String(twinID)])
+    func restoreAlert(_ observation: Int64, at time: Double = Date().timeIntervalSince1970) throws {
+        try transaction {
+            try execute("DELETE FROM hidden_observations WHERE observation_id = ?", strings: [String(observation)])
+            try? ensureAndBumpHiddenVersion(for: observation, at: time)
+            for twinID in (try? crossDeviceTwinIDs(for: observation)) ?? [] {
+                try? execute("DELETE FROM hidden_observations WHERE observation_id = ?", strings: [String(twinID)])
+                try? ensureAndBumpHiddenVersion(for: twinID, at: time)
+            }
         }
     }
 
@@ -665,29 +723,66 @@ public extension CaptureStore {
 
     func previewHideRule(_ match: InboxRuleMatch) throws -> Int {
         try validateHideRule(match)
-        return try scalar("""
-            SELECT count(*) FROM observations o WHERE \(Self.appCategory) = ? AND o.\(match.field.rawValue) = ?
-            """, strings: [match.app, match.text])
+        switch match.field {
+        case .title, .body:
+            return try scalar("""
+                SELECT count(*) FROM observations o WHERE \(Self.appCategory) = ? AND o.\(match.field.rawValue) = ?
+                """, strings: [match.app, match.text])
+        case .app:
+            return try scalar("""
+                SELECT count(*) FROM observations o WHERE \(Self.appCategory) = ?
+                """, strings: [match.app])
+        }
     }
 
     @discardableResult
-    func addHideRule(_ match: InboxRuleMatch) throws -> Bool {
+    func addHideRule(_ match: InboxRuleMatch, at time: Double = Date().timeIntervalSince1970) throws -> Bool {
         try validateHideRule(match)
-        try execute("INSERT INTO inbox_filters (app, field, value) VALUES (?, ?, ?) ON CONFLICT DO NOTHING",
-                    strings: [match.app, match.field.rawValue, match.text])
-        return sqlite3_changes(database) == 1
+        return try transaction {
+            let existing = try readRows("""
+                SELECT enabled FROM inbox_filters WHERE app = ? AND field = ? AND value = ? LIMIT 1
+                """, strings: [match.app, match.field.rawValue, match.text]) { sqlite3_column_int($0, 0) != 0 }.first
+            if let existing {
+                if existing { return false }
+                try execute("""
+                    UPDATE inbox_filters SET enabled = 1, updated_at = max(updated_at, ?)
+                    WHERE app = ? AND field = ? AND value = ?
+                    """, numbersFirst: [time], strings: [match.app, match.field.rawValue, match.text])
+                return true
+            }
+            try execute("""
+                INSERT INTO inbox_filters (app, field, value, enabled, updated_at) VALUES (?, ?, ?, 1, ?)
+                """, strings: [match.app, match.field.rawValue, match.text], numbers: [time])
+            return sqlite3_changes(database) == 1
+        }
     }
 
-    func removeHideRule(_ match: InboxRuleMatch) throws {
-        try execute("DELETE FROM inbox_filters WHERE app = ? AND field = ? AND value = ?",
-                    strings: [match.app, match.field.rawValue, match.text])
+    func setHideRuleEnabled(_ match: InboxRuleMatch, enabled: Bool, at time: Double = Date().timeIntervalSince1970) throws {
+        try validateHideRule(match)
+        try execute("""
+            UPDATE inbox_filters SET enabled = ?, updated_at = max(updated_at, ?)
+            WHERE app = ? AND field = ? AND value = ?
+            """, numbersFirst: [enabled ? 1 : 0, time], strings: [match.app, match.field.rawValue, match.text])
+    }
+
+    func removeHideRule(_ match: InboxRuleMatch, at time: Double = Date().timeIntervalSince1970) throws {
+        try transaction {
+            try execute("DELETE FROM inbox_filters WHERE app = ? AND field = ? AND value = ?",
+                        strings: [match.app, match.field.rawValue, match.text])
+            try recordSyncTombstone(entityType: "inbox_filter", entityID: match.canonicalSyncKey, at: time)
+        }
     }
 
     func inboxFilters() throws -> [InboxFilter] {
-        try readRows("SELECT id, app, field, value FROM inbox_filters ORDER BY app, field, value") { row in
-            let field: InboxRuleMatch.Field = columnString(row, 2) == "title" ? .title : .body
+        try readRows("SELECT id, app, field, value, enabled, updated_at FROM inbox_filters ORDER BY app, field, value") { row in
+            let field = InboxRuleMatch.Field(rawValue: columnString(row, 2)) ?? .body
             let match = InboxRuleMatch(app: columnString(row, 1), field: field, text: columnString(row, 3))
-            return InboxFilter(id: sqlite3_column_int64(row, 0), match: match)
+            return InboxFilter(
+                id: sqlite3_column_int64(row, 0),
+                match: match,
+                enabled: sqlite3_column_int(row, 4) != 0,
+                updatedAt: sqlite3_column_double(row, 5)
+            )
         }
     }
 
@@ -723,9 +818,10 @@ public extension CaptureStore {
             throw StoreError(description: "Choose a workspace name other than All People or Unassigned.")
         }
         let id = UUID().uuidString
+        let now = Date().timeIntervalSince1970
         try execute("""
-            INSERT INTO workspaces (id, name) VALUES (?, ?) ON CONFLICT(name) DO NOTHING
-            """, strings: [id, name])
+            INSERT INTO workspaces (id, name, updated_at) VALUES (?, ?, ?) ON CONFLICT(name) DO NOTHING
+            """, strings: [id, name], numbers: [now])
         guard sqlite3_changes(database) == 1 else { throw StoreError(description: "A workspace already uses that name.") }
         return id
     }
@@ -736,14 +832,16 @@ public extension CaptureStore {
     }
 
     func setWorkspaceMembership(person: String, workspace: String, isMember: Bool) throws {
+        let now = Date().timeIntervalSince1970
         if isMember {
             try execute("""
-                INSERT INTO person_workspaces (person_id, workspace_id) VALUES (?, ?)
-                ON CONFLICT(person_id, workspace_id) DO NOTHING
-                """, strings: [person, workspace])
+                INSERT INTO person_workspaces (person_id, workspace_id, updated_at) VALUES (?, ?, ?)
+                ON CONFLICT(person_id, workspace_id) DO UPDATE SET updated_at = max(updated_at, excluded.updated_at)
+                """, strings: [person, workspace], numbers: [now])
         } else {
             try execute("DELETE FROM person_workspaces WHERE person_id = ? AND workspace_id = ?",
                         strings: [person, workspace])
+            try recordSyncTombstone(entityType: "person_workspace", entityID: "\(person)\u{001F}\(workspace)", at: now)
         }
     }
 
@@ -755,6 +853,18 @@ public extension CaptureStore {
                 """, strings: [String(observation), workspace])
         } else {
             try execute("DELETE FROM observation_workspaces WHERE observation_id = ?", strings: [String(observation)])
+        }
+        try? bumpExistingSyncWorkflowVersion(for: observation)
+        for twinID in (try? crossDeviceTwinIDs(for: observation)) ?? [] {
+            if let workspace {
+                try? execute("""
+                    INSERT INTO observation_workspaces (observation_id, workspace_id) VALUES (?, ?)
+                    ON CONFLICT(observation_id) DO UPDATE SET workspace_id = excluded.workspace_id
+                    """, strings: [String(twinID), workspace])
+            } else {
+                try? execute("DELETE FROM observation_workspaces WHERE observation_id = ?", strings: [String(twinID)])
+            }
+            try? bumpExistingSyncWorkflowVersion(for: twinID)
         }
     }
 
@@ -800,8 +910,10 @@ public extension CaptureStore {
             throw StoreError(description: "Enter a name for this person.")
         }
         let id = UUID().uuidString
+        let now = Date().timeIntervalSince1970
         try transaction {
-            try execute("INSERT INTO people (id, display_name) VALUES (?, ?)", strings: [id, name])
+            try execute("INSERT INTO people (id, display_name, updated_at) VALUES (?, ?, ?)",
+                        strings: [id, name], numbers: [now])
             if let observation { try linkInTransaction(observation, to: id) }
             if let workspace { try setWorkspaceMembership(person: id, workspace: workspace, isMember: true) }
             if let identity {
@@ -823,7 +935,9 @@ public extension CaptureStore {
         guard !trimmed.isEmpty, !trimmed.utf8.contains(0) else {
             throw StoreError(description: "Enter a name for this person.")
         }
-        try execute("UPDATE people SET display_name = ? WHERE id = ?", strings: [trimmed, person])
+        let now = Date().timeIntervalSince1970
+        try execute("UPDATE people SET updated_at = max(updated_at, ?), display_name = ? WHERE id = ?",
+                    numbersFirst: [now], strings: [trimmed, person])
         guard sqlite3_changes(database) == 1 else {
             throw StoreError(description: "That person no longer exists.")
         }
@@ -831,6 +945,7 @@ public extension CaptureStore {
 
     func deletePerson(_ person: String) throws {
         try transaction {
+            let now = Date().timeIntervalSince1970
             try execute("DELETE FROM person_observations WHERE person_id = ?", strings: [person])
             try execute("DELETE FROM person_match_rules WHERE person_id = ?", strings: [person])
             try execute("DELETE FROM identities WHERE person_id = ?", strings: [person])
@@ -841,6 +956,7 @@ public extension CaptureStore {
             guard sqlite3_changes(database) == 1 else {
                 throw StoreError(description: "That person no longer exists.")
             }
+            try recordSyncTombstone(entityType: "person", entityID: person, at: now)
         }
     }
 
@@ -921,10 +1037,12 @@ public extension CaptureStore {
             throw StoreError(description: "The alert link changed. Review the match again.")
         }
         let cutoff = includeExisting ? 0 : try scalar("SELECT coalesce(max(id), 0) FROM observations")
+        let now = Date().timeIntervalSince1970
         try execute("""
-            INSERT INTO person_match_rules (id, app, title, person_id, after_observation_id)
-            VALUES (?, ?, ?, ?, ?)
-            """, strings: [UUID().uuidString, current.app, current.title, current.personID, String(cutoff)])
+            INSERT INTO person_match_rules (id, app, title, person_id, after_observation_id, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """, strings: [UUID().uuidString, current.app, current.title, current.personID, String(cutoff)],
+                 numbers: [now])
     }
 
     func confirmPersonMatch(_ preview: PersonMatchPreview, includeExisting: Bool) throws {
@@ -944,7 +1062,10 @@ public extension CaptureStore {
     }
 
     func removePersonMatchRule(_ id: String) throws {
-        try execute("DELETE FROM person_match_rules WHERE id = ?", strings: [id])
+        try transaction {
+            try execute("DELETE FROM person_match_rules WHERE id = ?", strings: [id])
+            try recordSyncTombstone(entityType: "person_match_rule", entityID: id)
+        }
     }
 
     private static func normalizedIdentityKey(platform: String, identifier: String) -> String {
@@ -975,8 +1096,9 @@ public extension CaptureStore {
             }
             return
         }
-        try execute("INSERT INTO identities (id, person_id, platform, identifier) VALUES (?, ?, ?, ?)",
-                    strings: [UUID().uuidString, person, platform, identifier])
+        let now = Date().timeIntervalSince1970
+        try execute("INSERT INTO identities (id, person_id, platform, identifier, updated_at) VALUES (?, ?, ?, ?, ?)",
+                    strings: [UUID().uuidString, person, platform, identifier], numbers: [now])
     }
 
     func addIdentity(person: String, platform: String, identifier: String) throws {
@@ -986,7 +1108,12 @@ public extension CaptureStore {
     }
 
     func removeIdentity(_ identity: String, person: String) throws {
-        try execute("DELETE FROM identities WHERE id = ? AND person_id = ?", strings: [identity, person])
+        try transaction {
+            try execute("DELETE FROM identities WHERE id = ? AND person_id = ?", strings: [identity, person])
+            if sqlite3_changes(database) > 0 {
+                try recordSyncTombstone(entityType: "identity", entityID: identity)
+            }
+        }
     }
 
     func setSaved(_ observation: Int64, saved: Bool) throws {
@@ -1088,9 +1215,10 @@ public extension CaptureStore {
                 throw RelationshipTemplateError.versionNotInstalled
             }
             let initialStage = installed.stages[0].id
+            let now = Date().timeIntervalSince1970
             try execute("""
-                INSERT INTO person_templates (person_id, template_id, version, stage_id) VALUES (?, ?, ?, ?)
-                """, strings: [person, installed.id, String(installed.version), initialStage])
+                INSERT INTO person_templates (person_id, template_id, version, stage_id, updated_at) VALUES (?, ?, ?, ?, ?)
+                """, strings: [person, installed.id, String(installed.version), initialStage], numbers: [now])
             for milestone in installed.milestones {
                 try execute("""
                     INSERT INTO person_template_milestones (person_id, milestone_id, completed) VALUES (?, ?, 0)
@@ -1102,9 +1230,14 @@ public extension CaptureStore {
 
     func removeTemplate(_ definition: RelationshipTemplate, from person: String) throws {
         // The existing foreign key cascades the delete to this assignment's milestones.
-        try execute("""
-            DELETE FROM person_templates WHERE person_id = ? AND template_id = ? AND version = ?
-            """, strings: [person, definition.id, String(definition.version)])
+        try transaction {
+            try execute("""
+                DELETE FROM person_templates WHERE person_id = ? AND template_id = ? AND version = ?
+                """, strings: [person, definition.id, String(definition.version)])
+            if sqlite3_changes(database) > 0 {
+                try recordSyncTombstone(entityType: "person_template", entityID: person)
+            }
+        }
     }
 
     func setTemplateStage(_ stageID: String, for person: String) throws {
@@ -1115,8 +1248,9 @@ public extension CaptureStore {
             guard assignment.definition.stages.contains(where: { $0.id == stageID }) else {
                 throw RelationshipTemplateError.unknownStage
             }
-            try execute("UPDATE person_templates SET stage_id = ? WHERE person_id = ?",
-                        strings: [stageID, person])
+            let now = Date().timeIntervalSince1970
+            try execute("UPDATE person_templates SET updated_at = max(updated_at, ?), stage_id = ? WHERE person_id = ?",
+                        numbersFirst: [now], strings: [stageID, person])
         }
     }
 
@@ -1128,9 +1262,12 @@ public extension CaptureStore {
             guard assignment.definition.milestones.contains(where: { $0.id == milestoneID }) else {
                 throw RelationshipTemplateError.unknownMilestone
             }
+            let now = Date().timeIntervalSince1970
             try execute("""
                 UPDATE person_template_milestones SET completed = ? WHERE person_id = ? AND milestone_id = ?
                 """, numbersFirst: [completed ? 1 : 0], strings: [person, milestoneID])
+            try execute("UPDATE person_templates SET updated_at = max(updated_at, ?) WHERE person_id = ?",
+                        numbersFirst: [now], strings: [person])
         }
     }
 

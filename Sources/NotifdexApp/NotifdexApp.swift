@@ -206,8 +206,8 @@ final class AppModel: ObservableObject {
                     guard let self else { return }
                     self.lastSyncedAt = Date(timeIntervalSince1970: result.syncedAt)
                     self.syncError = nil
-                    if result.pushedObservations > 0 || result.applied.hasChanges {
-                        self.syncMessage = "Synced: pushed \(result.pushedObservations) alerts, pulled \(result.applied.insertedObservations) new."
+                    if result.pushedObservations > 0 || result.pushedHideRules > 0 || result.applied.hasChanges {
+                        self.syncMessage = "Synced: pushed \(result.pushedObservations) alerts (\(result.pushedHideRules) rules), pulled \(result.applied.insertedObservations) new alerts & \(result.applied.appliedHideRules) rule updates."
                     } else {
                         self.syncMessage = "Up to date with iCloud."
                     }
@@ -639,6 +639,10 @@ struct NotifdexApp: App {
         guard Bundle.main.url(forResource: "workspaces", withExtension: "sql") != nil else {
             throw StoreError(description: "Packaged workspaces.sql is missing")
         }
+        guard Bundle.main.url(forResource: "sync", withExtension: "sql") != nil,
+              Bundle.main.url(forResource: "sync-v13", withExtension: "sql") != nil else {
+            throw StoreError(description: "Packaged sync SQL schemas are missing")
+        }
         let workspace = try store.createWorkspace(name: "Example workspace")
         try store.setWorkspaceMembership(person: person, workspace: workspace, isMember: true)
         try store.setAlertWorkspace(alert.id, to: workspace)
@@ -886,7 +890,7 @@ struct AppCenter: View {
                         VStack(alignment: .leading, spacing: 4) {
                             Text("iOS & iCloud Sync")
                                 .font(.system(size: 16, weight: .regular, design: .serif))
-                            Text("Opt-in private CloudKit sync between macOS and Notifdex iOS. Hidden alerts stay local and never sync.")
+                            Text("Opt-in private CloudKit sync between macOS and Notifdex iOS. Alerts, read/flag/save states, hide rules, people, workspaces, and notes sync automatically; locally hidden Mac alert text and per-device capture/window settings stay local.")
                                 .font(.callout)
                                 .foregroundStyle(.secondary)
                                 .fixedSize(horizontal: false, vertical: true)

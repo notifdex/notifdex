@@ -495,7 +495,9 @@ final class WorkflowModel: ObservableObject {
         worker.withStore({ try $0.setRead(alert.id, read: true) }) { [weak self] result in
             guard let self else { return }
             switch result {
-            case .success: self.load(query: self.query)
+            case .success:
+                self.load(query: self.query)
+                self.onLocalChange?()
             case .failure(let error): self.error = String(describing: error)
             }
         }
@@ -1760,10 +1762,17 @@ struct WorkflowView<AppsContent: View, RecoveryContent: View>: View {
             Button("Hide this alert") { model.hide(.alert(entry.id)) }
             if entry.app != "Unknown app" {
                 ForEach(InboxRuleMatch.Field.allCases) { field in
-                    let text = field == .title ? entry.title : entry.body
-                    if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                        Button("Hide all with this \(field.rawValue)") {
-                            model.reviewHideRule(InboxRuleMatch(app: entry.app, field: field, text: text))
+                    switch field {
+                    case .title, .body:
+                        let text = field == .title ? entry.title : entry.body
+                        if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                            Button("Hide all with this \(field.rawValue)") {
+                                model.reviewHideRule(InboxRuleMatch(app: entry.app, field: field, text: text))
+                            }
+                        }
+                    case .app:
+                        Button("Hide all from \(entry.app)") {
+                            model.reviewHideRule(InboxRuleMatch(app: entry.app, field: .app, text: entry.app))
                         }
                     }
                 }
@@ -1773,7 +1782,7 @@ struct WorkflowView<AppsContent: View, RecoveryContent: View>: View {
         }
         .menuStyle(.borderlessButton)
         .fixedSize()
-        .help("Hide this alert or match its title or body within this app")
+        .help("Hide this alert, match its title or body, or hide all alerts from this app")
         .disabled(!ready || model.busy)
     }
 
@@ -1781,13 +1790,22 @@ struct WorkflowView<AppsContent: View, RecoveryContent: View>: View {
         Menu("Hide rules") {
             ForEach(model.rules) { rule in
                 let match = rule.match
-                Button("Remove \(match.app) · \(match.field.rawValue.capitalized) · \(match.text)") {
-                    model.restore(.rule(match))
+                let summary = match.field == .app
+                    ? "\(match.app) · All alerts"
+                    : "\(match.app) · \(match.field.displayLabel) · \(match.text)"
+                Menu(rule.enabled ? summary : "\(summary) (Paused)") {
+                    Button(rule.enabled ? "Pause rule" : "Resume rule") {
+                        let nextEnabled = !rule.enabled
+                        model.edit { try $0.setHideRuleEnabled(match, enabled: nextEnabled) }
+                    }
+                    Button("Remove rule", role: .destructive) {
+                        model.restore(.rule(match))
+                    }
                 }
             }
         }
         .disabled(!ready || model.busy)
-        .help("Remove a hide rule. Other hides still apply.")
+        .help("Pause, resume, or remove hide rules. Rules sync across paired devices.")
     }
 
     @ViewBuilder private var detail: some View {
@@ -1884,6 +1902,11 @@ struct WorkflowView<AppsContent: View, RecoveryContent: View>: View {
                     if alert.bodyFiltered {
                         Button("Remove matching body rule") {
                             model.restore(.rule(InboxRuleMatch(app: alert.app, field: .body, text: alert.body)))
+                        }
+                    }
+                    if alert.appFiltered {
+                        Button("Remove \(alert.app) app hide rule") {
+                            model.restore(.rule(InboxRuleMatch(app: alert.app, field: .app, text: alert.app)))
                         }
                     }
                 }
@@ -2211,18 +2234,24 @@ struct WorkflowView<AppsContent: View, RecoveryContent: View>: View {
     private func hideRuleReview(_ preview: HideRulePreview) -> some View {
         let match = preview.match
         return VStack(alignment: .leading, spacing: 12) {
-            Text("Hide all with this \(match.field.rawValue)?").font(.title2)
+            Text(match.field == .app
+                 ? "Hide all alerts from \(match.app)?"
+                 : "Hide all with this \(match.field.rawValue)?").font(.title2)
             LabeledContent("App", value: match.app)
-            Text("Exact \(match.field.rawValue)")
-                .font(.headline)
-            ScrollView {
-                Text(verbatim: match.text)
-                    .textSelection(.enabled)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+            if match.field != .app {
+                Text("Exact \(match.field.rawValue)")
+                    .font(.headline)
+                ScrollView {
+                    Text(verbatim: match.text)
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .frame(maxHeight: 110)
             }
-            .frame(maxHeight: 110)
             Text("Stored alerts that match: \(preview.count)")
-            Text("This rule also hides future alerts from \(match.app) with the same \(match.field.rawValue).")
+            Text(match.field == .app
+                 ? "This rule hides stored and future alerts from \(match.app) and syncs to your paired devices."
+                 : "This rule also hides future alerts from \(match.app) with the same \(match.field.rawValue) and syncs to your paired devices.")
                 .font(.callout).foregroundStyle(.secondary)
             HStack {
                 Button("Cancel") { model.hideRulePreview = nil }.keyboardShortcut(.cancelAction)

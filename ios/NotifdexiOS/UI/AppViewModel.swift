@@ -120,8 +120,8 @@ final class AppViewModel: ObservableObject {
                     guard let self else { return }
                     self.lastSyncedAt = Date(timeIntervalSince1970: result.syncedAt)
                     self.errorMessage = nil
-                    if result.pushedObservations > 0 || result.applied.hasChanges {
-                        self.lastSyncSummary = "Pushed \(result.pushedObservations) alerts · Pulled \(result.applied.insertedObservations) new"
+                    if result.pushedObservations > 0 || result.pushedHideRules > 0 || result.applied.hasChanges {
+                        self.lastSyncSummary = "Pushed \(result.pushedObservations) alerts (\(result.pushedHideRules) rules) · Pulled \(result.applied.insertedObservations) new & \(result.applied.appliedHideRules) rules"
                     } else {
                         self.lastSyncSummary = "Up to date with iCloud"
                     }
@@ -335,6 +335,12 @@ final class AppViewModel: ObservableObject {
             if added {
                 lastHideAction = .rule(match)
             }
+        }
+    }
+
+    func setHideRuleEnabled(_ match: InboxRuleMatch, enabled: Bool) {
+        performAction(toast: enabled ? "Hide rule resumed." : "Hide rule paused.") {
+            try service.setHideRuleEnabled(match, enabled: enabled)
         }
     }
 

@@ -534,4 +534,45 @@ final class NotifdexCaptureTests: XCTestCase {
         XCTAssertTrue(settings.verifiedAppLabels.isEmpty)
         XCTAssertTrue(try service.notifications().allSatisfy { $0.captureChannel == .manualTest })
     }
+
+    func testHideRulesPauseResumeAndAppRuleSyncBetweenIOSAndMac() async throws {
+        let store = try NotificationStore(databaseURL: dbURL)
+        let iosService = CaptureService(store: store)
+        try iosService.enableAndPairLocalSync(displayName: "Test iPhone")
+
+        let macDBURL = tempDir.appendingPathComponent("mac-peer.db")
+        let macStore = try CaptureStore(path: macDBURL.path)
+        try macStore.pairDevice(deviceID: "mac-peer", displayName: "Test Mac", platform: .mac, at: 100)
+
+        let transport = InMemorySyncTransport()
+        let macCoord = HybridSyncCoordinator(store: macStore, transport: transport)
+
+        _ = try iosService.ingest(IncomingNotificationPayload(
+            app: "Gmail", title: "Alerts", subtitle: nil, body: "Daily summary",
+            receivedAt: Date(timeIntervalSince1970: 1_764_700_000), channel: .iosShortcuts
+        ))
+
+        // Add an app-level rule on iOS, sync to Mac.
+        let appRule = InboxRuleMatch(app: "Gmail", field: .app, text: "Gmail")
+        XCTAssertTrue(try iosService.addHideRule(appRule))
+        XCTAssertTrue(try iosService.hybridInbox().isEmpty)
+
+        _ = try await iosService.runSync(using: transport)
+        _ = try await macCoord.syncNow(localDeviceID: "mac-peer", at: 1_764_700_010)
+        XCTAssertEqual(try macStore.inboxFilters().map(\.match), [appRule])
+
+        // Pause rule on iOS, sync to Mac -> alert reappears on both.
+        try iosService.setHideRuleEnabled(appRule, enabled: false)
+        XCTAssertEqual(try iosService.hybridInbox().count, 1)
+        _ = try await iosService.runSync(using: transport)
+        _ = try await macCoord.syncNow(localDeviceID: "mac-peer", at: 1_764_700_020)
+        XCTAssertEqual(try macStore.inboxFilters().first?.enabled, false)
+
+        // Remove rule on Mac (at a strictly newer timestamp), sync to iOS -> rule removed on iOS too.
+        let removeAt = Date().timeIntervalSince1970 + 30
+        try macStore.removeHideRule(appRule, at: removeAt)
+        _ = try await macCoord.syncNow(localDeviceID: "mac-peer", at: removeAt + 1)
+        _ = try await iosService.runSync(using: transport)
+        XCTAssertTrue(try iosService.inboxFilters().isEmpty)
+    }
 }

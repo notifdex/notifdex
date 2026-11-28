@@ -94,6 +94,8 @@ struct SettingsView: View {
                     }
                 }
 
+                LabeledContent("Synced Hide Rules", value: "\(viewModel.hideRules.count)")
+
                 if let error = viewModel.errorMessage {
                     Text(error)
                         .font(.footnote)
@@ -102,7 +104,7 @@ struct SettingsView: View {
             } header: {
                 Text("Desktop ↔ iOS Sync")
             } footer: {
-                Text("Sync is local-only by default. Opting in uses your private iCloud CloudKit container (iCloud.com.notifdex.shared). Hidden/muted Mac alerts never sync to iPhone, and revoking a device preserves all local data.")
+                Text("Sync is local-only by default. Opting in uses your private iCloud container (iCloud.com.notifdex.shared) to sync alerts, read/flag/save states, hide rules, people, workspaces, and notes. Locally hidden Mac alert text and per-device capture settings stay local, and revoking preserves all local data.")
             }
 
             Section("Capture Status") {

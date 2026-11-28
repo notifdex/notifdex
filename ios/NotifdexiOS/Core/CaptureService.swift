@@ -274,6 +274,13 @@ public final class CaptureService: @unchecked Sendable {
         }
     }
 
+    public func setHideRuleEnabled(_ match: InboxRuleMatch, enabled: Bool) throws {
+        try ingestQueue.sync {
+            try coreStore.setHideRuleEnabled(match, enabled: enabled)
+            notifyChanged()
+        }
+    }
+
     public func removeHideRule(_ match: InboxRuleMatch) throws {
         try ingestQueue.sync {
             try coreStore.removeHideRule(match)
@@ -325,7 +332,6 @@ public final class CaptureService: @unchecked Sendable {
     public func deletePersonNote(_ id: String, personID: String) throws {
         try ingestQueue.sync {
             try coreStore.deletePersonNote(id, person: personID)
-            try coreStore.recordSyncTombstone(entityType: "person_note", entityID: id)
             notifyChanged()
         }
     }
@@ -348,7 +354,6 @@ public final class CaptureService: @unchecked Sendable {
     public func deletePersonalNote(_ id: String) throws {
         try ingestQueue.sync {
             try coreStore.deletePersonalNote(id)
-            try coreStore.recordSyncTombstone(entityType: "personal_note", entityID: id)
             notifyChanged()
         }
     }

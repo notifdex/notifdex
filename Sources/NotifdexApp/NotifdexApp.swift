@@ -38,6 +38,14 @@ final class AppModel: ObservableObject {
     @Published var lastSyncedAt: Date?
     @Published var syncDataRevision = 0
     @Published var forwardingHealth: MacForwardingHealthReport?
+    @Published var storageReport: StorageUsageReport?
+    @Published var storagePreview: StorageCleanupPreview?
+    @Published var selectedCleanupPeriod: StorageCleanupPeriod = .olderThan90Days
+    @Published var confirmingStorageCleanup: StorageCleanupPreview?
+    @Published var showingStorageBreakdown = false
+    @Published var storageBusy = false
+    @Published var storageResultMessage: String?
+    @Published var storageError: String?
     private let loginQueue = DispatchQueue(label: "com.notifdex.login", qos: .utility)
     let worker: CaptureWorker
     let appearance: AppearanceSettings
@@ -410,6 +418,134 @@ final class AppModel: ObservableObject {
         #else
         syncError = "CloudKit is unavailable in this build."
         #endif
+    }
+
+    // MARK: - Storage Usage & Cleanup (Issue #110)
+
+    private var storageMediaURLs: [URL] {
+        [appearance.backdropURL]
+    }
+
+    func refreshStorageUsage() {
+        guard !storageBusy else { return }
+        storageBusy = true
+        storageError = nil
+        let dbURL = databaseURL
+        let mediaURLs = storageMediaURLs
+        let period = selectedCleanupPeriod
+        worker.withStore({ store in
+            let report = try store.storageUsageReport(databaseURL: dbURL, mediaFileURLs: mediaURLs)
+            let preview = try store.previewStorageCleanup(period: period, databaseURL: dbURL, mediaFileURLs: mediaURLs)
+            return (report, preview)
+        }, completion: { [weak self] result in
+            guard let self else { return }
+            self.storageBusy = false
+            switch result {
+            case .success(let pair):
+                self.storageReport = pair.0
+                self.storagePreview = pair.1
+            case .failure(let error):
+                self.storageError = error.localizedDescription
+            }
+        })
+    }
+
+    func refreshStoragePreview(for period: StorageCleanupPeriod) {
+        let dbURL = databaseURL
+        let mediaURLs = storageMediaURLs
+        worker.withStore({ store in
+            try store.previewStorageCleanup(period: period, databaseURL: dbURL, mediaFileURLs: mediaURLs)
+        }, completion: { [weak self] result in
+            guard let self else { return }
+            switch result {
+            case .success(let preview):
+                if self.selectedCleanupPeriod == period {
+                    self.storagePreview = preview
+                }
+            case .failure(let error):
+                self.storageError = error.localizedDescription
+            }
+        })
+    }
+
+    func requestCleanupConfirmation(for period: StorageCleanupPeriod) {
+        guard !storageBusy else { return }
+        storageBusy = true
+        storageError = nil
+        let dbURL = databaseURL
+        let mediaURLs = storageMediaURLs
+        worker.withStore({ store in
+            try store.previewStorageCleanup(period: period, databaseURL: dbURL, mediaFileURLs: mediaURLs)
+        }, completion: { [weak self] result in
+            guard let self else { return }
+            self.storageBusy = false
+            switch result {
+            case .success(let preview):
+                self.confirmingStorageCleanup = preview
+            case .failure(let error):
+                self.storageError = error.localizedDescription
+            }
+        })
+    }
+
+    func executeStorageCleanup(_ period: StorageCleanupPeriod) {
+        guard !storageBusy else { return }
+        storageBusy = true
+        storageError = nil
+        storageResultMessage = nil
+        let dbURL = databaseURL
+        let mediaURLs = storageMediaURLs
+        let activePeriod = selectedCleanupPeriod
+        worker.withStore({ store in
+            let outcome = try store.performStorageCleanup(period: period, databaseURL: dbURL, mediaFileURLs: mediaURLs)
+            let report = try store.storageUsageReport(databaseURL: dbURL, mediaFileURLs: mediaURLs)
+            let preview = try store.previewStorageCleanup(period: activePeriod, databaseURL: dbURL, mediaFileURLs: mediaURLs)
+            return (outcome, report, preview)
+        }, completion: { [weak self] result in
+            guard let self else { return }
+            self.storageBusy = false
+            switch result {
+            case .success(let triple):
+                let outcome = triple.0
+                self.storageReport = triple.1
+                self.storagePreview = triple.2
+                self.syncDataRevision += 1
+                let integrityNote = outcome.integrityOK ? "Database integrity verified." : "Warning: integrity check reported issues."
+                self.storageResultMessage = "Removed \(outcome.removedObservations.formatted()) alert(s), reclaimed \(outcome.formattedReclaimedBytes). \(integrityNote)"
+            case .failure(let error):
+                self.storageError = error.localizedDescription
+            }
+        })
+    }
+
+    func compactStorageDatabase() {
+        guard !storageBusy else { return }
+        storageBusy = true
+        storageError = nil
+        storageResultMessage = nil
+        let dbURL = databaseURL
+        let mediaURLs = storageMediaURLs
+        let activePeriod = selectedCleanupPeriod
+        worker.withStore({ store in
+            let outcome = try store.compactDatabase(databaseURL: dbURL, mediaFileURLs: mediaURLs)
+            let report = try store.storageUsageReport(databaseURL: dbURL, mediaFileURLs: mediaURLs)
+            let preview = try store.previewStorageCleanup(period: activePeriod, databaseURL: dbURL, mediaFileURLs: mediaURLs)
+            return (outcome, report, preview)
+        }, completion: { [weak self] result in
+            guard let self else { return }
+            self.storageBusy = false
+            switch result {
+            case .success(let triple):
+                let outcome = triple.0
+                self.storageReport = triple.1
+                self.storagePreview = triple.2
+                self.storageResultMessage = outcome.vacuumPerformed
+                    ? "Compacted database and reclaimed \(outcome.formattedReclaimedBytes). Database integrity verified."
+                    : "Database was busy during compaction; no data was lost. Try again shortly."
+            case .failure(let error):
+                self.storageError = error.localizedDescription
+            }
+        })
     }
 }
 
@@ -972,6 +1108,10 @@ struct AppCenter: View {
 
                 Rectangle().fill(Color.primary.opacity(0.09)).frame(height: 0.5)
 
+                StorageManagementView(model: model)
+
+                Rectangle().fill(Color.primary.opacity(0.09)).frame(height: 0.5)
+
                 VStack(alignment: .leading, spacing: 10) {
                     Text("System")
                         .font(.system(size: 16, weight: .regular, design: .serif))
@@ -1000,6 +1140,7 @@ struct AppCenter: View {
         .onAppear {
             model.refreshLoginState()
             model.refreshSyncState()
+            model.refreshStorageUsage()
         }
     }
 }

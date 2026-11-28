@@ -89,7 +89,7 @@ public struct RecoveryBudget {
     private var unchanged = 0
     private var lastFingerprint: String?
 
-    public init(maximumSteps: Int = 20, maximumUnchanged: Int = 2) {
+    public init(maximumSteps: Int = 40, maximumUnchanged: Int = 3) {
         self.maximumSteps = maximumSteps
         self.maximumUnchanged = maximumUnchanged
     }

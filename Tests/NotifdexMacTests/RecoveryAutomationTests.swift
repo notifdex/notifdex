@@ -36,6 +36,119 @@ final class RecoveryAutomationTests: XCTestCase {
         XCTAssertNil(
             RecoveryAutomation.matchingStackApp(description: "\u{200E}Calendar, 2 notifications", allowedApps: allowed)
         )
+        XCTAssertEqual(
+            RecoveryAutomation.matchingStackApp(description: "3 notifications from X", allowedApps: allowed),
+            "X"
+        )
+        XCTAssertEqual(
+            RecoveryAutomation.matchingStackApp(description: "WhatsApp: 5 notifications", allowedApps: allowed),
+            "WhatsApp"
+        )
+        XCTAssertEqual(
+            RecoveryAutomation.matchingStackApp(description: "X — 2 unread messages", allowedApps: allowed),
+            "X"
+        )
+        XCTAssertNil(
+            RecoveryAutomation.matchingStackApp(description: "3 notifications from Calendar", allowedApps: allowed)
+        )
+    }
+
+    func testAdvanceRetriesCollapsedStackOnceAndHandlesEmptyIdentifierStacks() throws {
+        var xAttempts = 0
+        var gmailAttempts = 0
+        var panelVisible = true
+
+        let driver = RecoveryDriver(
+            hasPanelList: { _ in panelVisible },
+            pressClock: { _ in panelVisible.toggle() },
+            items: { _ in
+                [
+                    // Stack with empty AXIdentifier (seen on modern macOS Notification Center)
+                    RecoveryItem(
+                        identifier: "",
+                        subrole: "AXNotificationCenterBannerStack",
+                        description: "3 notifications from Gmail",
+                        expanded: gmailAttempts >= 1,
+                        frameY: 40,
+                        expand: { gmailAttempts += 1 }
+                    ),
+                    // Stack whose first AXPress is swallowed by slide-in animation; opens on retry
+                    RecoveryItem(
+                        identifier: "x-stack",
+                        subrole: "AXNotificationCenterBannerStack",
+                        description: "X, 4 notifications",
+                        expanded: xAttempts >= 2,
+                        frameY: 120,
+                        expand: { xAttempts += 1 }
+                    )
+                ]
+            },
+            scrollDown: { _ in false }
+        )
+
+        let automation = RecoveryAutomation(driver: driver)
+        try automation.begin()
+
+        // Step 1: expands empty-ID Gmail stack
+        XCTAssertNil(try automation.advance(allowedApps: ["Gmail", "X"]))
+        XCTAssertEqual(gmailAttempts, 1)
+        XCTAssertEqual(xAttempts, 0)
+
+        // Step 2: attempts X stack (attempt 1, still collapsed)
+        XCTAssertNil(try automation.advance(allowedApps: ["Gmail", "X"]))
+        XCTAssertEqual(xAttempts, 1)
+
+        // Step 3: retries X stack because it remained collapsed (attempt 2, now expanded)
+        XCTAssertNil(try automation.advance(allowedApps: ["Gmail", "X"]))
+        XCTAssertEqual(xAttempts, 2)
+
+        // Step 4: both stacks now expanded -> scroll returns false -> completes with app summary
+        let summary = try XCTUnwrap(try automation.advance(allowedApps: ["Gmail", "X"]))
+        XCTAssertTrue(summary.contains("Gmail"), "Expected expanded app Gmail in summary: \(summary)")
+        XCTAssertTrue(summary.contains("X"), "Expected expanded app X in summary: \(summary)")
+    }
+
+    func testAdvanceDoesNotToggleCollapseStackWhenViewportChangedEvenIfAXExpandedStaysFalse() throws {
+        var pressCount = 0
+        let driver = RecoveryDriver(
+            hasPanelList: { _ in true },
+            pressClock: { _ in },
+            items: { _ in
+                var list = [
+                    RecoveryItem(
+                        identifier: "messages-stack",
+                        subrole: "AXNotificationCenterBannerStack",
+                        description: "Messages, 2 notifications",
+                        expanded: false, // simulates macOS omitting AXExpanded
+                        frameY: 20,
+                        expand: { pressCount += 1 }
+                    )
+                ]
+                if pressCount >= 1 {
+                    // Opening the stack revealed child banners (viewport fingerprint changed)
+                    list.append(RecoveryItem(
+                        identifier: "messages-banner-1",
+                        subrole: "AXNotificationCenterBanner",
+                        description: "",
+                        expanded: false,
+                        frameY: 90,
+                        expand: {}
+                    ))
+                }
+                return list
+            },
+            scrollDown: { _ in false }
+        )
+
+        let automation = RecoveryAutomation(driver: driver)
+        try automation.begin()
+        XCTAssertNil(try automation.advance(allowedApps: ["Messages"]))
+        XCTAssertEqual(pressCount, 1)
+
+        // Second advance must see the viewport changed and finish without pressing again.
+        let done = try automation.advance(allowedApps: ["Messages"])
+        XCTAssertNotNil(done)
+        XCTAssertEqual(pressCount, 1, "Must not toggle-collapse a stack whose press visibly expanded the viewport")
     }
 
     func testAdvanceExpandsDirectionMarkedWhatsAppStackAndSkipsDisabledOrExpanded() throws {
@@ -72,7 +185,7 @@ final class RecoveryAutomationTests: XCTestCase {
                         identifier: "whatsapp-stack",
                         subrole: "AXNotificationCenterBannerStack",
                         description: "\u{200E}WhatsApp, 3 notifications",
-                        expanded: false,
+                        expanded: expandedIDs.contains("whatsapp-stack"),
                         frameY: 30,
                         expand: { expandedIDs.append("whatsapp-stack") }
                     )

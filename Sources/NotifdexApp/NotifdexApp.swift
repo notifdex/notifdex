@@ -68,6 +68,7 @@ final class AppModel: ObservableObject {
         start()
         guard !smoke else { return }
         let center = NSWorkspace.shared.notificationCenter
+        let distributed = DistributedNotificationCenter.default()
         sleepObservers = [
             center.addObserver(forName: NSWorkspace.willSleepNotification, object: nil, queue: .main) { [weak self] _ in
                 Task { @MainActor in self?.worker.setSleeping(true) }
@@ -75,6 +76,29 @@ final class AppModel: ObservableObject {
             center.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { [weak self] _ in
                 Task { @MainActor in
                     self?.worker.setSleeping(false)
+                    self?.triggerAutoSync(.foreground)
+                }
+            },
+            center.addObserver(forName: NSWorkspace.screensDidWakeNotification, object: nil, queue: .main) { [weak self] _ in
+                Task { @MainActor in
+                    self?.worker.setScreenLocked(CaptureWorker.systemScreenLocked())
+                }
+            },
+            center.addObserver(forName: NSWorkspace.sessionDidResignActiveNotification, object: nil, queue: .main) { [weak self] _ in
+                Task { @MainActor in self?.worker.setScreenLocked(true) }
+            },
+            center.addObserver(forName: NSWorkspace.sessionDidBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
+                Task { @MainActor in
+                    self?.worker.setScreenLocked(false)
+                    self?.triggerAutoSync(.foreground)
+                }
+            },
+            distributed.addObserver(forName: Notification.Name("com.apple.screenIsLocked"), object: nil, queue: .main) { [weak self] _ in
+                Task { @MainActor in self?.worker.setScreenLocked(true) }
+            },
+            distributed.addObserver(forName: Notification.Name("com.apple.screenIsUnlocked"), object: nil, queue: .main) { [weak self] _ in
+                Task { @MainActor in
+                    self?.worker.setScreenLocked(false)
                     self?.triggerAutoSync(.foreground)
                 }
             }

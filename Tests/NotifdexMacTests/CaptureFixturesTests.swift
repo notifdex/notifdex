@@ -349,5 +349,70 @@ extension CaptureFixturesTests {
         worker.stop { stopped.fulfill() }
         wait(for: [stopped], timeout: 3)
     }
+
+    func testWakeWhileLockedDefersRecoveryUntilUnlockAndRetriesTransientBeginFailure() throws {
+        final class FlakyWakeRecovery: RecoverySession {
+            var beginAttempts = 0
+            func begin() throws {
+                beginAttempts += 1
+                if beginAttempts == 1 {
+                    throw CaptureError(description: "Accessibility AXWindows error -25204")
+                }
+            }
+            func advance(allowedApps: Set<String>) throws -> String? {
+                "Expanded 1 stack (X)."
+            }
+            func finish(timeout: TimeInterval) throws {}
+        }
+
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        var settings = CaptureSettings(sourceID: "fixture")
+        settings.automaticRecovery = true
+        settings.apps = [CaptureApp(id: "x", name: "X", labels: ["X"], enabled: true)]
+        try AppSettingsStore(url: directory.appendingPathComponent("settings.json")).save(settings)
+
+        let lockQueue = DispatchQueue(label: "test.lock.state")
+        var locked = true
+        let recovery = FlakyWakeRecovery()
+
+        let worker = CaptureWorker(
+            directory: directory,
+            isTrusted: { true },
+            isScreenLocked: { lockQueue.sync { locked } },
+            readSnapshot: { _, _ in Snapshot() },
+            makeRecovery: { recovery },
+            wakeSettleDelay: 0.05,
+            wakeRetryDelay: 0.1
+        )
+
+        let sawLockedBlocker = expectation(description: "locked screen blocks recovery without consuming wake trigger")
+        let recoveredAfterUnlock = expectation(description: "recovery succeeds after unlock and transient retry")
+        var unlockedOnce = false
+        var finishedOnce = false
+
+        worker.start { state in
+            if !unlockedOnce, state.ready, state.screenLocked,
+               state.recoveryBlocker?.contains("unlock") == true {
+                unlockedOnce = true
+                XCTAssertEqual(recovery.beginAttempts, 0, "Recovery must never run while screen is locked")
+                sawLockedBlocker.fulfill()
+                lockQueue.sync { locked = false }
+                worker.setScreenLocked(false)
+            }
+            if unlockedOnce, !finishedOnce, state.recoveryStatus.contains("Expanded 1 stack (X)") {
+                finishedOnce = true
+                XCTAssertEqual(recovery.beginAttempts, 2, "Expected 1 transient wake retry before succeeding")
+                XCTAssertNil(state.recoveryError)
+                recoveredAfterUnlock.fulfill()
+            }
+        }
+
+        wait(for: [sawLockedBlocker, recoveredAfterUnlock], timeout: 8)
+        let stopped = expectation(description: "worker stopped")
+        worker.stop { stopped.fulfill() }
+        wait(for: [stopped], timeout: 3)
+    }
 }
 #endif

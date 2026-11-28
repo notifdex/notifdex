@@ -65,7 +65,6 @@ cat > "$notifdex_app_dir/Contents/Info.plist" <<PLIST
     <key>CFBundleShortVersionString</key><string>${notifdex_version}</string>
     <key>CFBundleVersion</key><string>${notifdex_build_number}</string>
     <key>LSMinimumSystemVersion</key><string>14.0</string>
-    <key>LSUIElement</key><true/>
     <key>NSHighResolutionCapable</key><true/>
     <key>NSPrincipalClass</key><string>NSApplication</string>
 </dict></plist>

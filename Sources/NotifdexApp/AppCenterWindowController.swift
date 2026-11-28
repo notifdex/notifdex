@@ -9,8 +9,10 @@ import SwiftUI
 /// and `spec/WindowDrag.tla`):
 /// 1. App Center is owned by a native AppKit `NSWindowController` + `NSWindow`
 ///    (never a SwiftUI `Window` scene / `_TtC7SwiftUI12AppKitWindow`).
-/// 2. `NSApp.setActivationPolicy(.regular)` is set before creating/ordering the
-///    window on screen, and restored to `.accessory` in `windowWillClose`.
+/// 2. Notifdex stays in `.regular` activation policy throughout its lifetime
+///    (appearing in Dock and Cmd-Tab even when App Center closes, while keeping
+///    capture running and menu bar access available). `showAppCenter()` reliably
+///    unhides, deminiaturizes, focuses, and reuses the single App Center window.
 /// 3. Structural chrome (`styleMask`, `.unifiedCompact`, `NSToolbar`, titlebar
 ///    appearance) is configured once at window initialization.
 /// 4. `AppCenterRootView` isolates the edge-to-edge backdrop in a non-interactive
@@ -74,9 +76,13 @@ final class AppCenterWindowController: NSWindowController, NSWindowDelegate {
 
     func showAppCenter() {
         guard let window else { return }
-        // Become a regular app before ordering the window on screen so WindowServer
-        // registers it identically to standard desktop apps like Safari.
         NSApp.setActivationPolicy(.regular)
+        if NSApp.isHidden {
+            NSApp.unhide(nil)
+        }
+        if window.isMiniaturized {
+            window.deminiaturize(nil)
+        }
         recoverOffscreenTitlebarIfNeeded(in: window)
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
@@ -398,7 +404,6 @@ final class AppCenterWindowController: NSWindowController, NSWindowDelegate {
         if let window, chromeSync.isDragging {
             finishDragIfNeeded(in: window)
         }
-        NSApp.setActivationPolicy(.accessory)
     }
 }
 

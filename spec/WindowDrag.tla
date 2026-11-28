@@ -55,7 +55,7 @@ Init ==
     /\ systemDragGestureEnabled = FALSE
     /\ hostingSizingIsolated = TRUE
     /\ windowOpen = FALSE
-    /\ activationPolicy = "accessory"
+    /\ activationPolicy = "regular"
     /\ placement = "on_a"
     /\ dragging = FALSE
     /\ startMouseX = 1
@@ -88,7 +88,7 @@ CloseWindow ==
     /\ windowOpen
     /\ ~dragging
     /\ windowOpen' = FALSE
-    /\ activationPolicy' = "accessory"
+    /\ activationPolicy' = "regular"
     /\ pendingChromeSync' = FALSE
     /\ pendingBoundsRecovery' = FALSE
     /\ action' = "close_window"
@@ -269,9 +269,8 @@ NativeAppKitOwnership ==
 NoCompetingSystemDragGesture ==
     ~systemDragGestureEnabled
 
-ActivationPolicyMatchesWindow ==
-    /\ (windowOpen => activationPolicy = "regular")
-    /\ (~windowOpen => activationPolicy = "accessory")
+ActivationPolicyAlwaysRegular ==
+    activationPolicy = "regular"
 
 ZeroCumulativeDragDrift ==
     dragging => (windowX = startOriginX + (mouseX - startMouseX))

@@ -157,3 +157,26 @@ class AppCenterLayoutContractTests(unittest.TestCase):
         self.assertIn("static func canOpen(", inbox_core)
         self.assertIn("if InboxDestination.canOpen(alert.app)", workflow)
         self.assertIn("InboxDestination.bundleIdentifier(for: alert.app)", workflow)
+
+    def test_regular_macos_app_launch_close_and_reopen_lifecycle(self):
+        root = Path(__file__).resolve().parents[1]
+        build_app = (root / "tools" / "build-app.sh").read_text()
+        smoke_app = (root / "tools" / "smoke-app.sh").read_text()
+        render_cask = (root / "tools" / "render-homebrew-cask.sh").read_text()
+        controller = (APP_DIR / "AppCenterWindowController.swift").read_text()
+        app_source = (APP_DIR / "NotifdexApp.swift").read_text()
+        window_drag_tla = (root / "spec" / "WindowDrag.tla").read_text()
+
+        # Issue #91: standard macOS app launch (no LSUIElement accessory hide) and stays in Dock after close.
+        self.assertNotIn("LSUIElement", build_app)
+        self.assertNotIn("NSApp.setActivationPolicy(.accessory)", controller)
+        self.assertIn("NSApp.isHidden", controller)
+        self.assertIn("NSApp.unhide(nil)", controller)
+        self.assertIn("window.isMiniaturized", controller)
+        self.assertIn("window.deminiaturize(nil)", controller)
+        self.assertIn("applicationShouldHandleReopen", app_source)
+        self.assertIn("Smoke test: closed window stayed in dock", smoke_app)
+        self.assertIn("Smoke test: reopen focused single app center window", smoke_app)
+        self.assertIn("Smoke test: minimized window restored", smoke_app)
+        self.assertIn("ActivationPolicyAlwaysRegular", window_drag_tla)
+        self.assertIn("App Center", render_cask)

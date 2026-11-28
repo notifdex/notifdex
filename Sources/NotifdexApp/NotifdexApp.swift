@@ -454,16 +454,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         Self.shared = self
         smokeTrace("application did finish launching")
+        NSApp.setActivationPolicy(.regular)
         AppIconCatalog.applyDockIcon()
         ensureCloseWindowShortcut()
         if CommandLine.arguments.contains("--smoke-test") {
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
-                NSApp.setActivationPolicy(.accessory)
                 self.showAppCenter()
-                if NSApp.activationPolicy() == .regular { smokeTrace("window entered app switcher") }
-                self.appCenterController?.window?.close()
-                if NSApp.activationPolicy() == .accessory { smokeTrace("closed window returned to menu bar") }
+                let initialWindow = self.appCenterController?.window
+                if NSApp.activationPolicy() == .regular, initialWindow?.isVisible == true {
+                    smokeTrace("window entered app switcher")
+                }
+                initialWindow?.close()
+                if NSApp.activationPolicy() == .regular, initialWindow?.isVisible == false {
+                    smokeTrace("closed window stayed in dock")
+                }
+                _ = self.applicationShouldHandleReopen(NSApp, hasVisibleWindows: false)
+                if let reopenedWindow = self.appCenterController?.window,
+                   reopenedWindow === initialWindow,
+                   reopenedWindow.isVisible {
+                    smokeTrace("reopen focused single app center window")
+                }
+                initialWindow?.miniaturize(nil)
+                self.showAppCenter()
+                if let restoredWindow = self.appCenterController?.window,
+                   restoredWindow === initialWindow,
+                   !restoredWindow.isMiniaturized,
+                   restoredWindow.isVisible {
+                    smokeTrace("minimized window restored")
+                }
             }
             DispatchQueue.main.asyncAfter(deadline: .now() + 2) { NSApp.terminate(nil) }
         } else {
@@ -488,7 +507,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-        guard !CommandLine.arguments.contains("--smoke-test") else { return false }
         showAppCenter()
         return false
     }

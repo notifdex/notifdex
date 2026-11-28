@@ -43,8 +43,12 @@ cask "notifdex" do
   ]
 
   caveats <<~EOS
-    Open Notifdex from Applications, click the menu bar icon, and grant
-    Accessibility access in System Settings -> Privacy & Security -> Accessibility.
+    Open Notifdex from Applications or Spotlight to launch App Center (or use the
+    menu bar icon anytime) and grant Accessibility access in:
+    System Settings -> Privacy & Security -> Accessibility.
+
+    Closing App Center keeps notification capture running in the background; click
+    the Dock icon or press Cmd-Q to reopen or quit.
 
     For forwarded iPhone notifications, macOS 15 (Sequoia) and iOS 18 or later
     are required with iPhone Mirroring paired and "Allow notifications from iPhone"

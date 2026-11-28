@@ -496,7 +496,7 @@ public final class NotificationStore: @unchecked Sendable {
         if utf8.isEmpty {
             sqlite3_bind_text(stmt, index, "", 0, transient)
         } else {
-            utf8.withUnsafeBytes { raw in
+            _ = utf8.withUnsafeBytes { raw in
                 sqlite3_bind_text(stmt, index, raw.bindMemory(to: CChar.self).baseAddress, Int32(utf8.count), transient)
             }
         }

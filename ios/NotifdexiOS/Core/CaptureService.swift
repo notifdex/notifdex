@@ -125,13 +125,8 @@ public final class CaptureService: @unchecked Sendable {
             }
 
             do {
-                let (record, inserted) = try store.insertNotification(
-                    normalized,
-                    sourceID: settings.sourceID,
-                    deviceID: settings.deviceID
-                )
                 let coreChannel: SyncCaptureChannel = payload.channel == .manualTest ? .manualTest : .iosShortcuts
-                _ = try coreStore.recordDirectObservation(
+                let (observationID, syncUUID, inserted) = try coreStore.recordDirectObservation(
                     sourceID: settings.sourceID,
                     originDeviceID: settings.deviceID,
                     appLabel: normalized.appLabel,
@@ -142,6 +137,21 @@ public final class CaptureService: @unchecked Sendable {
                     origin: .iphone,
                     channel: coreChannel,
                     dedupWindowSeconds: CaptureNormalizer.dedupBucketSeconds
+                )
+                let record = CapturedNotification(
+                    id: observationID,
+                    captureUUID: syncUUID,
+                    sourceID: settings.sourceID,
+                    sourceEventID: normalized.dedupKey,
+                    captureChannel: normalized.channel,
+                    origin: normalized.origin,
+                    appLabel: normalized.appLabel,
+                    title: normalized.title,
+                    subtitle: normalized.subtitle,
+                    body: normalized.body,
+                    capturedAt: normalized.capturedAt,
+                    deviceID: settings.deviceID,
+                    metadataJSON: normalized.metadataJSON
                 )
 
                 let outcome: CaptureOutcome = inserted ? .captured(record) : .duplicate(record)
@@ -426,11 +436,62 @@ public final class CaptureService: @unchecked Sendable {
     }
 
     public func notifications(appFilter: String? = nil, searchText: String = "") throws -> [CapturedNotification] {
-        try store.fetchNotifications(appFilter: appFilter, searchText: searchText)
+        let settings = try store.loadOrCreateSettings()
+        let entries = try coreStore.inbox(InboxQuery(
+            scope: .inbox(app: appFilter, saved: false),
+            search: searchText,
+            limit: 200,
+            order: .newestFirst
+        ))
+        let provenance = try coreStore.provenanceByObservationID()
+        return entries.map { entry in
+            let meta = provenance[entry.id]
+            let channel: CaptureChannel = meta?.channel == .manualTest ? .manualTest : .iosShortcuts
+            let origin: NotificationOrigin = switch meta?.origin {
+            case .iphone: .iphone
+            case .mac: .mac
+            default: .unknown
+            }
+            return CapturedNotification(
+                id: entry.id,
+                captureUUID: meta?.syncUUID ?? "obs-\(entry.id)",
+                sourceID: meta?.sourceID ?? settings.sourceID,
+                sourceEventID: "\(entry.id)",
+                captureChannel: channel,
+                origin: origin,
+                appLabel: entry.app,
+                title: entry.title,
+                subtitle: entry.subtitle,
+                body: entry.body,
+                capturedAt: entry.capturedAt,
+                deviceID: meta?.originDeviceID ?? settings.deviceID,
+                metadataJSON: "{}"
+            )
+        }
     }
 
     public func stats() throws -> CaptureStats {
-        try store.stats()
+        let summaries = try coreStore.appSummaries()
+        var total = 0
+        var lastCapturedAt: Double?
+        var countByApp: [String: Int] = [:]
+        var lastCapturedByApp: [String: Double] = [:]
+        for summary in summaries {
+            total += summary.count
+            countByApp[summary.appLabel] = summary.count
+            lastCapturedByApp[summary.appLabel] = summary.lastCapturedAt
+            if let existing = lastCapturedAt {
+                lastCapturedAt = max(existing, summary.lastCapturedAt)
+            } else {
+                lastCapturedAt = summary.lastCapturedAt
+            }
+        }
+        return CaptureStats(
+            totalCount: total,
+            lastCapturedAt: lastCapturedAt,
+            countByApp: countByApp,
+            lastCapturedByApp: lastCapturedByApp
+        )
     }
 
     public func executionLogs(limit: Int = 50) throws -> [IntentExecutionLogEntry] {

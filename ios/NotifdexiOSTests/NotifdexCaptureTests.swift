@@ -472,4 +472,46 @@ final class NotifdexCaptureTests: XCTestCase {
         XCTAssertEqual(try service.inboxFilters().count, 0)
         XCTAssertEqual(try service.hybridInbox().count, 3)
     }
+
+    func testIngestUsesSingleCoreStoreWithoutWritingLegacyPhase1TableAndMigratesLegacyRows() throws {
+        // 1. Fresh ingest must persist only to shared NotifdexCore and never write to legacy ios-capture.db notifications table.
+        let store = try NotificationStore(databaseURL: dbURL)
+        let service = CaptureService(store: store)
+
+        let outcome = try service.ingest(IncomingNotificationPayload(
+            app: "X",
+            title: "Sam",
+            subtitle: "DM",
+            body: "Single store test",
+            receivedAt: Date(timeIntervalSince1970: 1_764_500_000)
+        ))
+        guard case .captured(let captured) = outcome else {
+            return XCTFail("Expected .captured, got \(outcome)")
+        }
+        XCTAssertEqual(captured.appLabel, "X")
+        XCTAssertEqual(try store.fetchNotifications().count, 0, "New captures must not dual-write to legacy Phase 1 notifications table")
+        XCTAssertEqual(try service.coreStore.observationCount(), 1)
+        XCTAssertEqual(try service.notifications().count, 1)
+        XCTAssertEqual(try service.stats().totalCount, 1)
+        XCTAssertEqual(try service.stats().countByApp["X"], 1)
+
+        // 2. Existing Phase 1 legacy rows still migrate non-destructively into an empty coreStore on startup.
+        let legacyDir = tempDir.appendingPathComponent("legacy-migration", isDirectory: true)
+        try FileManager.default.createDirectory(at: legacyDir, withIntermediateDirectories: true)
+        let legacyDB = legacyDir.appendingPathComponent("ios-capture.db")
+        let legacyStore = try NotificationStore(databaseURL: legacyDB)
+        let legacySettings = try legacyStore.loadOrCreateSettings(defaultDeviceID: "legacy-iphone")
+        let normalized = try XCTUnwrap(CaptureNormalizer.normalize(IncomingNotificationPayload(
+            app: "Gmail",
+            title: "Legacy",
+            subtitle: nil,
+            body: "Migrated from Phase 1",
+            receivedAt: Date(timeIntervalSince1970: 1_764_500_100)
+        )))
+        _ = try legacyStore.insertNotification(normalized, sourceID: legacySettings.sourceID, deviceID: legacySettings.deviceID)
+
+        let migratedService = CaptureService(store: legacyStore)
+        XCTAssertEqual(try migratedService.coreStore.observationCount(), 1)
+        XCTAssertEqual(try migratedService.stats().countByApp["Gmail"], 1)
+    }
 }

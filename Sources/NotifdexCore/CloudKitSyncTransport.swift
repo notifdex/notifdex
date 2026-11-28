@@ -124,7 +124,8 @@ public final class CloudKitSyncTransport: SyncTransport, @unchecked Sendable {
 
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
-        let payloadData = try encoder.encode(batch)
+        let rawPayload = try encoder.encode(batch)
+        let payloadData = Self.encodePayloadForCloudKit(rawPayload)
 
         // One deterministic snapshot record per paired device prevents unbounded CloudKit record buildup.
         let recordID = CKRecord.ID(
@@ -141,6 +142,29 @@ public final class CloudKitSyncTransport: SyncTransport, @unchecked Sendable {
         if case .failure(let saveError) = result.saveResults[recordID] {
             throw saveError
         }
+    }
+
+    private static let compressedMagic = Data("NFZ1".utf8)
+
+    internal static func encodePayloadForCloudKit(_ rawJSON: Data) -> Data {
+        // Compress snapshots approaching CloudKit's 1 MB CKRecord limit while keeping smaller batches plain JSON.
+        guard rawJSON.count >= 850_000,
+              let compressed = try? (rawJSON as NSData).compressed(using: .zlib) as Data,
+              compressed.count + compressedMagic.count < rawJSON.count else {
+            return rawJSON
+        }
+        var out = Data(capacity: compressedMagic.count + compressed.count)
+        out.append(compressedMagic)
+        out.append(compressed)
+        return out
+    }
+
+    internal static func decodePayloadFromCloudKit(_ data: Data) throws -> Data {
+        if data.starts(with: compressedMagic) {
+            let body = data.dropFirst(compressedMagic.count)
+            return try (Data(body) as NSData).decompressed(using: .zlib) as Data
+        }
+        return data
     }
 
     public func pull(since token: Data?) async throws -> SyncPullResult {
@@ -170,23 +194,39 @@ public final class CloudKitSyncTransport: SyncTransport, @unchecked Sendable {
     }
 
     private func fetchZoneChanges(in database: CKDatabase, since previousToken: CKServerChangeToken?) async throws -> SyncPullResult {
-        let changes = try await database.recordZoneChanges(inZoneWith: zoneID, since: previousToken)
         var batches: [SyncBatch] = []
         let decoder = JSONDecoder()
+        var cursor = previousToken
+        var decodeError: Error?
 
-        for modification in changes.modificationResultsByID.values {
-            if case .success(let entry) = modification,
-               let data = entry.record["payloadJSON"] as? Data,
-               let decoded = try? decoder.decode(SyncBatch.self, from: data) {
-                batches.append(decoded)
+        while true {
+            let changes = try await database.recordZoneChanges(inZoneWith: zoneID, since: cursor)
+            for modification in changes.modificationResultsByID.values {
+                if case .success(let entry) = modification,
+                   let rawData = entry.record["payloadJSON"] as? Data {
+                    do {
+                        let jsonData = try Self.decodePayloadFromCloudKit(rawData)
+                        let decoded = try decoder.decode(SyncBatch.self, from: jsonData)
+                        batches.append(decoded)
+                    } catch {
+                        decodeError = error
+                    }
+                }
+            }
+            cursor = changes.changeToken
+            if !changes.moreComing {
+                break
             }
         }
 
+        if batches.isEmpty, let decodeError {
+            throw StoreError(description: "Failed to decode remote sync snapshot: \(decodeError.localizedDescription)")
+        }
+
         batches.sort { $0.exportedAt < $1.exportedAt }
-        let archivedToken = try? NSKeyedArchiver.archivedData(
-            withRootObject: changes.changeToken,
-            requiringSecureCoding: true
-        )
+        let archivedToken = cursor.flatMap {
+            try? NSKeyedArchiver.archivedData(withRootObject: $0, requiringSecureCoding: true)
+        }
         return SyncPullResult(batches: batches, nextToken: archivedToken)
     }
 

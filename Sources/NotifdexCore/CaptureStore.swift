@@ -151,6 +151,9 @@ public final class CaptureStore {
         for addition in additions where !(try tableHasColumn(addition.table, column: addition.column)) {
             try execute(addition.sql)
         }
+        // Reset stale v1 sync cursors/digests on upgrade to v13 so upgraded devices perform a full v2 sync
+        // (pulling hide rules, workspaces, identities, and templates pushed while they were on v1).
+        try execute("DELETE FROM sync_state WHERE key IN ('sync_change_token', 'sync_last_pushed_digest')")
     }
 
     deinit { sqlite3_close(database) }

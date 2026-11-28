@@ -381,4 +381,136 @@ final class FilterAndPreferenceSyncTests: XCTestCase {
         XCTAssertTrue(batch.hiddenAlerts.isEmpty)
         XCTAssertNil(batch.preferences)
     }
+
+    // MARK: - Live Sync Regression Tests (Repeated Apply, Name Collisions, V1->V2 Token Reset, Pre-V13 Hides)
+
+    func testRepeatedSyncWithIdentitiesMatchRulesAndWorkspaceNameCollisionsDoesNotRollBackHideRules() async throws {
+        let macStore = try makeStore(named: "mac-repeat")
+        let iosStore = try makeStore(named: "ios-repeat")
+        let transport = InMemorySyncTransport()
+
+        let macID = "mac-mini"
+        let iosID = "iphone-17"
+        try macStore.pairDevice(deviceID: macID, displayName: "Mac", platform: .mac, at: 100)
+        try iosStore.pairDevice(deviceID: iosID, displayName: "iPhone", platform: .iphone, at: 100)
+
+        // Create same-named workspace & folder independently on both devices (different UUIDs).
+        let macWsID = try macStore.createWorkspace(name: "Founders")
+        _ = try iosStore.createWorkspace(name: "Founders")
+        _ = try macStore.saveNoteFolder(name: "Deals")
+        _ = try iosStore.saveNoteFolder(name: "Deals")
+
+        let runID = try macStore.startRun(at: 100)
+        try macStore.record(Observation(
+            sourceID: "\(macID):notificationcenter", sourceEventID: "ev-1", capturedAt: 110,
+            description: "X, Maya, Deck ready, from iPhone", title: "Maya", body: "Deck ready"
+        ), runID: runID)
+        let entry = try XCTUnwrap(try macStore.inbox(InboxQuery()).first)
+        _ = try macStore.createPerson(
+            name: "Maya",
+            linking: entry.id,
+            workspace: macWsID,
+            identity: (platform: "X", identifier: "@maya"),
+            rememberMatch: true
+        )
+
+        let macCoord = HybridSyncCoordinator(store: macStore, transport: transport)
+        let iosCoord = HybridSyncCoordinator(store: iosStore, transport: transport)
+
+        // First sync: pushes person, identity, match rule, workspace, folder.
+        _ = try await macCoord.syncNow(localDeviceID: macID, at: 120)
+        _ = try await iosCoord.syncNow(localDeviceID: iosID, at: 125)
+
+        // Second sync after adding a hide rule on Mac: re-applying existing identities & match rules
+        // MUST NOT throw UNIQUE constraint failed on PRIMARY KEY (id) and roll back hideRules!
+        let rule = InboxRuleMatch(app: "Gmail", field: .title, text: "Newsletter")
+        XCTAssertTrue(try macStore.addHideRule(rule, at: 130))
+        _ = try await macCoord.syncNow(localDeviceID: macID, at: 135)
+        _ = try await iosCoord.syncNow(localDeviceID: iosID, at: 140)
+
+        XCTAssertEqual(try iosStore.inboxFilters().map(\.match), [rule])
+    }
+
+    func testUpgradingFromV12ResetsStaleV1ChangeTokenAndExportsPreV13HiddenDualCapturedAlerts() async throws {
+        // Build a v12 iOS database that already consumed a v1 CloudKit change token before upgrading to v13,
+        // and a v12 Mac database that already had a pre-v13 individually hidden dual-captured alert.
+        let iosURL = tempDir.appendingPathComponent("ios-v12-upgrade.db")
+        let macURL = tempDir.appendingPathComponent("mac-v12-upgrade.db")
+
+        for url in [iosURL, macURL] {
+            var db: OpaquePointer?
+            XCTAssertEqual(sqlite3_open(url.path, &db), SQLITE_OK)
+            defer { sqlite3_close(db) }
+            for name in ["schema", "inbox-work", "filters", "person-matches", "person-notes",
+                         "flags", "hide-rules", "relationship-templates", "workspaces", "notebook", "sync"] {
+                XCTAssertEqual(sqlite3_exec(db, try CaptureStore.schema(named: name), nil, nil, nil), SQLITE_OK)
+            }
+            let v12Setup = """
+                PRAGMA user_version = 12;
+                INSERT INTO sync_state (key, value) VALUES ('sync_change_token', 'c3RhbGUtdG9rZW4=');
+                INSERT INTO sync_state (key, value) VALUES ('sync_last_pushed_digest', 'stale-digest');
+                """
+            XCTAssertEqual(sqlite3_exec(db, v12Setup, nil, nil, nil), SQLITE_OK)
+        }
+
+        // Seed a pre-v13 hidden alert directly in Mac's v12 DB (so hidden_version starts at 0 after upgrade).
+        do {
+            var db: OpaquePointer?
+            XCTAssertEqual(sqlite3_open(macURL.path, &db), SQLITE_OK)
+            defer { sqlite3_close(db) }
+            let seed = """
+                INSERT INTO capture_runs VALUES ('r1', 100, 100, NULL);
+                INSERT INTO observations (id, source_id, source_event_id, run_id, captured_at, origin, app_label, title, subtitle, body, accessibility_description, parser_version)
+                VALUES (1, 'mac-1:notificationcenter', 'ev-dual', 'r1', 200, 'iphone', 'Gmail', 'Promo', '', 'Buy now', '', 1);
+                INSERT INTO hidden_observations VALUES (1);
+                """
+            XCTAssertEqual(sqlite3_exec(db, seed, nil, nil, nil), SQLITE_OK)
+        }
+
+        let iosStore = try CaptureStore(path: iosURL.path)
+        let macStore = try CaptureStore(path: macURL.path)
+
+        // Upgrading v12 -> v13 must clear stale v1 change token & digest so a full v2 sync runs!
+        XCTAssertNil(try iosStore.syncChangeToken())
+        XCTAssertNil(try iosStore.lastPushedDigest())
+        XCTAssertNil(try macStore.syncChangeToken())
+        XCTAssertNil(try macStore.lastPushedDigest())
+
+        // iPhone also captured the same dual alert via Shortcuts (still visible on iOS before sync).
+        try macStore.pairDevice(deviceID: "mac-1", displayName: "Mac", platform: .mac, at: 300)
+        try iosStore.pairDevice(deviceID: "ios-1", displayName: "iPhone", platform: .iphone, at: 300)
+        _ = try iosStore.recordDirectObservation(
+            sourceID: "ios-1:ios_shortcuts", originDeviceID: "ios-1",
+            appLabel: "Gmail", title: "Promo", body: "Buy now", capturedAt: 202
+        )
+        XCTAssertEqual(try iosStore.inbox(InboxQuery()).count, 1)
+
+        let transport = InMemorySyncTransport()
+        let macCoord = HybridSyncCoordinator(store: macStore, transport: transport)
+        let iosCoord = HybridSyncCoordinator(store: iosStore, transport: transport)
+        _ = try await macCoord.syncNow(localDeviceID: "mac-1", at: 310)
+        _ = try await iosCoord.syncNow(localDeviceID: "ios-1", at: 315)
+
+        // Pre-v13 individually hidden alert on Mac must propagate as an opaque hidden marker to iOS
+        // without uploading its text in batch.observations!
+        let pushed = await transport.allPushedBatches()
+        XCTAssertFalse(pushed.first(where: { $0.senderDeviceID == "mac-1" })?.observations.contains(where: { $0.title == "Promo" }) ?? true)
+        XCTAssertTrue(try iosStore.inbox(InboxQuery()).isEmpty)
+        XCTAssertEqual(try iosStore.inbox(InboxQuery(scope: .hidden(app: nil))).count, 1)
+    }
+
+    #if canImport(CloudKit)
+    func testCloudKitPayloadCompressionRoundTripsLargeSnapshotsAndPreservesPlainJSON() throws {
+        let small = Data("{\"schemaVersion\":2}".utf8)
+        XCTAssertEqual(CloudKitSyncTransport.encodePayloadForCloudKit(small), small)
+        XCTAssertEqual(try CloudKitSyncTransport.decodePayloadFromCloudKit(small), small)
+
+        let large = Data(String(repeating: "{\"body\":\"repeated notification text\"},", count: 30_000).utf8)
+        XCTAssertGreaterThan(large.count, 850_000)
+        let encoded = CloudKitSyncTransport.encodePayloadForCloudKit(large)
+        XCTAssertLessThan(encoded.count, large.count / 5)
+        let decoded = try CloudKitSyncTransport.decodePayloadFromCloudKit(encoded)
+        XCTAssertEqual(decoded, large)
+    }
+    #endif
 }

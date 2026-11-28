@@ -14,7 +14,21 @@ public extension CaptureStore {
     private static let sharedPrefColorThemeKey = "pref_color_theme"
     private static let sharedPrefGroupByAppKey = "pref_group_by_app"
     private static let sharedPrefUpdatedAtKey = "pref_updated_at"
+    private static let syncResyncGenerationKey = "sync_v2_resync_gen"
+    private static let currentSyncResyncGeneration = "2"
     internal static let localPrunedBeforeKey = "local_pruned_before"
+
+    /// Ensures devices that upgraded across v1 -> v2 (or from earlier v0.2.2/build 158 builds affected
+    /// by identity/workspace upsert rollbacks) perform one clean full CloudKit zone pull & push.
+    internal func ensureV2SyncResyncIfNeeded() throws {
+        let current = try syncStateValue(for: Self.syncResyncGenerationKey)
+        guard current != Self.currentSyncResyncGeneration else { return }
+        try transaction {
+            try deleteSyncStateValue(for: Self.syncTokenKey)
+            try deleteSyncStateValue(for: Self.lastPushedDigestKey)
+            try setSyncStateValue(Self.currentSyncResyncGeneration, for: Self.syncResyncGenerationKey)
+        }
+    }
 
     /// Direct structured observation capture (used by iOS 27 Shortcuts AppIntent and tests).
     /// Applies transactional sliding-window deduplication so rapid retries across minute boundaries stay idempotent.
@@ -658,6 +672,30 @@ public extension CaptureStore {
             }
 
             // Export opaque individual hide/restore state markers (zero notification content).
+            // Includes both post-v13 versioned hide/restore transitions AND pre-v13 hidden_observations
+            // rows so dual-captured alerts hidden before v13 still propagate without leaking alert text.
+            let preV13HiddenIDs = try readRows("""
+                SELECT h.observation_id
+                FROM hidden_observations h
+                LEFT JOIN sync_observation_links l ON l.observation_id = h.observation_id
+                WHERE l.observation_id IS NULL OR l.hidden_version = 0
+                """) { sqlite3_column_int64($0, 0) }
+            for obsID in preV13HiddenIDs {
+                _ = try ensureSyncLinkInTransaction(
+                    observationID: obsID,
+                    channel: .macosAX,
+                    originDeviceID: deviceID,
+                    logicalKey: nil,
+                    at: time
+                )
+                try execute("""
+                    UPDATE sync_observation_links
+                    SET hidden_version = max(hidden_version, 1),
+                        hidden_updated_at = CASE WHEN hidden_updated_at > 0 THEN hidden_updated_at ELSE updated_at END
+                    WHERE observation_id = ?
+                    """, strings: [String(obsID)])
+            }
+
             let hiddenAlerts = try readRows("""
                 SELECT l.sync_uuid, l.logical_key,
                        EXISTS (SELECT 1 FROM hidden_observations h WHERE h.observation_id = l.observation_id),
@@ -998,39 +1036,115 @@ public extension CaptureStore {
                 if let pTomb = tombstoneTime["person"]?[identity.personID], identity.updatedAt <= pTomb { continue }
                 let personExists = try scalar("SELECT count(*) FROM people WHERE id = ?", strings: [identity.personID]) > 0
                 guard personExists else { continue }
-                try execute("""
-                    INSERT INTO identities (id, person_id, platform, identifier, updated_at)
-                    VALUES (?, ?, ?, ?, ?)
-                    ON CONFLICT(platform, identifier) DO UPDATE SET
-                        person_id = CASE WHEN excluded.updated_at >= identities.updated_at THEN excluded.person_id ELSE identities.person_id END,
-                        updated_at = max(identities.updated_at, excluded.updated_at)
-                    """, strings: [identity.id, identity.personID, identity.platform, identity.identifier],
-                         numbers: [identity.updatedAt])
+
+                // Check both PRIMARY KEY (id) and UNIQUE (platform, identifier) to avoid SQLite
+                // secondary-unique ON CONFLICT mismatches rolling back the entire sync batch.
+                let existingByID = try readRows(
+                    "SELECT id, updated_at FROM identities WHERE id = ? LIMIT 1",
+                    strings: [identity.id]
+                ) { (id: columnString($0, 0), updatedAt: sqlite3_column_double($0, 1)) }.first
+
+                let existingByKey = try readRows(
+                    "SELECT id, updated_at FROM identities WHERE platform = ? AND identifier = ? LIMIT 1",
+                    strings: [identity.platform, identity.identifier]
+                ) { (id: columnString($0, 0), updatedAt: sqlite3_column_double($0, 1)) }.first
+
+                if let match = existingByID {
+                    if identity.updatedAt >= match.updatedAt {
+                        // Avoid colliding with a distinct row that already owns (platform, identifier).
+                        if existingByKey == nil || existingByKey?.id == match.id {
+                            try execute("""
+                                UPDATE identities
+                                SET updated_at = max(updated_at, ?), person_id = ?, platform = ?, identifier = ?
+                                WHERE id = ?
+                                """, numbersFirst: [identity.updatedAt],
+                                     strings: [identity.personID, identity.platform, identity.identifier, match.id])
+                        }
+                    }
+                } else if let match = existingByKey {
+                    if identity.updatedAt >= match.updatedAt {
+                        try execute("""
+                            UPDATE identities
+                            SET updated_at = max(updated_at, ?), person_id = ?
+                            WHERE id = ?
+                            """, numbersFirst: [identity.updatedAt], strings: [identity.personID, match.id])
+                    }
+                } else {
+                    try execute("""
+                        INSERT INTO identities (id, person_id, platform, identifier, updated_at)
+                        VALUES (?, ?, ?, ?, ?)
+                        """, strings: [identity.id, identity.personID, identity.platform, identity.identifier],
+                             numbers: [identity.updatedAt])
+                }
             }
 
             for rule in batch.personMatchRules {
                 if let tombAt = tombstoneTime["person_match_rule"]?[rule.id], rule.updatedAt <= tombAt { continue }
                 let personExists = try scalar("SELECT count(*) FROM people WHERE id = ?", strings: [rule.personID]) > 0
                 guard personExists else { continue }
-                try execute("""
-                    INSERT INTO person_match_rules (id, app, title, person_id, after_observation_id, updated_at)
-                    VALUES (?, ?, ?, ?, 0, ?)
-                    ON CONFLICT(app, title) DO UPDATE SET
-                        person_id = CASE WHEN excluded.updated_at >= person_match_rules.updated_at THEN excluded.person_id ELSE person_match_rules.person_id END,
-                        updated_at = max(person_match_rules.updated_at, excluded.updated_at)
-                    """, strings: [rule.id, rule.app, rule.title, rule.personID], numbers: [rule.updatedAt])
+
+                let existingByID = try readRows(
+                    "SELECT id, updated_at FROM person_match_rules WHERE id = ? LIMIT 1",
+                    strings: [rule.id]
+                ) { (id: columnString($0, 0), updatedAt: sqlite3_column_double($0, 1)) }.first
+
+                let existingByKey = try readRows(
+                    "SELECT id, updated_at FROM person_match_rules WHERE app = ? AND title = ? LIMIT 1",
+                    strings: [rule.app, rule.title]
+                ) { (id: columnString($0, 0), updatedAt: sqlite3_column_double($0, 1)) }.first
+
+                if let match = existingByID {
+                    if rule.updatedAt >= match.updatedAt {
+                        if existingByKey == nil || existingByKey?.id == match.id {
+                            try execute("""
+                                UPDATE person_match_rules
+                                SET updated_at = max(updated_at, ?), app = ?, title = ?, person_id = ?
+                                WHERE id = ?
+                                """, numbersFirst: [rule.updatedAt],
+                                     strings: [rule.app, rule.title, rule.personID, match.id])
+                        }
+                    }
+                } else if let match = existingByKey {
+                    if rule.updatedAt >= match.updatedAt {
+                        try execute("""
+                            UPDATE person_match_rules
+                            SET updated_at = max(updated_at, ?), person_id = ?
+                            WHERE id = ?
+                            """, numbersFirst: [rule.updatedAt], strings: [rule.personID, match.id])
+                    }
+                } else {
+                    try execute("""
+                        INSERT INTO person_match_rules (id, app, title, person_id, after_observation_id, updated_at)
+                        VALUES (?, ?, ?, ?, 0, ?)
+                        """, strings: [rule.id, rule.app, rule.title, rule.personID], numbers: [rule.updatedAt])
+                }
             }
 
             var appliedWorkspaces = 0
             for ws in batch.workspaces {
                 if let tombAt = tombstoneTime["workspace"]?[ws.id], ws.updatedAt <= tombAt { continue }
-                try execute("""
-                    INSERT INTO workspaces (id, name, updated_at) VALUES (?, ?, ?)
-                    ON CONFLICT(id) DO UPDATE SET
-                        name = CASE WHEN excluded.updated_at >= workspaces.updated_at THEN excluded.name ELSE workspaces.name END,
-                        updated_at = max(workspaces.updated_at, excluded.updated_at)
-                    """, strings: [ws.id, ws.name], numbers: [ws.updatedAt])
-                appliedWorkspaces += 1
+                let existingByID = try readRows(
+                    "SELECT id, updated_at FROM workspaces WHERE id = ? LIMIT 1",
+                    strings: [ws.id]
+                ) { (id: columnString($0, 0), updatedAt: sqlite3_column_double($0, 1)) }.first
+                let existingByName = try readRows(
+                    "SELECT id FROM workspaces WHERE name = ? COLLATE NOCASE LIMIT 1",
+                    strings: [ws.name]
+                ) { columnString($0, 0) }.first
+
+                if let match = existingByID {
+                    if ws.updatedAt >= match.updatedAt && (existingByName == nil || existingByName == match.id) {
+                        try execute("""
+                            UPDATE workspaces SET updated_at = max(updated_at, ?), name = ? WHERE id = ?
+                            """, numbersFirst: [ws.updatedAt], strings: [ws.name, match.id])
+                        appliedWorkspaces += 1
+                    }
+                } else if existingByName == nil {
+                    try execute("""
+                        INSERT INTO workspaces (id, name, updated_at) VALUES (?, ?, ?)
+                        """, strings: [ws.id, ws.name], numbers: [ws.updatedAt])
+                    appliedWorkspaces += 1
+                }
             }
 
             for pw in batch.personWorkspaces {
@@ -1050,12 +1164,26 @@ public extension CaptureStore {
             // 4. Apply Note Folders, Personal Notes, People Notes & Relationship Templates.
             for folder in batch.noteFolders {
                 if let tombAt = tombstoneTime["note_folder"]?[folder.id], folder.updatedAt <= tombAt { continue }
-                try execute("""
-                    INSERT INTO note_folders (id, name, updated_at) VALUES (?, ?, ?)
-                    ON CONFLICT(id) DO UPDATE SET
-                        name = CASE WHEN excluded.updated_at >= note_folders.updated_at THEN excluded.name ELSE note_folders.name END,
-                        updated_at = max(note_folders.updated_at, excluded.updated_at)
-                    """, strings: [folder.id, folder.name], numbers: [folder.updatedAt])
+                let existingByID = try readRows(
+                    "SELECT id, updated_at FROM note_folders WHERE id = ? LIMIT 1",
+                    strings: [folder.id]
+                ) { (id: columnString($0, 0), updatedAt: sqlite3_column_double($0, 1)) }.first
+                let existingByName = try readRows(
+                    "SELECT id FROM note_folders WHERE name = ? COLLATE NOCASE LIMIT 1",
+                    strings: [folder.name]
+                ) { columnString($0, 0) }.first
+
+                if let match = existingByID {
+                    if folder.updatedAt >= match.updatedAt && (existingByName == nil || existingByName == match.id) {
+                        try execute("""
+                            UPDATE note_folders SET updated_at = max(updated_at, ?), name = ? WHERE id = ?
+                            """, numbersFirst: [folder.updatedAt], strings: [folder.name, match.id])
+                    }
+                } else if existingByName == nil {
+                    try execute("""
+                        INSERT INTO note_folders (id, name, updated_at) VALUES (?, ?, ?)
+                        """, strings: [folder.id, folder.name], numbers: [folder.updatedAt])
+                }
             }
 
             var appliedNotes = 0

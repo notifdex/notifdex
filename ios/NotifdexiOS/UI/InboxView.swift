@@ -5,6 +5,7 @@ struct InboxView: View {
     @ObservedObject var viewModel: AppViewModel
     let onOpenCapture: () -> Void
     @State private var inspectedItem: HybridInboxItem?
+    @State private var showingHideRules = false
 
     var body: some View {
         NavigationStack {
@@ -37,6 +38,31 @@ struct InboxView: View {
                     .padding(.horizontal, 16)
                     .padding(.vertical, 8)
                     .background(Color(.secondarySystemBackground))
+                }
+
+                if viewModel.inboxFilter == .hidden && !viewModel.hideRules.isEmpty {
+                    Button {
+                        showingHideRules = true
+                    } label: {
+                        HStack(spacing: 8) {
+                            Image(systemName: "line.3.horizontal.decrease.circle.fill")
+                                .foregroundStyle(NotifdexTheme.prussian)
+                            Text("\(viewModel.hideRules.filter(\.enabled).count) active hide rules (\(viewModel.hideRules.count) total)")
+                                .font(.caption.weight(.medium))
+                                .foregroundStyle(.primary)
+                            Spacer()
+                            Text("Manage")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(NotifdexTheme.prussian)
+                            Image(systemName: "chevron.right")
+                                .font(.caption2)
+                                .foregroundStyle(.tertiary)
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 9)
+                        .background(Color(.secondarySystemBackground))
+                    }
+                    .buttonStyle(.plain)
                 }
 
                 if viewModel.hybridItems.isEmpty {
@@ -103,25 +129,8 @@ struct InboxView: View {
             .toolbar {
                 if !viewModel.hideRules.isEmpty {
                     ToolbarItem(placement: .topBarLeading) {
-                        Menu {
-                            ForEach(viewModel.hideRules) { rule in
-                                let labelText = rule.match.field == .app
-                                    ? "\(rule.match.app) · All alerts"
-                                    : "\(rule.match.app) · \(rule.match.field.displayLabel): \(rule.match.text)"
-                                Menu(rule.enabled ? labelText : "\(labelText) (Paused)") {
-                                    Button {
-                                        viewModel.setHideRuleEnabled(rule.match, enabled: !rule.enabled)
-                                    } label: {
-                                        Label(rule.enabled ? "Pause Rule" : "Resume Rule",
-                                              systemImage: rule.enabled ? "pause.circle" : "play.circle")
-                                    }
-                                    Button(role: .destructive) {
-                                        viewModel.removeHideRule(rule.match)
-                                    } label: {
-                                        Label("Remove Rule", systemImage: "trash")
-                                    }
-                                }
-                            }
+                        Button {
+                            showingHideRules = true
                         } label: {
                             Label("Rules (\(viewModel.hideRules.count))", systemImage: "line.3.horizontal.decrease.circle")
                         }
@@ -144,6 +153,9 @@ struct InboxView: View {
             }
             .sheet(item: $inspectedItem) { item in
                 HybridNotificationDetailSheet(item: item, viewModel: viewModel)
+            }
+            .sheet(isPresented: $showingHideRules) {
+                HideRulesSheet(viewModel: viewModel)
             }
         }
     }
@@ -205,6 +217,8 @@ struct InboxView: View {
         } description: {
             if viewModel.searchText.isEmpty && viewModel.selectedAppFilter == nil && viewModel.inboxFilter == .all {
                 Text("Connect an iOS 27 Shortcuts Notification automation or pair iCloud Sync with your Mac to view alerts here.")
+            } else if viewModel.inboxFilter == .hidden && viewModel.searchText.isEmpty && viewModel.selectedAppFilter == nil {
+                Text("No hidden alerts stored on this iPhone yet. Alerts already hidden on your Mac stay local by design; synced hide rules still apply to iPhone alerts.")
             } else {
                 Text("Try switching scopes or clearing your search filter.")
             }
@@ -221,6 +235,11 @@ struct InboxView: View {
                     }
                     .buttonStyle(.bordered)
                 }
+            } else if viewModel.inboxFilter == .hidden && !viewModel.hideRules.isEmpty {
+                Button("View Synced Hide Rules (\(viewModel.hideRules.count))") {
+                    showingHideRules = true
+                }
+                .buttonStyle(.borderedProminent)
             } else {
                 Button("Reset Filters") {
                     viewModel.inboxFilter = .all
@@ -535,6 +554,88 @@ private struct HybridNotificationDetailSheet: View {
                     viewModel.createPerson(name: newPersonName, linking: entry.id)
                 }
                 Button("Cancel", role: .cancel) {}
+            }
+        }
+    }
+}
+
+private struct HideRulesSheet: View {
+    @ObservedObject var viewModel: AppViewModel
+    @Environment(\.dismiss) private var dismiss
+    @State private var searchText = ""
+
+    private var filteredRules: [InboxFilter] {
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else { return viewModel.hideRules }
+        return viewModel.hideRules.filter { rule in
+            rule.match.app.localizedCaseInsensitiveContains(query)
+                || rule.match.text.localizedCaseInsensitiveContains(query)
+                || rule.match.field.displayLabel.localizedCaseInsensitiveContains(query)
+        }
+    }
+
+    var body: some View {
+        NavigationStack {
+            List {
+                if filteredRules.isEmpty {
+                    ContentUnavailableView(
+                        viewModel.hideRules.isEmpty ? "No Hide Rules" : "No Matching Rules",
+                        systemImage: "line.3.horizontal.decrease.circle",
+                        description: Text(viewModel.hideRules.isEmpty
+                                          ? "Hide rules created on Mac or iPhone will sync here automatically."
+                                          : "Try a different app or text filter.")
+                    )
+                } else {
+                    ForEach(filteredRules) { rule in
+                        HStack(alignment: .center, spacing: 10) {
+                            VStack(alignment: .leading, spacing: 3) {
+                                HStack(spacing: 6) {
+                                    Text(rule.match.app)
+                                        .font(.caption.weight(.semibold))
+                                        .foregroundStyle(NotifdexTheme.color(for: rule.match.app))
+                                    Text(rule.match.field.displayLabel)
+                                        .font(.caption2.weight(.medium))
+                                        .padding(.horizontal, 5)
+                                        .padding(.vertical, 1)
+                                        .background(Capsule().fill(Color(.secondarySystemFill)))
+                                        .foregroundStyle(.secondary)
+                                    if !rule.enabled {
+                                        Text("Paused")
+                                            .font(.caption2.weight(.semibold))
+                                            .foregroundStyle(NotifdexTheme.sienna)
+                                    }
+                                }
+                                Text(rule.match.field == .app ? "All alerts from \(rule.match.app)" : rule.match.text)
+                                    .font(.subheadline)
+                                    .foregroundStyle(rule.enabled ? .primary : .secondary)
+                                    .lineLimit(2)
+                            }
+                            Spacer()
+                            Toggle("", isOn: Binding(
+                                get: { rule.enabled },
+                                set: { enabled in
+                                    viewModel.setHideRuleEnabled(rule.match, enabled: enabled)
+                                }
+                            ))
+                            .labelsHidden()
+                        }
+                        .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                            Button(role: .destructive) {
+                                viewModel.removeHideRule(rule.match)
+                            } label: {
+                                Label("Remove", systemImage: "trash")
+                            }
+                        }
+                    }
+                }
+            }
+            .searchable(text: $searchText, prompt: "Search app or rule text")
+            .navigationTitle("Hide Rules (\(viewModel.hideRules.count))")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { dismiss() }
+                }
             }
         }
     }

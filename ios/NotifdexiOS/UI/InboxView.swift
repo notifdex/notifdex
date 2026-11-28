@@ -202,10 +202,17 @@ struct InboxView: View {
             }
         } actions: {
             if viewModel.inboxFilter == .all && viewModel.searchText.isEmpty && viewModel.selectedAppFilter == nil {
-                Button("Set Up Capture & Sync") {
-                    onOpenCapture()
+                VStack(spacing: 10) {
+                    Button("Set Up Capture & Sync") {
+                        onOpenCapture()
+                    }
+                    .buttonStyle(.borderedProminent)
+
+                    Button("Try Sample Alerts") {
+                        viewModel.loadSampleAlerts()
+                    }
+                    .buttonStyle(.bordered)
                 }
-                .buttonStyle(.borderedProminent)
             } else {
                 Button("Reset Filters") {
                     viewModel.inboxFilter = .all

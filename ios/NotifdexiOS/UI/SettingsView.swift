@@ -4,6 +4,7 @@ import SwiftUI
 struct SettingsView: View {
     @ObservedObject var viewModel: AppViewModel
     var embedded: Bool = false
+    var onShowWelcome: (() -> Void)? = nil
     @State private var confirmClear = false
 
     var body: some View {
@@ -145,6 +146,20 @@ struct SettingsView: View {
                     )
                 } label: {
                     Label("Simulate X Notification", systemImage: "paperplane.fill")
+                }
+
+                Button {
+                    viewModel.loadSampleAlerts()
+                } label: {
+                    Label("Load Sample Alerts", systemImage: "sparkles")
+                }
+
+                if let onShowWelcome {
+                    Button {
+                        onShowWelcome()
+                    } label: {
+                        Label("Show Welcome Guide", systemImage: "hand.wave")
+                    }
                 }
 
                 Button(role: .destructive) {

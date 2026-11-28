@@ -283,3 +283,141 @@ class HybridSyncContractTests(unittest.TestCase):
         self.assertGreaterEqual(len(visited), 25)
         self.assertGreater(transitions, 100)
 
+    def test_filter_sync_tla_model_exhaustive_invariants(self):
+        """Exhaustive finite-state check mirroring spec/FilterSync.tla."""
+        max_time = 2
+        mac, iphone = 0, 1
+
+        def merge_rule(l_st, l_t, l_tomb, r_st, r_t, r_tomb):
+            new_tomb = max(l_tomb, r_tomb)
+            l_alive = (l_st != "absent") and (l_t > new_tomb)
+            r_alive = (r_st != "absent") and (r_t > new_tomb)
+            if not l_alive and not r_alive:
+                return ("absent", max(l_t, r_t), new_tomb)
+            if l_alive and not r_alive:
+                return (l_st, l_t, new_tomb)
+            if not l_alive and r_alive:
+                return (r_st, r_t, new_tomb)
+            if r_t > l_t:
+                return (r_st, r_t, new_tomb)
+            if l_t > r_t:
+                return (l_st, l_t, new_tomb)
+            st = "enabled" if (l_st == "enabled" or r_st == "enabled") else "disabled"
+            return (st, l_t, new_tomb)
+
+        def merge_pref(l_val, l_t, r_val, r_t):
+            if r_t > l_t:
+                return (r_val, r_t)
+            if l_t > r_t:
+                return (l_val, l_t)
+            return (max(l_val, r_val), l_t)
+
+        # State: (clock, r_state, r_time, tomb, s_pref, s_time, l_pref, cloud_batches)
+        init = (
+            0,
+            ("absent", "absent"),
+            (0, 0),
+            (0, 0),
+            (0, 0),
+            (0, 0),
+            (0, 1),
+            frozenset(),
+        )
+        visited = {init}
+        queue = collections.deque([init])
+        transitions = 0
+
+        def next_states(s):
+            clk, rst, rt, tomb, sp, st, lp, batches = s
+            out = []
+            # LocalAddRule / LocalDisableRule / LocalRemoveRule
+            if clk < max_time:
+                t = clk + 1
+                for d in (mac, iphone):
+                    # LocalAddRule
+                    nrst = list(rst); nrst[d] = "enabled"
+                    nrt = list(rt); nrt[d] = t
+                    out.append(("local_edit", (t, tuple(nrst), tuple(nrt), tomb, sp, st, lp, batches)))
+                    # LocalDisableRule
+                    if rst[d] == "enabled":
+                        nrst2 = list(rst); nrst2[d] = "disabled"
+                        nrt2 = list(rt); nrt2[d] = t
+                        out.append(("local_edit", (t, tuple(nrst2), tuple(nrt2), tomb, sp, st, lp, batches)))
+                    # LocalRemoveRule
+                    if rst[d] != "absent":
+                        nrst3 = list(rst); nrst3[d] = "absent"
+                        ntomb = list(tomb); ntomb[d] = max(tomb[d], t)
+                        out.append(("local_edit", (t, tuple(nrst3), rt, tuple(ntomb), sp, st, lp, batches)))
+                    # LocalSetSharedPref
+                    for v in (0, 1):
+                        if sp[d] != v:
+                            nsp = list(sp); nsp[d] = v
+                            nst = list(st); nst[d] = t
+                            out.append(("local_edit", (t, rst, rt, tomb, tuple(nsp), tuple(nst), lp, batches)))
+                # ConcurrentConflictingRuleEdit
+                out.append(("local_edit", (t, ("enabled", "disabled"), (t, t), tomb, sp, st, lp, batches)))
+            # LocalSetDevicePref
+            for d in (mac, iphone):
+                nlp = list(lp); nlp[d] = 1 - lp[d]
+                out.append(("local_device_pref", (clk, rst, rt, tomb, sp, st, tuple(nlp), batches)))
+            # PushSnapshot
+            for d in (mac, iphone):
+                snap = (d, rst[d], rt[d], tomb[d], sp[d], st[d])
+                out.append(("sync_push", (clk, rst, rt, tomb, sp, st, lp, batches | {snap})))
+            # PullBatch
+            for d in (mac, iphone):
+                for b in batches:
+                    if b[0] == d:
+                        continue
+                    ms, mt, mtomb = merge_rule(rst[d], rt[d], tomb[d], b[1], b[2], b[3])
+                    mpv, mpt = merge_pref(sp[d], st[d], b[4], b[5])
+                    nrst = list(rst); nrst[d] = ms
+                    nrt = list(rt); nrt[d] = mt
+                    ntomb = list(tomb); ntomb[d] = mtomb
+                    nsp = list(sp); nsp[d] = mpv
+                    nst = list(st); nst[d] = mpt
+                    out.append(("sync_pull", (clk, tuple(nrst), tuple(nrt), tuple(ntomb), tuple(nsp), tuple(nst), lp, batches)))
+            return out
+
+        while queue:
+            s = queue.popleft()
+            clk, rst, rt, tomb, sp, st, lp, batches = s
+            # DeleteSuppressesStaleRule
+            for d in (mac, iphone):
+                if tomb[d] > 0 and rt[d] <= tomb[d]:
+                    self.assertEqual(rst[d], "absent")
+            # MergeIsCommutativeAndConvergent
+            self.assertEqual(
+                merge_rule(rst[iphone], rt[iphone], tomb[iphone], rst[mac], rt[mac], tomb[mac]),
+                merge_rule(rst[mac], rt[mac], tomb[mac], rst[iphone], rt[iphone], tomb[iphone]),
+            )
+            self.assertEqual(
+                merge_pref(sp[iphone], st[iphone], sp[mac], st[mac]),
+                merge_pref(sp[mac], st[mac], sp[iphone], st[iphone]),
+            )
+
+            for op, ns in next_states(s):
+                transitions += 1
+                _, nrst, nrt, ntomb, _, nst, nlp, _ = ns
+                # SyncMetadataMonotonic
+                for d in (mac, iphone):
+                    self.assertGreaterEqual(ntomb[d], tomb[d])
+                    self.assertGreaterEqual(nst[d], st[d])
+                    self.assertGreaterEqual(nrt[d], rt[d])
+                # StaleRemoteNeverOverwritesNewer
+                if op == "sync_pull":
+                    for d in (mac, iphone):
+                        if rst[d] == "enabled" and nrt[d] == rt[d] and ntomb[d] < rt[d]:
+                            self.assertEqual(nrst[d], "enabled")
+                # DeviceLocalPrefsUntouchedBySync
+                if op in ("sync_push", "sync_pull"):
+                    self.assertEqual(nlp, lp)
+                if ns not in visited:
+                    visited.add(ns)
+                    queue.append(ns)
+
+        self.assertGreater(len(visited), 1000)
+        self.assertGreater(transitions, 10000)
+        self.assertTrue((ROOT / "spec" / "FilterSync.tla").is_file())
+        self.assertTrue((ROOT / "docs" / "sync-matrix.md").is_file())
+

@@ -105,13 +105,21 @@ struct InboxView: View {
                     ToolbarItem(placement: .topBarLeading) {
                         Menu {
                             ForEach(viewModel.hideRules) { rule in
-                                Button(role: .destructive) {
-                                    viewModel.removeHideRule(rule.match)
-                                } label: {
-                                    Label(
-                                        "Remove \(rule.match.app) · \(rule.match.field.rawValue): \(rule.match.text)",
-                                        systemImage: "trash"
-                                    )
+                                let labelText = rule.match.field == .app
+                                    ? "\(rule.match.app) · All alerts"
+                                    : "\(rule.match.app) · \(rule.match.field.displayLabel): \(rule.match.text)"
+                                Menu(rule.enabled ? labelText : "\(labelText) (Paused)") {
+                                    Button {
+                                        viewModel.setHideRuleEnabled(rule.match, enabled: !rule.enabled)
+                                    } label: {
+                                        Label(rule.enabled ? "Pause Rule" : "Resume Rule",
+                                              systemImage: rule.enabled ? "pause.circle" : "play.circle")
+                                    }
+                                    Button(role: .destructive) {
+                                        viewModel.removeHideRule(rule.match)
+                                    } label: {
+                                        Label("Remove Rule", systemImage: "trash")
+                                    }
                                 }
                             }
                         } label: {
@@ -412,11 +420,37 @@ private struct HybridNotificationDetailSheet: View {
                     }
 
                     if viewModel.inboxFilter == .hidden {
-                        Button {
-                            viewModel.restoreAlert(entry)
-                            dismiss()
-                        } label: {
-                            Label("Restore Alert", systemImage: "arrow.uturn.backward")
+                        if entry.individuallyHidden {
+                            Button {
+                                viewModel.restoreAlert(entry)
+                                dismiss()
+                            } label: {
+                                Label("Restore Alert", systemImage: "arrow.uturn.backward")
+                            }
+                        }
+                        if entry.titleFiltered {
+                            Button {
+                                viewModel.removeHideRule(InboxRuleMatch(app: entry.app, field: .title, text: entry.title))
+                                dismiss()
+                            } label: {
+                                Label("Remove Title Hide Rule", systemImage: "line.3.horizontal.decrease.circle")
+                            }
+                        }
+                        if entry.bodyFiltered {
+                            Button {
+                                viewModel.removeHideRule(InboxRuleMatch(app: entry.app, field: .body, text: entry.body))
+                                dismiss()
+                            } label: {
+                                Label("Remove Body Hide Rule", systemImage: "line.3.horizontal.decrease.circle")
+                            }
+                        }
+                        if entry.appFiltered {
+                            Button {
+                                viewModel.removeHideRule(InboxRuleMatch(app: entry.app, field: .app, text: entry.app))
+                                dismiss()
+                            } label: {
+                                Label("Remove \(entry.app) App Hide Rule", systemImage: "line.3.horizontal.decrease.circle")
+                            }
                         }
                     } else {
                         Button(role: .destructive) {
@@ -442,6 +476,12 @@ private struct HybridNotificationDetailSheet: View {
                                 } label: {
                                     Label("Hide All with This Body", systemImage: "eye.slash.fill")
                                 }
+                            }
+                            Button(role: .destructive) {
+                                viewModel.addHideRule(app: entry.app, field: .app, text: entry.app)
+                                dismiss()
+                            } label: {
+                                Label("Hide All from \(entry.app)", systemImage: "app.badge.checkmark")
                             }
                         }
                     }

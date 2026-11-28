@@ -1,5 +1,4 @@
 import Foundation
-import CSQLite
 #if canImport(CryptoKit)
 import CryptoKit
 #endif
@@ -346,13 +345,172 @@ public struct SyncedWorkflowRecord: Codable, Equatable, Sendable {
     public let dueAt: Double?
     public let done: Bool
     public let personID: String?
+    public let workspaceID: String?
     public let workflowVersion: Int
     public let updatedAt: Double
+
+    public init(
+        syncUUID: String,
+        isRead: Bool,
+        isFlagged: Bool,
+        saved: Bool,
+        dueAt: Double?,
+        done: Bool,
+        personID: String?,
+        workspaceID: String? = nil,
+        workflowVersion: Int,
+        updatedAt: Double
+    ) {
+        self.syncUUID = syncUUID
+        self.isRead = isRead
+        self.isFlagged = isFlagged
+        self.saved = saved
+        self.dueAt = dueAt
+        self.done = done
+        self.personID = personID
+        self.workspaceID = workspaceID
+        self.workflowVersion = workflowVersion
+        self.updatedAt = updatedAt
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        syncUUID = try c.decode(String.self, forKey: .syncUUID)
+        isRead = try c.decode(Bool.self, forKey: .isRead)
+        isFlagged = try c.decode(Bool.self, forKey: .isFlagged)
+        saved = try c.decode(Bool.self, forKey: .saved)
+        dueAt = try c.decodeIfPresent(Double.self, forKey: .dueAt)
+        done = try c.decode(Bool.self, forKey: .done)
+        personID = try c.decodeIfPresent(String.self, forKey: .personID)
+        workspaceID = try c.decodeIfPresent(String.self, forKey: .workspaceID)
+        workflowVersion = try c.decode(Int.self, forKey: .workflowVersion)
+        updatedAt = try c.decode(Double.self, forKey: .updatedAt)
+    }
+}
+
+/// Privacy-preserving individual hide/restore state marker. Carries zero notification text
+/// so locally hidden Mac alerts never leak private content into CloudKit or onto iPhone.
+public struct SyncedHiddenAlertRecord: Codable, Equatable, Sendable {
+    public let syncUUID: String
+    public let logicalKey: String
+    public let isHidden: Bool
+    public let hiddenVersion: Int
+    public let updatedAt: Double
+
+    public init(
+        syncUUID: String,
+        logicalKey: String,
+        isHidden: Bool,
+        hiddenVersion: Int,
+        updatedAt: Double
+    ) {
+        self.syncUUID = syncUUID
+        self.logicalKey = logicalKey
+        self.isHidden = isHidden
+        self.hiddenVersion = hiddenVersion
+        self.updatedAt = updatedAt
+    }
+}
+
+public struct SyncedHideRuleRecord: Codable, Equatable, Sendable {
+    public let app: String
+    public let field: InboxRuleMatch.Field
+    public let value: String
+    public let enabled: Bool
+    public let updatedAt: Double
+
+    public var canonicalKey: String {
+        InboxRuleMatch(app: app, field: field, text: value).canonicalSyncKey
+    }
+
+    public init(
+        app: String,
+        field: InboxRuleMatch.Field,
+        value: String,
+        enabled: Bool = true,
+        updatedAt: Double
+    ) {
+        self.app = app
+        self.field = field
+        self.value = field == .app ? app : value
+        self.enabled = enabled
+        self.updatedAt = updatedAt
+    }
 }
 
 public struct SyncedPersonRecord: Codable, Equatable, Sendable {
     public let id: String
     public let displayName: String
+    public let updatedAt: Double
+
+    public init(id: String, displayName: String, updatedAt: Double = 0) {
+        self.id = id
+        self.displayName = displayName
+        self.updatedAt = updatedAt
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        displayName = try c.decode(String.self, forKey: .displayName)
+        updatedAt = try c.decodeIfPresent(Double.self, forKey: .updatedAt) ?? 0
+    }
+}
+
+public struct SyncedIdentityRecord: Codable, Equatable, Sendable {
+    public let id: String
+    public let personID: String
+    public let platform: String
+    public let identifier: String
+    public let updatedAt: Double
+
+    public init(id: String, personID: String, platform: String, identifier: String, updatedAt: Double) {
+        self.id = id
+        self.personID = personID
+        self.platform = platform
+        self.identifier = identifier
+        self.updatedAt = updatedAt
+    }
+}
+
+public struct SyncedPersonMatchRuleRecord: Codable, Equatable, Sendable {
+    public let id: String
+    public let app: String
+    public let title: String
+    public let personID: String
+    public let updatedAt: Double
+
+    public init(id: String, app: String, title: String, personID: String, updatedAt: Double) {
+        self.id = id
+        self.app = app
+        self.title = title
+        self.personID = personID
+        self.updatedAt = updatedAt
+    }
+}
+
+public struct SyncedWorkspaceRecord: Codable, Equatable, Sendable {
+    public let id: String
+    public let name: String
+    public let updatedAt: Double
+
+    public init(id: String, name: String, updatedAt: Double) {
+        self.id = id
+        self.name = name
+        self.updatedAt = updatedAt
+    }
+}
+
+public struct SyncedPersonWorkspaceRecord: Codable, Equatable, Sendable {
+    public let personID: String
+    public let workspaceID: String
+    public let updatedAt: Double
+
+    public init(personID: String, workspaceID: String, updatedAt: Double) {
+        self.personID = personID
+        self.workspaceID = workspaceID
+        self.updatedAt = updatedAt
+    }
 }
 
 public struct SyncedPersonNoteRecord: Codable, Equatable, Sendable {
@@ -367,6 +525,20 @@ public struct SyncedPersonNoteRecord: Codable, Equatable, Sendable {
 public struct SyncedNoteFolderRecord: Codable, Equatable, Sendable {
     public let id: String
     public let name: String
+    public let updatedAt: Double
+
+    public init(id: String, name: String, updatedAt: Double = 0) {
+        self.id = id
+        self.name = name
+        self.updatedAt = updatedAt
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        name = try c.decode(String.self, forKey: .name)
+        updatedAt = try c.decodeIfPresent(Double.self, forKey: .updatedAt) ?? 0
+    }
 }
 
 public struct SyncedPersonalNoteRecord: Codable, Equatable, Sendable {
@@ -378,6 +550,55 @@ public struct SyncedPersonalNoteRecord: Codable, Equatable, Sendable {
     public let updatedAt: Double
 }
 
+public struct SyncedRelationshipTemplateRecord: Codable, Equatable, Sendable {
+    public let templateID: String
+    public let version: Int
+    public let definitionJSON: String
+
+    public init(templateID: String, version: Int, definitionJSON: String) {
+        self.templateID = templateID
+        self.version = version
+        self.definitionJSON = definitionJSON
+    }
+}
+
+public struct SyncedPersonTemplateRecord: Codable, Equatable, Sendable {
+    public let personID: String
+    public let templateID: String
+    public let version: Int
+    public let stageID: String
+    public let completedMilestones: [String]
+    public let updatedAt: Double
+
+    public init(
+        personID: String,
+        templateID: String,
+        version: Int,
+        stageID: String,
+        completedMilestones: [String],
+        updatedAt: Double
+    ) {
+        self.personID = personID
+        self.templateID = templateID
+        self.version = version
+        self.stageID = stageID
+        self.completedMilestones = completedMilestones
+        self.updatedAt = updatedAt
+    }
+}
+
+public struct SyncedUserPreferences: Codable, Equatable, Sendable {
+    public let colorThemeRaw: String?
+    public let groupByApp: Bool?
+    public let updatedAt: Double
+
+    public init(colorThemeRaw: String? = nil, groupByApp: Bool? = nil, updatedAt: Double) {
+        self.colorThemeRaw = colorThemeRaw
+        self.groupByApp = groupByApp
+        self.updatedAt = updatedAt
+    }
+}
+
 public struct SyncTombstoneRecord: Codable, Equatable, Sendable {
     public let entityType: String
     public let entityID: String
@@ -385,7 +606,7 @@ public struct SyncTombstoneRecord: Codable, Equatable, Sendable {
 }
 
 public struct SyncBatch: Codable, Equatable, Sendable {
-    public var schemaVersion: Int = 1
+    public var schemaVersion: Int = 2
     public var senderDeviceID: String
     public var exportedAt: Double
     public var observations: [SyncedObservationRecord]
@@ -395,8 +616,18 @@ public struct SyncBatch: Codable, Equatable, Sendable {
     public var noteFolders: [SyncedNoteFolderRecord]
     public var personalNotes: [SyncedPersonalNoteRecord]
     public var tombstones: [SyncTombstoneRecord]
+    public var hideRules: [SyncedHideRuleRecord]
+    public var hiddenAlerts: [SyncedHiddenAlertRecord]
+    public var identities: [SyncedIdentityRecord]
+    public var personMatchRules: [SyncedPersonMatchRuleRecord]
+    public var workspaces: [SyncedWorkspaceRecord]
+    public var personWorkspaces: [SyncedPersonWorkspaceRecord]
+    public var relationshipTemplates: [SyncedRelationshipTemplateRecord]
+    public var personTemplates: [SyncedPersonTemplateRecord]
+    public var preferences: SyncedUserPreferences?
 
     public init(
+        schemaVersion: Int = 2,
         senderDeviceID: String,
         exportedAt: Double,
         observations: [SyncedObservationRecord] = [],
@@ -405,8 +636,18 @@ public struct SyncBatch: Codable, Equatable, Sendable {
         personNotes: [SyncedPersonNoteRecord] = [],
         noteFolders: [SyncedNoteFolderRecord] = [],
         personalNotes: [SyncedPersonalNoteRecord] = [],
-        tombstones: [SyncTombstoneRecord] = []
+        tombstones: [SyncTombstoneRecord] = [],
+        hideRules: [SyncedHideRuleRecord] = [],
+        hiddenAlerts: [SyncedHiddenAlertRecord] = [],
+        identities: [SyncedIdentityRecord] = [],
+        personMatchRules: [SyncedPersonMatchRuleRecord] = [],
+        workspaces: [SyncedWorkspaceRecord] = [],
+        personWorkspaces: [SyncedPersonWorkspaceRecord] = [],
+        relationshipTemplates: [SyncedRelationshipTemplateRecord] = [],
+        personTemplates: [SyncedPersonTemplateRecord] = [],
+        preferences: SyncedUserPreferences? = nil
     ) {
+        self.schemaVersion = schemaVersion
         self.senderDeviceID = senderDeviceID
         self.exportedAt = exportedAt
         self.observations = observations
@@ -416,6 +657,38 @@ public struct SyncBatch: Codable, Equatable, Sendable {
         self.noteFolders = noteFolders
         self.personalNotes = personalNotes
         self.tombstones = tombstones
+        self.hideRules = hideRules
+        self.hiddenAlerts = hiddenAlerts
+        self.identities = identities
+        self.personMatchRules = personMatchRules
+        self.workspaces = workspaces
+        self.personWorkspaces = personWorkspaces
+        self.relationshipTemplates = relationshipTemplates
+        self.personTemplates = personTemplates
+        self.preferences = preferences
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        schemaVersion = try c.decodeIfPresent(Int.self, forKey: .schemaVersion) ?? 1
+        senderDeviceID = try c.decode(String.self, forKey: .senderDeviceID)
+        exportedAt = try c.decode(Double.self, forKey: .exportedAt)
+        observations = try c.decodeIfPresent([SyncedObservationRecord].self, forKey: .observations) ?? []
+        workflows = try c.decodeIfPresent([SyncedWorkflowRecord].self, forKey: .workflows) ?? []
+        people = try c.decodeIfPresent([SyncedPersonRecord].self, forKey: .people) ?? []
+        personNotes = try c.decodeIfPresent([SyncedPersonNoteRecord].self, forKey: .personNotes) ?? []
+        noteFolders = try c.decodeIfPresent([SyncedNoteFolderRecord].self, forKey: .noteFolders) ?? []
+        personalNotes = try c.decodeIfPresent([SyncedPersonalNoteRecord].self, forKey: .personalNotes) ?? []
+        tombstones = try c.decodeIfPresent([SyncTombstoneRecord].self, forKey: .tombstones) ?? []
+        hideRules = try c.decodeIfPresent([SyncedHideRuleRecord].self, forKey: .hideRules) ?? []
+        hiddenAlerts = try c.decodeIfPresent([SyncedHiddenAlertRecord].self, forKey: .hiddenAlerts) ?? []
+        identities = try c.decodeIfPresent([SyncedIdentityRecord].self, forKey: .identities) ?? []
+        personMatchRules = try c.decodeIfPresent([SyncedPersonMatchRuleRecord].self, forKey: .personMatchRules) ?? []
+        workspaces = try c.decodeIfPresent([SyncedWorkspaceRecord].self, forKey: .workspaces) ?? []
+        personWorkspaces = try c.decodeIfPresent([SyncedPersonWorkspaceRecord].self, forKey: .personWorkspaces) ?? []
+        relationshipTemplates = try c.decodeIfPresent([SyncedRelationshipTemplateRecord].self, forKey: .relationshipTemplates) ?? []
+        personTemplates = try c.decodeIfPresent([SyncedPersonTemplateRecord].self, forKey: .personTemplates) ?? []
+        preferences = try c.decodeIfPresent(SyncedUserPreferences.self, forKey: .preferences)
     }
 
     /// Deterministic content digest excluding `exportedAt` so unchanged sync runs skip redundant pushes.
@@ -442,6 +715,32 @@ public struct SyncApplySummary: Equatable, Sendable {
     public let appliedPeople: Int
     public let appliedNotes: Int
     public let appliedTombstones: Int
+    public let appliedHideRules: Int
+    public let appliedHiddenAlerts: Int
+    public let appliedWorkspaces: Int
+    public let appliedPreferences: Bool
+
+    public init(
+        insertedObservations: Int,
+        appliedWorkflows: Int,
+        appliedPeople: Int,
+        appliedNotes: Int,
+        appliedTombstones: Int,
+        appliedHideRules: Int = 0,
+        appliedHiddenAlerts: Int = 0,
+        appliedWorkspaces: Int = 0,
+        appliedPreferences: Bool = false
+    ) {
+        self.insertedObservations = insertedObservations
+        self.appliedWorkflows = appliedWorkflows
+        self.appliedPeople = appliedPeople
+        self.appliedNotes = appliedNotes
+        self.appliedTombstones = appliedTombstones
+        self.appliedHideRules = appliedHideRules
+        self.appliedHiddenAlerts = appliedHiddenAlerts
+        self.appliedWorkspaces = appliedWorkspaces
+        self.appliedPreferences = appliedPreferences
+    }
 
     public var hasChanges: Bool {
         insertedObservations > 0
@@ -449,14 +748,33 @@ public struct SyncApplySummary: Equatable, Sendable {
             || appliedPeople > 0
             || appliedNotes > 0
             || appliedTombstones > 0
+            || appliedHideRules > 0
+            || appliedHiddenAlerts > 0
+            || appliedWorkspaces > 0
+            || appliedPreferences
     }
 }
 
 public struct SyncRunResult: Equatable, Sendable {
     public let pushedObservations: Int
     public let pushedWorkflows: Int
+    public let pushedHideRules: Int
     public let applied: SyncApplySummary
     public let syncedAt: Double
+
+    public init(
+        pushedObservations: Int,
+        pushedWorkflows: Int,
+        pushedHideRules: Int = 0,
+        applied: SyncApplySummary,
+        syncedAt: Double
+    ) {
+        self.pushedObservations = pushedObservations
+        self.pushedWorkflows = pushedWorkflows
+        self.pushedHideRules = pushedHideRules
+        self.applied = applied
+        self.syncedAt = syncedAt
+    }
 }
 
 public struct SyncPullResult: Sendable {
@@ -524,6 +842,10 @@ public struct HybridSyncCoordinator {
         var totalPeople = 0
         var totalNotes = 0
         var totalTombstones = 0
+        var totalHideRules = 0
+        var totalHiddenAlerts = 0
+        var totalWorkspaces = 0
+        var anyPreferences = false
 
         for remoteBatch in pullResult.batches where remoteBatch.senderDeviceID != localDeviceID {
             let summary = try store.applySyncBatch(remoteBatch, localDeviceID: localDeviceID, at: time)
@@ -532,6 +854,10 @@ public struct HybridSyncCoordinator {
             totalPeople += summary.appliedPeople
             totalNotes += summary.appliedNotes
             totalTombstones += summary.appliedTombstones
+            totalHideRules += summary.appliedHideRules
+            totalHiddenAlerts += summary.appliedHiddenAlerts
+            totalWorkspaces += summary.appliedWorkspaces
+            anyPreferences = anyPreferences || summary.appliedPreferences
         }
 
         if let nextToken = pullResult.nextToken {
@@ -543,15 +869,18 @@ public struct HybridSyncCoordinator {
         let previousDigest = try store.lastPushedDigest()
         let pushedObs: Int
         let pushedWF: Int
+        let pushedRules: Int
 
         if digest != previousDigest {
             try await transport.push(outgoing)
             try store.saveLastPushedDigest(digest)
             pushedObs = outgoing.observations.count
             pushedWF = outgoing.workflows.count
+            pushedRules = outgoing.hideRules.count
         } else {
             pushedObs = 0
             pushedWF = 0
+            pushedRules = 0
         }
 
         try store.markDeviceSynced(localDeviceID, at: time)
@@ -559,12 +888,17 @@ public struct HybridSyncCoordinator {
         return SyncRunResult(
             pushedObservations: pushedObs,
             pushedWorkflows: pushedWF,
+            pushedHideRules: pushedRules,
             applied: SyncApplySummary(
                 insertedObservations: totalInserted,
                 appliedWorkflows: totalWorkflows,
                 appliedPeople: totalPeople,
                 appliedNotes: totalNotes,
-                appliedTombstones: totalTombstones
+                appliedTombstones: totalTombstones,
+                appliedHideRules: totalHideRules,
+                appliedHiddenAlerts: totalHiddenAlerts,
+                appliedWorkspaces: totalWorkspaces,
+                appliedPreferences: anyPreferences
             ),
             syncedAt: time
         )
@@ -887,880 +1221,3 @@ public actor AutoSyncEngine {
     }
 }
 
-// MARK: - CaptureStore Hybrid Capture & Sync Extension
-
-public extension CaptureStore {
-    private static let syncEnabledKey = "sync_enabled"
-    private static let autoSyncEnabledKey = "auto_sync_enabled"
-    private static let syncTokenKey = "sync_change_token"
-    private static let lastPushedDigestKey = "sync_last_pushed_digest"
-    private static let localDeviceIDKey = "local_device_id"
-
-    /// Direct structured observation capture (used by iOS 27 Shortcuts AppIntent and tests).
-    /// Applies transactional sliding-window deduplication so rapid retries across minute boundaries stay idempotent.
-    @discardableResult
-    func recordDirectObservation(
-        sourceID: String,
-        originDeviceID: String,
-        appLabel: String,
-        title: String,
-        subtitle: String = "",
-        body: String,
-        capturedAt: Double,
-        origin: NotificationOrigin = .iphone,
-        channel: SyncCaptureChannel = .iosShortcuts,
-        dedupWindowSeconds: Double = 60.0
-    ) throws -> (observationID: Int64, syncUUID: String, inserted: Bool) {
-        let trimSet = CharacterSet.whitespacesAndNewlines.union(Observation.appLabelDirectionMarks)
-        let cleanApp = appLabel.trimmingCharacters(in: trimSet)
-        guard !cleanApp.isEmpty else {
-            throw StoreError(description: "App label cannot be empty.")
-        }
-        guard capturedAt.isFinite else {
-            throw StoreError(description: "Invalid capture timestamp.")
-        }
-        let cleanTitle = title.trimmingCharacters(in: trimSet)
-        let cleanSubtitle = subtitle.trimmingCharacters(in: trimSet)
-        let cleanBody = body.trimmingCharacters(in: trimSet)
-        let logicalKey = SyncLogicalKey.make(
-            appLabel: cleanApp,
-            title: cleanTitle,
-            subtitle: cleanSubtitle,
-            body: cleanBody
-        )
-
-        return try transaction {
-            if dedupWindowSeconds > 0 {
-                let existing = try readRows("""
-                    SELECT o.id, coalesce(l.sync_uuid, '')
-                    FROM observations o
-                    LEFT JOIN sync_observation_links l ON l.observation_id = o.id
-                    WHERE o.source_id = ?
-                      AND lower(o.app_label) = lower(?)
-                      AND o.title = ?
-                      AND o.subtitle = ?
-                      AND o.body = ?
-                      AND abs(o.captured_at - ?) <= ?
-                    ORDER BY o.captured_at DESC, o.id DESC
-                    LIMIT 1
-                    """, strings: [sourceID, cleanApp, cleanTitle, cleanSubtitle, cleanBody],
-                         numbers: [capturedAt, dedupWindowSeconds]) { row in
-                    (sqlite3_column_int64(row, 0), columnString(row, 1))
-                }
-                if let match = existing.first {
-                    let uuid = match.1.isEmpty ? try ensureSyncLinkInTransaction(
-                        observationID: match.0,
-                        channel: channel,
-                        originDeviceID: originDeviceID,
-                        logicalKey: logicalKey,
-                        at: capturedAt
-                    ) : match.1
-                    return (match.0, uuid, false)
-                }
-            }
-
-            let runID = "direct:\(sourceID)"
-            try execute("""
-                INSERT INTO capture_runs(id, started_at, heartbeat_at)
-                VALUES (?, ?, ?)
-                ON CONFLICT(id) DO UPDATE SET heartbeat_at = max(heartbeat_at, excluded.heartbeat_at)
-                """, strings: [runID], numbers: [capturedAt, capturedAt])
-
-            let syncUUID = UUID().uuidString
-            let sourceEventID = "\(logicalKey):\(Int64((capturedAt * 1000).rounded()))"
-            try execute("""
-                INSERT INTO observations
-                (source_id, source_event_id, run_id, origin, app_label, title, subtitle,
-                 body, accessibility_description, captured_at, parser_version)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """, strings: [sourceID, sourceEventID, runID, origin.rawValue, cleanApp, cleanTitle,
-                               cleanSubtitle, cleanBody, ""],
-                     numbers: [capturedAt, 1])
-
-            let observationID = sqlite3_last_insert_rowid(database)
-            try execute("""
-                INSERT INTO sync_observation_links
-                (observation_id, sync_uuid, capture_channel, origin_device_id, logical_key, workflow_version, updated_at)
-                VALUES (?, ?, ?, ?, ?, 0, ?)
-                """, strings: [String(observationID), syncUUID, channel.rawValue, originDeviceID, logicalKey],
-                     numbers: [capturedAt])
-
-            return (observationID, syncUUID, true)
-        }
-    }
-
-    // MARK: - Opt-In Pairing & Revocation (mirrors spec/HybridSync.tla)
-
-    func localSyncDeviceID() throws -> String {
-        if let existing = try syncStateValue(for: Self.localDeviceIDKey), !existing.isEmpty {
-            return existing
-        }
-        let generated = UUID().uuidString
-        try setSyncStateValue(generated, for: Self.localDeviceIDKey)
-        return generated
-    }
-
-    func isSyncEnabled() throws -> Bool {
-        (try syncStateValue(for: Self.syncEnabledKey)) == "1"
-    }
-
-    func setSyncEnabled(_ enabled: Bool) throws {
-        try setSyncStateValue(enabled ? "1" : "0", for: Self.syncEnabledKey)
-    }
-
-    func isAutoSyncEnabled() throws -> Bool {
-        guard let value = try syncStateValue(for: Self.autoSyncEnabledKey) else {
-            return true
-        }
-        return value != "0"
-    }
-
-    func setAutoSyncEnabled(_ enabled: Bool) throws {
-        try setSyncStateValue(enabled ? "1" : "0", for: Self.autoSyncEnabledKey)
-    }
-
-    internal func bumpExistingSyncWorkflowVersion(for observationID: Int64, at time: Double = Date().timeIntervalSince1970) throws {
-        try execute("""
-            UPDATE sync_observation_links
-            SET workflow_version = workflow_version + 1, updated_at = max(updated_at, ?)
-            WHERE observation_id = ?
-            """, numbersFirst: [time], strings: [String(observationID)])
-    }
-
-    /// Finds observations of the same logical alert captured on a **different** source/device
-    /// within `windowSeconds` (so identical DMs on the same device are never merged).
-    internal func crossDeviceTwinIDs(
-        for observationID: Int64,
-        windowSeconds: Double = 300.0
-    ) throws -> [Int64] {
-        let baseRows = try readRows("""
-            SELECT o.source_id, coalesce(o.app_label, ''), o.title, o.subtitle, o.body,
-                   o.captured_at, coalesce(l.logical_key, '')
-            FROM observations o
-            LEFT JOIN sync_observation_links l ON l.observation_id = o.id
-            WHERE o.id = ?
-            LIMIT 1
-            """, strings: [String(observationID)]) { row in
-            (
-                sourceID: columnString(row, 0),
-                app: columnString(row, 1),
-                title: columnString(row, 2),
-                subtitle: columnString(row, 3),
-                body: columnString(row, 4),
-                capturedAt: sqlite3_column_double(row, 5),
-                logicalKey: columnString(row, 6)
-            )
-        }
-        guard let base = baseRows.first else { return [] }
-        let targetKey = base.logicalKey.isEmpty
-            ? SyncLogicalKey.make(appLabel: base.app, title: base.title, subtitle: base.subtitle, body: base.body)
-            : base.logicalKey
-
-        let candidates = try readRows("""
-            SELECT o.id, coalesce(o.app_label, ''), o.title, o.subtitle, o.body, coalesce(l.logical_key, '')
-            FROM observations o
-            LEFT JOIN sync_observation_links l ON l.observation_id = o.id
-            WHERE o.id != ?
-              AND o.source_id != ?
-              AND abs(o.captured_at - ?) <= ?
-            """, strings: [String(observationID), base.sourceID],
-                 numbers: [base.capturedAt, windowSeconds]) { row -> (Int64, String) in
-            let id = sqlite3_column_int64(row, 0)
-            let storedKey = columnString(row, 5)
-            let key = storedKey.isEmpty
-                ? SyncLogicalKey.make(
-                    appLabel: columnString(row, 1),
-                    title: columnString(row, 2),
-                    subtitle: columnString(row, 3),
-                    body: columnString(row, 4)
-                )
-                : storedKey
-            return (id, key)
-        }
-        return candidates.filter { $0.1 == targetKey }.map(\.0)
-    }
-
-    func registerOrUpdateDevice(
-        deviceID: String,
-        displayName: String,
-        platform: SyncDevicePlatform,
-        status: SyncDeviceStatus,
-        at time: Double = Date().timeIntervalSince1970
-    ) throws {
-        let pairedAt: Double? = status == .paired ? time : nil
-        let revokedAt: Double? = status == .revoked ? time : nil
-        try transaction {
-            let existing = try readRows(
-                "SELECT paired_at, revoked_at, last_synced_at FROM sync_devices WHERE device_id = ?",
-                strings: [deviceID]
-            ) { row in
-                (
-                    sqlite3_column_type(row, 0) == SQLITE_NULL ? nil : sqlite3_column_double(row, 0),
-                    sqlite3_column_type(row, 1) == SQLITE_NULL ? nil : sqlite3_column_double(row, 1),
-                    sqlite3_column_type(row, 2) == SQLITE_NULL ? nil : sqlite3_column_double(row, 2)
-                )
-            }.first
-
-            if let existing {
-                try execute("""
-                    UPDATE sync_devices
-                    SET display_name = ?, platform = ?, status = ?,
-                        paired_at = coalesce(?, paired_at),
-                        revoked_at = CASE WHEN ? = 'revoked' THEN coalesce(?, revoked_at) ELSE NULL END
-                    WHERE device_id = ?
-                    """, strings: [displayName, platform.rawValue, status.rawValue,
-                                   pairedAt.map { String($0) }, status.rawValue,
-                                   revokedAt.map { String($0) }, deviceID])
-                _ = existing
-            } else {
-                let stmt = try prepare("""
-                    INSERT INTO sync_devices (device_id, display_name, platform, status, paired_at, revoked_at, last_synced_at)
-                    VALUES (?, ?, ?, ?, ?, ?, NULL)
-                    """, strings: [deviceID, displayName, platform.rawValue, status.rawValue,
-                                   pairedAt.map { String($0) }, revokedAt.map { String($0) }])
-                defer { sqlite3_finalize(stmt) }
-                guard sqlite3_step(stmt) == SQLITE_DONE else { throw failure() }
-            }
-        }
-    }
-
-    func pairDevice(
-        deviceID: String,
-        displayName: String,
-        platform: SyncDevicePlatform,
-        at time: Double = Date().timeIntervalSince1970
-    ) throws {
-        try setSyncEnabled(true)
-        try registerOrUpdateDevice(
-            deviceID: deviceID,
-            displayName: displayName,
-            platform: platform,
-            status: .paired,
-            at: time
-        )
-    }
-
-    func revokeDevice(_ deviceID: String, at time: Double = Date().timeIntervalSince1970) throws {
-        try transaction {
-            try execute("""
-                UPDATE sync_devices SET status = 'revoked', revoked_at = ?
-                WHERE device_id = ?
-                """, numbersFirst: [time], strings: [deviceID])
-            if let local = try syncStateValue(for: Self.localDeviceIDKey), local == deviceID {
-                try setSyncStateValue("0", for: Self.syncEnabledKey)
-            }
-        }
-    }
-
-    func syncDevices() throws -> [SyncDeviceRecord] {
-        try readRows("""
-            SELECT device_id, display_name, platform, status, paired_at, revoked_at, last_synced_at
-            FROM sync_devices
-            ORDER BY coalesce(paired_at, 0) DESC, device_id
-            """) { row in
-            SyncDeviceRecord(
-                deviceID: columnString(row, 0),
-                displayName: columnString(row, 1),
-                platform: SyncDevicePlatform(rawValue: columnString(row, 2)) ?? .unknown,
-                status: SyncDeviceStatus(rawValue: columnString(row, 3)) ?? .localOnly,
-                pairedAt: sqlite3_column_type(row, 4) == SQLITE_NULL ? nil : sqlite3_column_double(row, 4),
-                revokedAt: sqlite3_column_type(row, 5) == SQLITE_NULL ? nil : sqlite3_column_double(row, 5),
-                lastSyncedAt: sqlite3_column_type(row, 6) == SQLITE_NULL ? nil : sqlite3_column_double(row, 6)
-            )
-        }
-    }
-
-    func canDeviceSync(_ deviceID: String) throws -> Bool {
-        guard try isSyncEnabled() else { return false }
-        let status = try readRows(
-            "SELECT status FROM sync_devices WHERE device_id = ?",
-            strings: [deviceID]
-        ) { columnString($0, 0) }.first
-        return status == SyncDeviceStatus.paired.rawValue
-    }
-
-    func markDeviceSynced(_ deviceID: String, at time: Double) throws {
-        try execute("UPDATE sync_devices SET last_synced_at = ? WHERE device_id = ?",
-                    numbersFirst: [time], strings: [deviceID])
-    }
-
-    func syncChangeToken() throws -> Data? {
-        guard let encoded = try syncStateValue(for: Self.syncTokenKey), !encoded.isEmpty else { return nil }
-        return Data(base64Encoded: encoded)
-    }
-
-    func saveSyncChangeToken(_ token: Data) throws {
-        try setSyncStateValue(token.base64EncodedString(), for: Self.syncTokenKey)
-    }
-
-    func lastPushedDigest() throws -> String? {
-        try syncStateValue(for: Self.lastPushedDigestKey)
-    }
-
-    func saveLastPushedDigest(_ digest: String) throws {
-        try setSyncStateValue(digest, for: Self.lastPushedDigestKey)
-    }
-
-    func macForwardingHealth(
-        localDeviceID: String,
-        enabledApps: Set<String> = [],
-        now: Double = Date().timeIntervalSince1970,
-        windowSeconds: Double = 24 * 3600
-    ) throws -> MacForwardingHealthReport {
-        let isPaired = try canDeviceSync(localDeviceID)
-        guard isPaired else {
-            return MacForwardingHealthAnalyzer.evaluate(
-                isPaired: false,
-                entries: [],
-                provenanceByID: [:],
-                enabledApps: enabledApps,
-                now: now,
-                windowSeconds: windowSeconds
-            )
-        }
-        let entries = try inbox(InboxQuery(limit: 500))
-        let provenance = try provenanceByObservationID()
-        return MacForwardingHealthAnalyzer.evaluate(
-            isPaired: true,
-            entries: entries,
-            provenanceByID: provenance,
-            enabledApps: enabledApps,
-            now: now,
-            windowSeconds: windowSeconds
-        )
-    }
-
-    // MARK: - Provenance & Workflow Version Tracking
-
-    func provenanceByObservationID() throws -> [Int64: ObservationProvenance] {
-        let rows = try readRows("""
-            SELECT o.id, coalesce(l.sync_uuid, ''), o.source_id, o.origin,
-                   coalesce(l.capture_channel, 'macos_ax'),
-                   coalesce(l.origin_device_id, o.source_id),
-                   coalesce(l.logical_key, ''),
-                   coalesce(l.workflow_version, 0),
-                   coalesce(l.updated_at, o.captured_at),
-                   coalesce(o.app_label, ''), o.title, o.subtitle, o.body
-            FROM observations o
-            LEFT JOIN sync_observation_links l ON l.observation_id = o.id
-            """) { row -> ObservationProvenance in
-            let id = sqlite3_column_int64(row, 0)
-            let existingKey = columnString(row, 6)
-            let logicalKey = existingKey.isEmpty ? SyncLogicalKey.make(
-                appLabel: columnString(row, 9),
-                title: columnString(row, 10),
-                subtitle: columnString(row, 11),
-                body: columnString(row, 12)
-            ) : existingKey
-            return ObservationProvenance(
-                observationID: id,
-                syncUUID: columnString(row, 1),
-                sourceID: columnString(row, 2),
-                origin: NotificationOrigin(rawValue: columnString(row, 3)) ?? .unknown,
-                channel: SyncCaptureChannel(rawValue: columnString(row, 4)) ?? .macosAX,
-                originDeviceID: columnString(row, 5),
-                logicalKey: logicalKey,
-                workflowVersion: Int(sqlite3_column_int64(row, 7)),
-                updatedAt: sqlite3_column_double(row, 8)
-            )
-        }
-        return Dictionary(uniqueKeysWithValues: rows.map { ($0.observationID, $0) })
-    }
-
-    func bumpWorkflowVersion(for observationID: Int64, originDeviceID: String, at time: Double = Date().timeIntervalSince1970) throws {
-        try transaction {
-            _ = try ensureSyncLinkInTransaction(
-                observationID: observationID,
-                channel: .macosAX,
-                originDeviceID: originDeviceID,
-                logicalKey: nil,
-                at: time
-            )
-            try execute("""
-                UPDATE sync_observation_links
-                SET workflow_version = workflow_version + 1, updated_at = max(updated_at, ?)
-                WHERE observation_id = ?
-                """, numbersFirst: [time], strings: [String(observationID)])
-        }
-    }
-
-    func recordSyncTombstone(entityType: String, entityID: String, at time: Double = Date().timeIntervalSince1970) throws {
-        try execute("""
-            INSERT INTO sync_tombstones (entity_type, entity_id, deleted_at)
-            VALUES (?, ?, ?)
-            ON CONFLICT(entity_type, entity_id) DO UPDATE SET deleted_at = max(deleted_at, excluded.deleted_at)
-            """, strings: [entityType, entityID], numbers: [time])
-    }
-
-    // MARK: - Filtered Sync Export & Idempotent Remote Apply
-
-    /// Exports only non-hidden, non-tombstoned observations plus workflow/CRM records.
-    /// Enforces `UnpairedOrRevokedNeverSyncs` and `HiddenNeverLeaksToCloudOrIPhone`.
-    func exportSyncBatch(deviceID: String, at time: Double = Date().timeIntervalSince1970) throws -> SyncBatch {
-        guard try canDeviceSync(deviceID) else {
-            throw StoreError(description: "Device \(deviceID) is not paired for sync.")
-        }
-
-        return try transaction {
-            let app = Self.appCategory
-            let hiddenClause = """
-                (EXISTS (SELECT 1 FROM hidden_observations h WHERE h.observation_id = o.id)
-                 OR EXISTS (SELECT 1 FROM inbox_filters f WHERE f.app = \(app) AND f.field = 'title' AND f.value = o.title)
-                 OR EXISTS (SELECT 1 FROM inbox_filters f WHERE f.app = \(app) AND f.field = 'body' AND f.value = o.body))
-                """
-
-            let eligibleRows = try readRows("""
-                SELECT o.id, o.source_id, o.source_event_id, o.origin,
-                       coalesce(o.app_label, ''), o.title, o.subtitle, o.body, o.captured_at,
-                       coalesce(l.sync_uuid, ''),
-                       coalesce(l.capture_channel, 'macos_ax'),
-                       coalesce(l.origin_device_id, ?),
-                       coalesce(l.logical_key, ''),
-                       coalesce(l.workflow_version, 0),
-                       coalesce(l.updated_at, o.captured_at),
-                       EXISTS (SELECT 1 FROM read_observations r WHERE r.observation_id = o.id),
-                       EXISTS (SELECT 1 FROM flagged_observations fl WHERE fl.observation_id = o.id),
-                       coalesce(w.saved, 0),
-                       w.due_at,
-                       coalesce(w.done, 0),
-                       po.person_id
-                FROM observations o
-                LEFT JOIN sync_observation_links l ON l.observation_id = o.id
-                LEFT JOIN observation_work w ON w.observation_id = o.id
-                LEFT JOIN person_observations po ON po.observation_id = o.id
-                WHERE NOT \(hiddenClause)
-                ORDER BY o.captured_at DESC, o.id DESC
-                """, strings: [deviceID]) { row in
-                (
-                    id: sqlite3_column_int64(row, 0),
-                    sourceID: columnString(row, 1),
-                    sourceEventID: columnString(row, 2),
-                    origin: NotificationOrigin(rawValue: columnString(row, 3)) ?? .unknown,
-                    appLabel: columnString(row, 4),
-                    title: columnString(row, 5),
-                    subtitle: columnString(row, 6),
-                    body: columnString(row, 7),
-                    capturedAt: sqlite3_column_double(row, 8),
-                    syncUUID: columnString(row, 9),
-                    channel: SyncCaptureChannel(rawValue: columnString(row, 10)) ?? .macosAX,
-                    originDeviceID: columnString(row, 11),
-                    logicalKey: columnString(row, 12),
-                    workflowVersion: Int(sqlite3_column_int64(row, 13)),
-                    updatedAt: sqlite3_column_double(row, 14),
-                    isRead: sqlite3_column_int(row, 15) != 0,
-                    isFlagged: sqlite3_column_int(row, 16) != 0,
-                    saved: sqlite3_column_int(row, 17) != 0,
-                    dueAt: sqlite3_column_type(row, 18) == SQLITE_NULL ? nil : sqlite3_column_double(row, 18),
-                    done: sqlite3_column_int(row, 19) != 0,
-                    personID: sqlite3_column_type(row, 20) == SQLITE_NULL ? nil : columnString(row, 20)
-                )
-            }
-
-            let tombstones = try readRows(
-                "SELECT entity_type, entity_id, deleted_at FROM sync_tombstones"
-            ) { row in
-                SyncTombstoneRecord(
-                    entityType: columnString(row, 0),
-                    entityID: columnString(row, 1),
-                    deletedAt: sqlite3_column_double(row, 2)
-                )
-            }
-            let tombstonedObs = Set(tombstones.filter { $0.entityType == "observation" }.map(\.entityID))
-            let tombstonedNotes = Set(tombstones.filter { $0.entityType == "personal_note" }.map(\.entityID))
-            let tombstonedPersonNotes = Set(tombstones.filter { $0.entityType == "person_note" }.map(\.entityID))
-
-            var observations: [SyncedObservationRecord] = []
-            var workflows: [SyncedWorkflowRecord] = []
-
-            for row in eligibleRows {
-                let logicalKey = row.logicalKey.isEmpty ? SyncLogicalKey.make(
-                    appLabel: row.appLabel, title: row.title, subtitle: row.subtitle, body: row.body
-                ) : row.logicalKey
-                let syncUUID = row.syncUUID.isEmpty ? try ensureSyncLinkInTransaction(
-                    observationID: row.id,
-                    channel: row.channel,
-                    originDeviceID: row.originDeviceID,
-                    logicalKey: logicalKey,
-                    at: row.capturedAt
-                ) : row.syncUUID
-
-                if tombstonedObs.contains(syncUUID) { continue }
-
-                observations.append(SyncedObservationRecord(
-                    syncUUID: syncUUID,
-                    sourceID: row.sourceID,
-                    sourceEventID: row.sourceEventID,
-                    origin: row.origin,
-                    captureChannel: row.channel,
-                    originDeviceID: row.originDeviceID,
-                    appLabel: row.appLabel,
-                    title: row.title,
-                    subtitle: row.subtitle,
-                    body: row.body,
-                    capturedAt: row.capturedAt,
-                    logicalKey: logicalKey
-                ))
-
-                let hasWorkflowState = row.workflowVersion > 0 || row.isRead || row.isFlagged
-                    || row.saved || row.dueAt != nil || row.personID != nil
-                if hasWorkflowState {
-                    workflows.append(SyncedWorkflowRecord(
-                        syncUUID: syncUUID,
-                        isRead: row.isRead,
-                        isFlagged: row.isFlagged,
-                        saved: row.saved,
-                        dueAt: row.dueAt,
-                        done: row.done,
-                        personID: row.personID,
-                        workflowVersion: max(1, row.workflowVersion),
-                        updatedAt: row.updatedAt
-                    ))
-                }
-            }
-
-            let syncedPeople = try people().map { SyncedPersonRecord(id: $0.id, displayName: $0.name) }
-            let syncedFolders = try noteFolders().map { SyncedNoteFolderRecord(id: $0.id, name: $0.name) }
-            let syncedPersonalNotes = try personalNotes()
-                .filter { !tombstonedNotes.contains($0.id) }
-                .map {
-                    SyncedPersonalNoteRecord(
-                        id: $0.id, folderID: $0.folderID, title: $0.title, body: $0.body,
-                        createdAt: $0.createdAt, updatedAt: $0.updatedAt
-                    )
-                }
-
-            var syncedPersonNotes: [SyncedPersonNoteRecord] = []
-            for person in syncedPeople {
-                for note in try personNotes(for: person.id) where !tombstonedPersonNotes.contains(note.id) {
-                    syncedPersonNotes.append(SyncedPersonNoteRecord(
-                        id: note.id, personID: person.id, title: note.title, body: note.body,
-                        createdAt: note.createdAt, updatedAt: note.updatedAt
-                    ))
-                }
-            }
-
-            return SyncBatch(
-                senderDeviceID: deviceID,
-                exportedAt: time,
-                observations: observations,
-                workflows: workflows,
-                people: syncedPeople,
-                personNotes: syncedPersonNotes,
-                noteFolders: syncedFolders,
-                personalNotes: syncedPersonalNotes,
-                tombstones: tombstones
-            )
-        }
-    }
-
-    @discardableResult
-    func applySyncBatch(
-        _ batch: SyncBatch,
-        localDeviceID: String,
-        at time: Double = Date().timeIntervalSince1970
-    ) throws -> SyncApplySummary {
-        guard try canDeviceSync(localDeviceID) else {
-            throw StoreError(description: "Device \(localDeviceID) is not paired for sync.")
-        }
-
-        return try transaction {
-            var appliedTombstones = 0
-            for t in batch.tombstones {
-                try execute("""
-                    INSERT INTO sync_tombstones (entity_type, entity_id, deleted_at)
-                    VALUES (?, ?, ?)
-                    ON CONFLICT(entity_type, entity_id) DO UPDATE SET deleted_at = max(deleted_at, excluded.deleted_at)
-                    """, strings: [t.entityType, t.entityID], numbers: [t.deletedAt])
-                appliedTombstones += 1
-                if t.entityType == "personal_note" {
-                    try execute("DELETE FROM personal_notes WHERE id = ?", strings: [t.entityID])
-                } else if t.entityType == "person_note" {
-                    try execute("DELETE FROM person_notes WHERE id = ?", strings: [t.entityID])
-                }
-            }
-
-            let allTombstones = try readRows("SELECT entity_type, entity_id FROM sync_tombstones") {
-                (columnString($0, 0), columnString($0, 1))
-            }
-            let tombstonedObs = Set(allTombstones.filter { $0.0 == "observation" }.map(\.1))
-            let tombstonedPersonalNotes = Set(allTombstones.filter { $0.0 == "personal_note" }.map(\.1))
-            let tombstonedPersonNotes = Set(allTombstones.filter { $0.0 == "person_note" }.map(\.1))
-
-            var appliedPeople = 0
-            for person in batch.people {
-                try execute("""
-                    INSERT INTO people (id, display_name) VALUES (?, ?)
-                    ON CONFLICT(id) DO UPDATE SET display_name = excluded.display_name
-                    """, strings: [person.id, person.displayName])
-                appliedPeople += 1
-            }
-
-            for folder in batch.noteFolders {
-                try execute("""
-                    INSERT INTO note_folders (id, name) VALUES (?, ?)
-                    ON CONFLICT(id) DO UPDATE SET name = excluded.name
-                    """, strings: [folder.id, folder.name])
-            }
-
-            var appliedNotes = 0
-            for note in batch.personalNotes where !tombstonedPersonalNotes.contains(note.id) {
-                try execute("""
-                    INSERT INTO personal_notes (id, folder_id, title, body, created_at, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?)
-                    ON CONFLICT(id) DO UPDATE SET
-                        folder_id = CASE WHEN excluded.updated_at >= personal_notes.updated_at THEN excluded.folder_id ELSE personal_notes.folder_id END,
-                        title = CASE WHEN excluded.updated_at >= personal_notes.updated_at THEN excluded.title ELSE personal_notes.title END,
-                        body = CASE WHEN excluded.updated_at >= personal_notes.updated_at THEN excluded.body ELSE personal_notes.body END,
-                        updated_at = max(personal_notes.updated_at, excluded.updated_at)
-                    """, strings: [note.id, note.folderID, note.title, note.body],
-                         numbers: [note.createdAt, note.updatedAt])
-                appliedNotes += 1
-            }
-
-            for note in batch.personNotes where !tombstonedPersonNotes.contains(note.id) {
-                try execute("""
-                    INSERT INTO person_notes (id, person_id, title, body, created_at, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?)
-                    ON CONFLICT(id) DO UPDATE SET
-                        title = CASE WHEN excluded.updated_at >= person_notes.updated_at THEN excluded.title ELSE person_notes.title END,
-                        body = CASE WHEN excluded.updated_at >= person_notes.updated_at THEN excluded.body ELSE person_notes.body END,
-                        updated_at = max(person_notes.updated_at, excluded.updated_at)
-                    """, strings: [note.id, note.personID, note.title, note.body],
-                         numbers: [note.createdAt, note.updatedAt])
-                appliedNotes += 1
-            }
-
-            var insertedObservations = 0
-            for obs in batch.observations where !tombstonedObs.contains(obs.syncUUID) {
-                let existingID = try readRows(
-                    "SELECT observation_id FROM sync_observation_links WHERE sync_uuid = ? LIMIT 1",
-                    strings: [obs.syncUUID]
-                ) { sqlite3_column_int64($0, 0) }.first
-                if existingID != nil { continue }
-
-                let runID = "sync:\(obs.originDeviceID)"
-                try execute("""
-                    INSERT INTO capture_runs(id, started_at, heartbeat_at)
-                    VALUES (?, ?, ?)
-                    ON CONFLICT(id) DO UPDATE SET heartbeat_at = max(heartbeat_at, excluded.heartbeat_at)
-                    """, strings: [runID], numbers: [obs.capturedAt, obs.capturedAt])
-
-                try execute("""
-                    INSERT INTO observations
-                    (source_id, source_event_id, run_id, origin, app_label, title, subtitle,
-                     body, accessibility_description, captured_at, parser_version)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    ON CONFLICT(source_id, source_event_id, origin, title, subtitle, body,
-                                accessibility_description, parser_version) DO NOTHING
-                    """, strings: [obs.sourceID, obs.sourceEventID, runID, obs.origin.rawValue,
-                                   obs.appLabel, obs.title, obs.subtitle, obs.body, ""],
-                         numbers: [obs.capturedAt, 1])
-
-                let obsID: Int64
-                if sqlite3_changes(database) > 0 {
-                    obsID = sqlite3_last_insert_rowid(database)
-                    insertedObservations += 1
-                } else {
-                    let matchedRows = try readRows("""
-                        SELECT id FROM observations
-                        WHERE source_id = ? AND source_event_id = ? AND title = ? AND body = ?
-                        LIMIT 1
-                        """, strings: [obs.sourceID, obs.sourceEventID, obs.title, obs.body]) {
-                        sqlite3_column_int64($0, 0)
-                    }
-                    guard let matched = matchedRows.first else { continue }
-                    obsID = matched
-                }
-
-                try execute("""
-                    INSERT OR IGNORE INTO sync_observation_links
-                    (observation_id, sync_uuid, capture_channel, origin_device_id, logical_key, workflow_version, updated_at)
-                    VALUES (?, ?, ?, ?, ?, 0, ?)
-                    """, strings: [String(obsID), obs.syncUUID, obs.captureChannel.rawValue,
-                                   obs.originDeviceID, obs.logicalKey],
-                         numbers: [time])
-
-                // If a local cross-device twin was already hidden locally, keep the newly synced twin hidden too.
-                let localTwins = (try? crossDeviceTwinIDs(for: obsID)) ?? []
-                if !localTwins.isEmpty {
-                    let anyHidden = localTwins.contains { twinID in
-                        let rows = (try? readRows(
-                            "SELECT 1 FROM hidden_observations WHERE observation_id = ? LIMIT 1",
-                            strings: [String(twinID)]
-                        ) { _ in 1 }) ?? []
-                        return !rows.isEmpty
-                    }
-                    if anyHidden {
-                        try execute("INSERT OR IGNORE INTO hidden_observations VALUES (?)", strings: [String(obsID)])
-                    }
-                }
-            }
-
-            var appliedWorkflows = 0
-            for wf in batch.workflows where !tombstonedObs.contains(wf.syncUUID) {
-                let linkRows = try readRows("""
-                    SELECT observation_id
-                    FROM sync_observation_links WHERE sync_uuid = ? LIMIT 1
-                    """, strings: [wf.syncUUID]) { sqlite3_column_int64($0, 0) }
-                guard let primaryID = linkRows.first else { continue }
-
-                if try applyWorkflowStateInTransaction(wf, toObservationID: primaryID, localDeviceID: localDeviceID, at: time) {
-                    appliedWorkflows += 1
-                }
-
-                // Propagate newer synced workflow state to local cross-device twins (same logical alert, different source).
-                let twins = (try? crossDeviceTwinIDs(for: primaryID)) ?? []
-                for twinID in twins {
-                    _ = try applyWorkflowStateInTransaction(wf, toObservationID: twinID, localDeviceID: localDeviceID, at: time)
-                }
-            }
-
-            return SyncApplySummary(
-                insertedObservations: insertedObservations,
-                appliedWorkflows: appliedWorkflows,
-                appliedPeople: appliedPeople,
-                appliedNotes: appliedNotes,
-                appliedTombstones: appliedTombstones
-            )
-        }
-    }
-
-    // MARK: - Internal Sync Helpers
-
-    private func applyWorkflowStateInTransaction(
-        _ wf: SyncedWorkflowRecord,
-        toObservationID targetID: Int64,
-        localDeviceID: String,
-        at time: Double
-    ) throws -> Bool {
-        _ = try ensureSyncLinkInTransaction(
-            observationID: targetID,
-            channel: .macosAX,
-            originDeviceID: localDeviceID,
-            logicalKey: nil,
-            at: time
-        )
-        let linkRows = try readRows("""
-            SELECT workflow_version, updated_at
-            FROM sync_observation_links WHERE observation_id = ? LIMIT 1
-            """, strings: [String(targetID)]) { row in
-            (
-                version: Int(sqlite3_column_int64(row, 0)),
-                updatedAt: sqlite3_column_double(row, 1)
-            )
-        }
-        guard let link = linkRows.first else { return false }
-
-        // Monotonic LWW conflict resolution: only apply newer version (or tie-break by newer timestamp).
-        let isNewer = wf.workflowVersion > link.version
-            || (wf.workflowVersion == link.version && wf.updatedAt > link.updatedAt)
-        guard isNewer else { return false }
-
-        if wf.isRead {
-            try execute("INSERT OR IGNORE INTO read_observations (observation_id) VALUES (?)",
-                        strings: [String(targetID)])
-        } else {
-            try execute("DELETE FROM read_observations WHERE observation_id = ?",
-                        strings: [String(targetID)])
-        }
-
-        if wf.isFlagged {
-            try execute("INSERT OR IGNORE INTO flagged_observations (observation_id) VALUES (?)",
-                        strings: [String(targetID)])
-        } else {
-            try execute("DELETE FROM flagged_observations WHERE observation_id = ?",
-                        strings: [String(targetID)])
-        }
-
-        let savedNum: Double = wf.saved ? 1 : 0
-        let doneNum: Double = (wf.dueAt != nil && wf.done) ? 1 : 0
-        if let dueAt = wf.dueAt {
-            try execute("""
-                INSERT INTO observation_work (observation_id, saved, due_at, done)
-                VALUES (?, ?, ?, ?)
-                ON CONFLICT(observation_id) DO UPDATE SET
-                    saved = excluded.saved, due_at = excluded.due_at, done = excluded.done
-                """, strings: [String(targetID)], numbers: [savedNum, dueAt, doneNum])
-        } else {
-            try execute("""
-                INSERT INTO observation_work (observation_id, saved, due_at, done)
-                VALUES (?, ?, NULL, 0)
-                ON CONFLICT(observation_id) DO UPDATE SET
-                    saved = excluded.saved, due_at = NULL, done = 0
-                """, strings: [String(targetID)], numbers: [savedNum])
-        }
-
-        if let personID = wf.personID {
-            try execute("""
-                INSERT INTO person_observations (observation_id, person_id, method)
-                VALUES (?, ?, 'manual')
-                ON CONFLICT(observation_id) DO UPDATE SET person_id = excluded.person_id
-                """, strings: [String(targetID), personID])
-        } else {
-            try execute("DELETE FROM person_observations WHERE observation_id = ?",
-                        strings: [String(targetID)])
-        }
-
-        try execute("""
-            UPDATE sync_observation_links
-            SET workflow_version = ?, updated_at = max(updated_at, ?)
-            WHERE observation_id = ?
-            """, numbersFirst: [Double(wf.workflowVersion), wf.updatedAt],
-                 strings: [String(targetID)])
-        return true
-    }
-
-    private func ensureSyncLinkInTransaction(
-        observationID: Int64,
-        channel: SyncCaptureChannel,
-        originDeviceID: String,
-        logicalKey: String?,
-        at time: Double
-    ) throws -> String {
-        let existingRows = try readRows(
-            "SELECT sync_uuid FROM sync_observation_links WHERE observation_id = ? LIMIT 1",
-            strings: [String(observationID)]
-        ) { columnString($0, 0) }
-        if let existing = existingRows.first {
-            return existing
-        }
-
-        let resolvedKey: String
-        if let logicalKey, !logicalKey.isEmpty {
-            resolvedKey = logicalKey
-        } else {
-            let fields = try readRows(
-                "SELECT coalesce(app_label, ''), title, subtitle, body FROM observations WHERE id = ?",
-                strings: [String(observationID)]
-            ) { (columnString($0, 0), columnString($0, 1), columnString($0, 2), columnString($0, 3)) }.first
-            resolvedKey = SyncLogicalKey.make(
-                appLabel: fields?.0 ?? "",
-                title: fields?.1 ?? "",
-                subtitle: fields?.2 ?? "",
-                body: fields?.3 ?? ""
-            )
-        }
-
-        let syncUUID = UUID().uuidString
-        try execute("""
-            INSERT INTO sync_observation_links
-            (observation_id, sync_uuid, capture_channel, origin_device_id, logical_key, workflow_version, updated_at)
-            VALUES (?, ?, ?, ?, ?, 0, ?)
-            """, strings: [String(observationID), syncUUID, channel.rawValue, originDeviceID, resolvedKey],
-                 numbers: [time])
-        return syncUUID
-    }
-
-    private func syncStateValue(for key: String) throws -> String? {
-        try readRows("SELECT value FROM sync_state WHERE key = ? LIMIT 1", strings: [key]) {
-            columnString($0, 0)
-        }.first
-    }
-
-    private func setSyncStateValue(_ value: String, for key: String) throws {
-        try execute("""
-            INSERT INTO sync_state (key, value) VALUES (?, ?)
-            ON CONFLICT(key) DO UPDATE SET value = excluded.value
-            """, strings: [key, value])
-    }
-}

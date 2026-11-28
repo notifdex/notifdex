@@ -29,6 +29,7 @@ let package = Package(
                 "Sources/NotifdexCore/AppearancePreferences.swift",
                 "Sources/NotifdexCore/AppSettings.swift",
                 "Sources/NotifdexCore/CaptureStore.swift",
+                "Sources/NotifdexCore/CaptureStoreSync.swift",
                 "Sources/NotifdexCore/CloudKitSyncTransport.swift",
                 "Sources/NotifdexCore/ContactSuggestions.swift",
                 "Sources/NotifdexCore/HybridSync.swift",
@@ -45,6 +46,7 @@ let package = Package(
                 .copy("Sources/NotifdexCore/hide-rules.sql"), .copy("Sources/NotifdexCore/relationship-templates.sql"),
                 .copy("Sources/NotifdexCore/workspaces.sql"), .copy("Sources/NotifdexCore/notebook.sql"),
                 .copy("Sources/NotifdexCore/sync.sql"),
+                .copy("Sources/NotifdexCore/sync-v13.sql"),
                 .copy("templates")
             ]
         ),

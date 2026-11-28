@@ -52,11 +52,56 @@ public struct InboxEntry: Identifiable, Equatable {
     public let individuallyHidden: Bool
     public let titleFiltered: Bool
     public let bodyFiltered: Bool
-    public var filtered: Bool { titleFiltered || bodyFiltered }
+    public let appFiltered: Bool
+    public var filtered: Bool { titleFiltered || bodyFiltered || appFiltered }
     public let isRead: Bool
     public let isFlagged: Bool
     public let personRuleID: String?
     public let workspaceID: String?
+
+    public init(
+        id: Int64,
+        app: String,
+        title: String,
+        subtitle: String,
+        body: String,
+        capturedAt: Double,
+        saved: Bool,
+        dueAt: Double?,
+        done: Bool,
+        personID: String?,
+        personName: String,
+        subject: String,
+        individuallyHidden: Bool,
+        titleFiltered: Bool,
+        bodyFiltered: Bool,
+        appFiltered: Bool = false,
+        isRead: Bool,
+        isFlagged: Bool,
+        personRuleID: String?,
+        workspaceID: String?
+    ) {
+        self.id = id
+        self.app = app
+        self.title = title
+        self.subtitle = subtitle
+        self.body = body
+        self.capturedAt = capturedAt
+        self.saved = saved
+        self.dueAt = dueAt
+        self.done = done
+        self.personID = personID
+        self.personName = personName
+        self.subject = subject
+        self.individuallyHidden = individuallyHidden
+        self.titleFiltered = titleFiltered
+        self.bodyFiltered = bodyFiltered
+        self.appFiltered = appFiltered
+        self.isRead = isRead
+        self.isFlagged = isFlagged
+        self.personRuleID = personRuleID
+        self.workspaceID = workspaceID
+    }
 }
 
 public struct PersonNote: Identifiable {
@@ -103,10 +148,18 @@ public struct PersonIdentity: Identifiable, Equatable {
 }
 
 
-public struct InboxRuleMatch: Equatable {
-    public enum Field: String, CaseIterable, Identifiable {
-        case title, body
+public struct InboxRuleMatch: Equatable, Sendable {
+    public enum Field: String, CaseIterable, Identifiable, Codable, Sendable {
+        case title, body, app
         public var id: String { rawValue }
+
+        public var displayLabel: String {
+            switch self {
+            case .title: "Title"
+            case .body: "Body"
+            case .app: "All from app"
+            }
+        }
     }
 
     public let app: String
@@ -116,7 +169,12 @@ public struct InboxRuleMatch: Equatable {
     public init(app: String, field: Field, text: String) {
         self.app = app
         self.field = field
-        self.text = text
+        self.text = field == .app ? app : text
+    }
+
+    /// Deterministic cross-device identifier for deduplicating rules and tombstones.
+    public var canonicalSyncKey: String {
+        "\(app)\u{001F}\(field.rawValue)\u{001F}\(text)"
     }
 
     public static func == (lhs: InboxRuleMatch, rhs: InboxRuleMatch) -> Bool {
@@ -125,11 +183,20 @@ public struct InboxRuleMatch: Equatable {
     }
 }
 
-public struct InboxFilter: Identifiable {
+public struct InboxFilter: Identifiable, Equatable, Sendable {
     public let id: Int64
     public let match: InboxRuleMatch
+    public let enabled: Bool
+    public let updatedAt: Double
     public var app: String { match.app }
     public var subject: String { match.text }
+
+    public init(id: Int64, match: InboxRuleMatch, enabled: Bool = true, updatedAt: Double = 0) {
+        self.id = id
+        self.match = match
+        self.enabled = enabled
+        self.updatedAt = updatedAt
+    }
 }
 
 

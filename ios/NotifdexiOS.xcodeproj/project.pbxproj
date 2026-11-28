@@ -19,6 +19,7 @@
 		A10000100000000000000001 /* InboxView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000100000000000000001 /* InboxView.swift */; };
 		A10000110000000000000001 /* CaptureSetupView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000110000000000000001 /* CaptureSetupView.swift */; };
 		A10000120000000000000001 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000120000000000000001 /* SettingsView.swift */; };
+		A10000200000000000000001 /* StorageManagementView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000220000000000000001 /* StorageManagementView.swift */; };
 		A10000130000000000000001 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A20000130000000000000001 /* Assets.xcassets */; };
 		A10000140000000000000001 /* NotifdexCaptureTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000140000000000000001 /* NotifdexCaptureTests.swift */; };
 		A10000150000000000000001 /* TodayView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000180000000000000001 /* TodayView.swift */; };
@@ -51,6 +52,7 @@
 		A20000100000000000000001 /* InboxView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InboxView.swift; sourceTree = "<group>"; };
 		A20000110000000000000001 /* CaptureSetupView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureSetupView.swift; sourceTree = "<group>"; };
 		A20000120000000000000001 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		A20000220000000000000001 /* StorageManagementView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StorageManagementView.swift; sourceTree = "<group>"; };
 		A20000130000000000000001 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		A20000140000000000000001 /* NotifdexCaptureTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotifdexCaptureTests.swift; sourceTree = "<group>"; };
 		A20000150000000000000001 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
@@ -135,6 +137,7 @@
 				A20000200000000000000001 /* NotesView.swift */,
 				A20000110000000000000001 /* CaptureSetupView.swift */,
 				A20000120000000000000001 /* SettingsView.swift */,
+				A20000220000000000000001 /* StorageManagementView.swift */,
 			);
 			path = UI;
 			sourceTree = "<group>";
@@ -269,6 +272,7 @@
 				A10000170000000000000001 /* NotesView.swift in Sources */,
 				A10000110000000000000001 /* CaptureSetupView.swift in Sources */,
 				A10000120000000000000001 /* SettingsView.swift in Sources */,
+				A10000200000000000000001 /* StorageManagementView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

@@ -37,6 +37,7 @@ let package = Package(
                 "Sources/NotifdexCore/InboxPresentation.swift",
                 "Sources/NotifdexCore/Observation.swift",
                 "Sources/NotifdexCore/RelationshipTemplate.swift",
+                "Sources/NotifdexCore/StorageManagement.swift",
                 "Sources/NotifdexCore/WindowChromeLayout.swift"
             ],
             resources: [

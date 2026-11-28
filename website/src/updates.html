@@ -55,6 +55,29 @@
 
     <article class="release-entry">
       <div class="release-meta">
+        <a class="release-tag" href="https://github.com/notifdex/notifdex/releases/tag/v0.2.2" rel="noopener">v0.2.2</a>
+        <span>November 27, 2026</span>
+      </div>
+      <h2>Synced hide rules &amp; database storage cleanup on Mac and iPhone</h2>
+      <ul>
+        <li>
+          Hide rules now sync automatically across macOS and Notifdex for iPhone — including
+          app-level (<strong>Hide all from App</strong>), title, and body/subject filters,
+          pause/resume, removal, and undo — alongside workspaces, contact identities, match rules,
+          relationship progress, and privacy-preserving individual hide/restore states.
+        </li>
+        <li>
+          Added <strong>Storage &amp; Cleanup</strong> settings on both macOS and iOS showing total
+          database and WAL footprint, category breakdown, notification count, and history date
+          range, with pre-confirmation retention cleanup (30, 90, 180 days, 1 year, or clear all)
+          and SQLite <code>VACUUM</code> compaction that preserves people, notes, workspaces, hide
+          rules, and protected alerts.
+        </li>
+      </ul>
+    </article>
+
+    <article class="release-entry">
+      <div class="release-meta">
         <a class="release-tag" href="https://github.com/notifdex/notifdex/releases/tag/v0.2.1" rel="noopener">v0.2.1</a>
         <span>November 27, 2026</span>
       </div>

@@ -127,6 +127,17 @@ struct SettingsView: View {
             }
 
             Section("Device & Storage") {
+                NavigationLink {
+                    StorageManagementView(viewModel: viewModel)
+                } label: {
+                    HStack {
+                        Label("Storage & Cleanup", systemImage: "internaldrive")
+                        Spacer()
+                        Text(viewModel.databaseFileSizeDescription)
+                            .foregroundStyle(.secondary)
+                            .monospacedDigit()
+                    }
+                }
                 LabeledContent("Source ID") {
                     Text(viewModel.settings.sourceID)
                         .font(.caption.monospaced())
@@ -134,7 +145,6 @@ struct SettingsView: View {
                         .lineLimit(1)
                         .truncationMode(.middle)
                 }
-                LabeledContent("Database Size", value: viewModel.databaseFileSizeDescription)
                 LabeledContent("Lock-Screen Writes", value: "After First Unlock")
             }
 

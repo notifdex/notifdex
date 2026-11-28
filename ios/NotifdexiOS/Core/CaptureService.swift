@@ -22,18 +22,20 @@ public final class CaptureService: @unchecked Sendable {
 
     public let store: NotificationStore
     public let coreStore: CaptureStore
+    public let coreDatabaseURL: URL
     private let ingestQueue = DispatchQueue(label: "com.notifdex.ios.ingest", qos: .userInitiated)
 
-    public init(store: NotificationStore, coreStore: CaptureStore? = nil) {
+    public init(store: NotificationStore, coreStore: CaptureStore? = nil, coreDatabaseURL: URL? = nil) {
         self.store = store
+        let resolvedCoreURL = coreDatabaseURL ?? store.databaseURL
+            .deletingLastPathComponent()
+            .appendingPathComponent("notifdex-core.db")
+        self.coreDatabaseURL = resolvedCoreURL
         if let coreStore {
             self.coreStore = coreStore
         } else {
-            let coreURL = store.databaseURL
-                .deletingLastPathComponent()
-                .appendingPathComponent("notifdex-core.db")
             do {
-                self.coreStore = try CaptureStore(path: coreURL.path)
+                self.coreStore = try CaptureStore(path: resolvedCoreURL.path)
             } catch {
                 fatalError("Failed to initialize shared CaptureStore: \(error)")
             }
@@ -551,6 +553,62 @@ public final class CaptureService: @unchecked Sendable {
         try ingestQueue.sync {
             try store.clearAllNotifications()
             notifyChanged()
+        }
+    }
+
+    // MARK: - Storage Usage & Cleanup (Shared NotifdexCore, Issue #110)
+
+    public func storageUsageReport(at now: Double = Date().timeIntervalSince1970) throws -> StorageUsageReport {
+        try ingestQueue.sync {
+            try coreStore.storageUsageReport(
+                databaseURL: coreDatabaseURL,
+                auxiliaryDatabaseURLs: [store.databaseURL],
+                at: now
+            )
+        }
+    }
+
+    public func previewStorageCleanup(
+        period: StorageCleanupPeriod,
+        now: Double = Date().timeIntervalSince1970
+    ) throws -> StorageCleanupPreview {
+        try ingestQueue.sync {
+            try coreStore.previewStorageCleanup(
+                period: period,
+                databaseURL: coreDatabaseURL,
+                auxiliaryDatabaseURLs: [store.databaseURL],
+                now: now
+            )
+        }
+    }
+
+    @discardableResult
+    public func performStorageCleanup(
+        period: StorageCleanupPeriod,
+        now: Double = Date().timeIntervalSince1970
+    ) throws -> StorageCleanupResult {
+        try ingestQueue.sync {
+            let result = try coreStore.performStorageCleanup(
+                period: period,
+                databaseURL: coreDatabaseURL,
+                auxiliaryDatabaseURLs: [store.databaseURL],
+                now: now
+            )
+            notifyChanged()
+            return result
+        }
+    }
+
+    @discardableResult
+    public func compactDatabase(at now: Double = Date().timeIntervalSince1970) throws -> StorageCleanupResult {
+        try ingestQueue.sync {
+            let result = try coreStore.compactDatabase(
+                databaseURL: coreDatabaseURL,
+                auxiliaryDatabaseURLs: [store.databaseURL],
+                at: now
+            )
+            notifyChanged()
+            return result
         }
     }
 

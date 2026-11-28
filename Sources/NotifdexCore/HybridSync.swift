@@ -834,6 +834,7 @@ public struct HybridSyncCoordinator {
             throw StoreError(description: "Sync is not active for this device. Enable and pair sync first.")
         }
 
+        try store.ensureV2SyncResyncIfNeeded()
         let token = try store.syncChangeToken()
         let pullResult = try await transport.pull(since: token)
 
